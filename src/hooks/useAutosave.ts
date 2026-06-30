@@ -1,0 +1,125 @@
+'use client';
+
+import { useRef, useCallback, useEffect } from 'react';
+import { createClient } from '@/lib/supabase/client';
+
+export type AutosaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+interface UseAutosaveOptions {
+  staffId: string | null;
+  workplanId: string | null;
+  draftType: string;
+  reviewPeriod?: string;
+  formData: Record<string, any>;
+  activeStep?: number;
+  enabled: boolean;
+  onStatusChange: (status: AutosaveStatus) => void;
+  debounceMs?: number;
+}
+
+export function useAutosave({
+  staffId,
+  workplanId,
+  draftType,
+  reviewPeriod = 'annual',
+  formData,
+  activeStep = 0,
+  enabled,
+  onStatusChange,
+  debounceMs = 3000,
+}: UseAutosaveOptions) {
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const supabase = createClient();
+
+  const saveDraft = useCallback(
+    async (silent = false) => {
+      if (!enabled || !staffId || !workplanId) return;
+      if (!silent) onStatusChange('saving');
+      try {
+        const { error } = await supabase.from('appraisal_drafts').upsert(
+          {
+            staff_id: staffId,
+            workplan_id: workplanId,
+            draft_type: draftType,
+            review_period: reviewPeriod,
+            form_data: formData,
+            active_step: activeStep,
+            last_saved_at: new Date().toISOString(),
+          },
+          { onConflict: 'staff_id,workplan_id,draft_type,review_period' }
+        );
+        if (!error) {
+          onStatusChange('saved');
+          setTimeout(() => onStatusChange('idle'), 3000);
+        } else {
+          onStatusChange('error');
+        }
+      } catch {
+        onStatusChange('error');
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [enabled, staffId, workplanId, draftType, reviewPeriod, activeStep, JSON.stringify(formData)]
+  );
+
+  // Debounced auto-save on form data change
+  useEffect(() => {
+    if (!enabled || !staffId || !workplanId) return;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => saveDraft(true), debounceMs);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(formData), activeStep, enabled, staffId, workplanId]);
+
+  const recoverDraft = useCallback(
+    async (wpId: string, sId: string, period: string) => {
+      try {
+        const { data } = await supabase
+          .from('appraisal_drafts')
+          .select('*')
+          .eq('workplan_id', wpId)
+          .eq('staff_id', sId)
+          .eq('draft_type', draftType)
+          .eq('review_period', period)
+          .maybeSingle();
+        return data ?? null;
+      } catch {
+        return null;
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [draftType]
+  );
+
+  const clearDraft = useCallback(
+    async (wpId: string, sId: string, period: string) => {
+      try {
+        await supabase
+          .from('appraisal_drafts')
+          .delete()
+          .eq('workplan_id', wpId)
+          .eq('staff_id', sId)
+          .eq('draft_type', draftType)
+          .eq('review_period', period);
+      } catch {
+        // silently fail
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [draftType]
+  );
+
+  return { saveDraft, recoverDraft, clearDraft };
+}
+
+/** Renders the autosave status badge — import and use in any form header */
+export function autosaveStatusLabel(status: AutosaveStatus): string {
+  switch (status) {
+    case 'saving': return 'Saving draft…';
+    case 'saved': return 'Draft saved';
+    case 'error': return 'Save failed';
+    default: return 'Auto-save on';
+  }
+}
