@@ -78,8 +78,15 @@ if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
   };
 }
 
+// Singleton instance to prevent multiple clients competing for the auth token lock
+let browserClientInstance: ReturnType<typeof createBrowserClient> | null = null;
+
 export function createClient() {
-  return createBrowserClient(
+  if (typeof window !== 'undefined' && browserClientInstance) {
+    return browserClientInstance;
+  }
+
+  const client = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -105,4 +112,10 @@ export function createClient() {
       },
     }
   );
+
+  if (typeof window !== 'undefined') {
+    browserClientInstance = client;
+  }
+
+  return client;
 }
