@@ -5,7 +5,6 @@ import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { ROLE_HIERARCHY } from '@/contexts/AuthContext';
-import { useStaffCache } from '@/hooks/useStaffCache';
 
 interface Department {
   id: string;
@@ -1230,11 +1229,6 @@ export default function StaffManagementPage() {
   const [removeDeptTarget, setRemoveDeptTarget] = useState<StaffMember | null>(null);
   const [accessTarget, setAccessTarget] = useState<StaffMember | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
-  // Pagination for grid view
-  const [gridPage, setGridPage] = useState(0);
-  const GRID_PAGE_SIZE = 20;
-
-  const { getStaff, invalidateCache } = useStaffCache();
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => {
     setToast({ message, type });
@@ -1244,21 +1238,17 @@ export default function StaffManagementPage() {
     async function fetchData() {
       try {
         const supabase = createClient();
-        // Parallelize departments + staff fetch; staff uses cache
-        const [deptRes, staffData] = await Promise.all([
-          supabase.from('departments').select('id, name, description').order('name'),
-          getStaff(),
+        const [deptRes, staffRes] = await Promise.all([
+          supabase.from('departments').select('*').order('name'),
+          supabase
+            .from('staff')
+            .select(`*, departments(name), supervisor:supervisor_id(full_name, job_title)`)
+            .order('serial_number', { ascending: true }),
         ]);
         if (deptRes.error) throw deptRes.error;
+        if (staffRes.error) throw staffRes.error;
         setDepartments(deptRes.data ?? []);
-        // Map CachedStaffMember → StaffMember shape expected by existing UI
-        setStaff(
-          staffData.map((s) => ({
-            ...s,
-            departments: s.department_name ? { name: s.department_name } : null,
-            supervisor: null,
-          })) as unknown as StaffMember[]
-        );
+        setStaff((staffRes.data as StaffMember[]) ?? []);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to load staff data';
         setError(msg);
@@ -1267,19 +1257,17 @@ export default function StaffManagementPage() {
       }
     }
     fetchData();
-  }, [getStaff]);
+  }, []);
 
   // ── CRUD handlers ──────────────────────────────────────────────────────────
 
   function handleCreated(newStaff: StaffMember) {
-    invalidateCache();
     setStaff((prev) => [...prev, newStaff].sort((a, b) => (a.serial_number ?? 999) - (b.serial_number ?? 999)));
     setModalMode(null);
     showToast(`${newStaff.full_name} added successfully.`, 'success');
   }
 
   function handleUpdated(updated: StaffMember) {
-    invalidateCache();
     setStaff((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
     setModalMode(null);
     setEditTarget(null);
@@ -1287,7 +1275,6 @@ export default function StaffManagementPage() {
   }
 
   function handleRemovedFromDept(updated: StaffMember) {
-    invalidateCache();
     setStaff((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
     setModalMode(null);
     setRemoveDeptTarget(null);
@@ -1319,7 +1306,6 @@ export default function StaffManagementPage() {
   // ── Derived data ───────────────────────────────────────────────────────────
 
   const filteredStaff = useMemo(() => {
-    setGridPage(0); // reset pagination on filter change
     return staff.filter((s) => {
       const matchesSearch =
         !search ||
@@ -1331,14 +1317,6 @@ export default function StaffManagementPage() {
       return matchesSearch && matchesDept;
     });
   }, [staff, search, selectedDept]);
-
-  // Paginated slice for grid view
-  const paginatedGridStaff = useMemo(() => {
-    const start = gridPage * GRID_PAGE_SIZE;
-    return filteredStaff.slice(start, start + GRID_PAGE_SIZE);
-  }, [filteredStaff, gridPage]);
-
-  const totalGridPages = Math.ceil(filteredStaff.length / GRID_PAGE_SIZE);
 
   const staffByDepartment = useMemo(() => {
     const map: Record<string, { dept: Department; members: StaffMember[] }> = {};
@@ -1469,45 +1447,17 @@ export default function StaffManagementPage() {
           <p className="text-xs text-muted-foreground/70 mt-1">Try adjusting your search or filter</p>
         </div>
       ) : viewMode === 'grid' ? (
-        <div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {paginatedGridStaff.map((s) => (
-              <StaffCard
-                key={s.id}
-                staff={s}
-                onClick={setSelectedStaff}
-                onEdit={openEdit}
-                onRemoveDept={openRemoveDept}
-                onManageAccess={openManageAccess}
-              />
-            ))}
-          </div>
-          {totalGridPages > 1 && (
-            <div className="flex items-center justify-between mt-6 pt-4 border-t border-border">
-              <p className="text-xs text-muted-foreground">
-                Showing {gridPage * GRID_PAGE_SIZE + 1}–{Math.min((gridPage + 1) * GRID_PAGE_SIZE, filteredStaff.length)} of {filteredStaff.length} staff
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setGridPage((p) => Math.max(0, p - 1))}
-                  disabled={gridPage === 0}
-                  className="px-3 py-1.5 text-xs font-600 border border-border rounded-lg hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Previous
-                </button>
-                <span className="text-xs text-muted-foreground px-2">
-                  Page {gridPage + 1} of {totalGridPages}
-                </span>
-                <button
-                  onClick={() => setGridPage((p) => Math.min(totalGridPages - 1, p + 1))}
-                  disabled={gridPage >= totalGridPages - 1}
-                  className="px-3 py-1.5 text-xs font-600 border border-border rounded-lg hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filteredStaff.map((s) => (
+            <StaffCard
+              key={s.id}
+              staff={s}
+              onClick={setSelectedStaff}
+              onEdit={openEdit}
+              onRemoveDept={openRemoveDept}
+              onManageAccess={openManageAccess}
+            />
+          ))}
         </div>
       ) : (
         <div className="space-y-6">

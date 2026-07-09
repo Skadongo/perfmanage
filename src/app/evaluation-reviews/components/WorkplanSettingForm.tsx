@@ -5,7 +5,6 @@ import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import PrintAppraisalLayout from './PrintAppraisalLayout';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
-import { useAuth } from '@/contexts/AuthContext';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -489,9 +488,6 @@ interface WorkplanSettingFormProps {
 }
 
 export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSettingFormProps) {
-  const { profile, getRoleLevel } = useAuth();
-  const isManager = getRoleLevel() >= 70;
-
   const [activeStep, setActiveStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -603,34 +599,6 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     }
     loadStaff();
   }, []);
-
-  // ── Auto-lock staff field for non-managers ───────────────────────────────
-  // Once the staff list is loaded, if the current user is not a manager/director,
-  // automatically select their own staff record and lock the field.
-  useEffect(() => {
-    if (isManager) return;           // managers keep full dropdown access
-    if (!profile?.staffId) return;   // no linked staff record — nothing to lock
-    if (staffLoading) return;        // wait until list is ready
-    if (form.staffId) return;        // already set (e.g. draft recovery)
-
-    const ownRecord = staffList.find((s) => s.id === profile.staffId);
-    if (!ownRecord) return;
-
-    setForm((prev) => {
-      const sup = ownRecord.supervisor_id
-        ? staffList.find((s) => s.id === ownRecord.supervisor_id)
-        : null;
-      return {
-        ...prev,
-        staffId: ownRecord.id,
-        staffName: ownRecord.full_name,
-        jobTitle: ownRecord.job_title,
-        supervisorId: ownRecord.supervisor_id || '',
-        supervisorName: sup?.full_name || ownRecord.supervisor_name || '',
-      };
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staffLoading, staffList]);
 
   function setField<K extends keyof WorkplanFormData>(key: K, value: WorkplanFormData[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -1079,45 +1047,29 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Staff Member" required error={step0Errors.staffId}>
-                  {isManager ? (
-                    /* Managers / Directors: full dropdown */
-                    <select
-                      className={step0Errors.staffId ? selectErrCls : selectCls}
-                      value={form.staffId}
-                      onChange={(e) => {
-                        const staff = staffList.find((s) => s.id === e.target.value);
-                        setField('staffId', e.target.value);
-                        setField('staffName', staff?.full_name || '');
-                        setField('jobTitle', staff?.job_title || '');
-                        if (staff?.supervisor_id) {
-                          const sup = staffList.find((s) => s.id === staff.supervisor_id);
-                          setField('supervisorId', staff.supervisor_id);
-                          setField('supervisorName', sup?.full_name || staff.supervisor_name || '');
-                        } else {
-                          setField('supervisorId', '');
-                          setField('supervisorName', '');
-                        }
-                      }}
-                    >
-                      <option value="">Select staff member…</option>
-                      {staffList.map((s) => (
-                        <option key={s.id} value={s.id}>{s.full_name} — {s.job_title}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    /* Regular staff: locked to own record */
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        readOnly
-                        value={form.staffName ? `${form.staffName}${form.jobTitle ? ` — ${form.jobTitle}` : ''}` : 'Loading your record…'}
-                        className={`${inputCls} bg-muted/40 cursor-not-allowed text-foreground/70`}
-                      />
-                      <span title="Locked to your own record" className="flex-shrink-0 text-muted-foreground">
-                        <Icon name="LockClosedIcon" size={14} />
-                      </span>
-                    </div>
-                  )}
+                  <select
+                    className={step0Errors.staffId ? selectErrCls : selectCls}
+                    value={form.staffId}
+                    onChange={(e) => {
+                      const staff = staffList.find((s) => s.id === e.target.value);
+                      setField('staffId', e.target.value);
+                      setField('staffName', staff?.full_name || '');
+                      setField('jobTitle', staff?.job_title || '');
+                      if (staff?.supervisor_id) {
+                        const sup = staffList.find((s) => s.id === staff.supervisor_id);
+                        setField('supervisorId', staff.supervisor_id);
+                        setField('supervisorName', sup?.full_name || staff.supervisor_name || '');
+                      } else {
+                        setField('supervisorId', '');
+                        setField('supervisorName', '');
+                      }
+                    }}
+                  >
+                    <option value="">Select staff member…</option>
+                    {staffList.map((s) => (
+                      <option key={s.id} value={s.id}>{s.full_name} — {s.job_title}</option>
+                    ))}
+                  </select>
                 </FormField>
 
                 <FormField label="Supervisor / Line Manager" required error={step0Errors.supervisorId}>

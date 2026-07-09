@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
@@ -644,8 +644,7 @@ function ReviewDetailModal({ review, onClose, onSave }: ReviewDetailModalProps) 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ManagerReviewPage() {
-  const supabaseRef = useRef(createClient());
-  const supabase = supabaseRef.current;
+  const supabase = createClient();
 
   const [reviews, setReviews] = useState<SelfAssessmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
