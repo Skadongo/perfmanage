@@ -28,7 +28,7 @@ interface RolePermission {
 const ROLE_CONFIG: Record<StaffRole, { label: string; color: string; bg: string; icon: string; description: string }> = {
   executive_director:  { label: 'Director General',  color: 'text-violet-700',  bg: 'bg-violet-50 border-violet-200',  icon: 'BuildingOffice2Icon',         description: 'Full system access and final approval authority' },
   deputy_director:     { label: 'Director of Operations and Institutional Development',     color: 'text-indigo-700',  bg: 'bg-indigo-50 border-indigo-200',  icon: 'UserCircleIcon',              description: 'Broad access with approval rights for reviews' },
-  programme_manager:   { label: 'Programme Manager',   color: 'text-sky-700',     bg: 'bg-sky-50 border-sky-200',        icon: 'HeartIcon',                   description: 'Manages programme staff and approves their reviews' },
+  programme_manager:   { label: 'Director',   color: 'text-sky-700',     bg: 'bg-sky-50 border-sky-200',        icon: 'HeartIcon',                   description: 'Manages programme staff and approves their reviews' },
   finance_manager:     { label: 'Finance Manager',     color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200',icon: 'BanknotesIcon',               description: 'Manages finance team and approves their reviews' },
   hr_admin_officer:    { label: 'HR & Admin Officer',  color: 'text-amber-700',   bg: 'bg-amber-50 border-amber-200',    icon: 'UsersIcon',                   description: 'Manages staff records and system permissions' },
   programme_officer:   { label: 'Programme Officer',   color: 'text-blue-700',    bg: 'bg-blue-50 border-blue-200',      icon: 'ClipboardDocumentCheckIcon',  description: 'Submits own reviews, views programme content' },
