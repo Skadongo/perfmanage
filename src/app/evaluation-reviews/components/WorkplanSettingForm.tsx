@@ -5,6 +5,7 @@ import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import PrintAppraisalLayout from './PrintAppraisalLayout';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
+import { useAuth } from '@/contexts/AuthContext';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -488,6 +489,11 @@ interface WorkplanSettingFormProps {
 }
 
 export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSettingFormProps) {
+  const { profile, getRoleLevel } = useAuth();
+  // HR Admin, Managers, Directors (level >= 70) can set workplans for any staff member.
+  // Regular staff (level < 70) can only set their own workplan.
+  const canSelectAnyStaff = getRoleLevel() >= 70;
+
   const [activeStep, setActiveStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -599,6 +605,29 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     }
     loadStaff();
   }, []);
+
+  // Auto-populate the logged-in staff member's own record when they are not an elevated user
+  useEffect(() => {
+    if (canSelectAnyStaff) return; // elevated users choose freely
+    if (!profile?.staffId || staffList.length === 0) return;
+    const ownRecord = staffList.find((s) => s.id === profile.staffId);
+    if (!ownRecord) return;
+    setForm((prev) => {
+      // Only set if not already populated with own record
+      if (prev.staffId === ownRecord.id) return prev;
+      const sup = ownRecord.supervisor_id
+        ? staffList.find((s) => s.id === ownRecord.supervisor_id)
+        : null;
+      return {
+        ...prev,
+        staffId: ownRecord.id,
+        staffName: ownRecord.full_name,
+        jobTitle: ownRecord.job_title,
+        supervisorId: ownRecord.supervisor_id || '',
+        supervisorName: sup?.full_name || ownRecord.supervisor_name || '',
+      };
+    });
+  }, [canSelectAnyStaff, profile?.staffId, staffList]);
 
   function setField<K extends keyof WorkplanFormData>(key: K, value: WorkplanFormData[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -1047,29 +1076,43 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Staff Member" required error={step0Errors.staffId}>
-                  <select
-                    className={step0Errors.staffId ? selectErrCls : selectCls}
-                    value={form.staffId}
-                    onChange={(e) => {
-                      const staff = staffList.find((s) => s.id === e.target.value);
-                      setField('staffId', e.target.value);
-                      setField('staffName', staff?.full_name || '');
-                      setField('jobTitle', staff?.job_title || '');
-                      if (staff?.supervisor_id) {
-                        const sup = staffList.find((s) => s.id === staff.supervisor_id);
-                        setField('supervisorId', staff.supervisor_id);
-                        setField('supervisorName', sup?.full_name || staff.supervisor_name || '');
-                      } else {
-                        setField('supervisorId', '');
-                        setField('supervisorName', '');
-                      }
-                    }}
-                  >
-                    <option value="">Select staff member…</option>
-                    {staffList.map((s) => (
-                      <option key={s.id} value={s.id}>{s.full_name} — {s.job_title}</option>
-                    ))}
-                  </select>
+                  {canSelectAnyStaff ? (
+                    <select
+                      className={step0Errors.staffId ? selectErrCls : selectCls}
+                      value={form.staffId}
+                      onChange={(e) => {
+                        const staff = staffList.find((s) => s.id === e.target.value);
+                        setField('staffId', e.target.value);
+                        setField('staffName', staff?.full_name || '');
+                        setField('jobTitle', staff?.job_title || '');
+                        if (staff?.supervisor_id) {
+                          const sup = staffList.find((s) => s.id === staff.supervisor_id);
+                          setField('supervisorId', staff.supervisor_id);
+                          setField('supervisorName', sup?.full_name || staff.supervisor_name || '');
+                        } else {
+                          setField('supervisorId', '');
+                          setField('supervisorName', '');
+                        }
+                      }}
+                    >
+                      <option value="">Select staff member…</option>
+                      {staffList.map((s) => (
+                        <option key={s.id} value={s.id}>{s.full_name} — {s.job_title}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        className={`${inputCls} bg-muted/40 cursor-not-allowed text-foreground`}
+                        value={form.staffName ? `${form.staffName}${form.jobTitle ? ` — ${form.jobTitle}` : ''}` : 'Loading your profile…'}
+                      />
+                      <span title="You can only set your own workplan" className="flex-shrink-0">
+                        <Icon name="LockClosedIcon" size={15} className="text-muted-foreground" />
+                      </span>
+                    </div>
+                  )}
                 </FormField>
 
                 <FormField label="Supervisor / Line Manager" required error={step0Errors.supervisorId}>
