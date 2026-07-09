@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 // Role hierarchy for access control
@@ -76,14 +76,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const supabase = createClient();
+  // Use a ref so the supabase client is stable across renders
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
+  // Track whether initial session load already fetched the profile
+  const initialLoadDone = useRef(false);
 
   const fetchProfile = async (userId: string): Promise<UserProfile | null> => {
     try {
-      // ── Approach: read user_profiles joined with auth session metadata ──
-      // We fetch user_profiles for display fields, but resolve system_role
-      // from the auth session's user metadata — which is the authoritative
-      // source set when each staff member's auth account was created.
       const [profileResult, sessionResult] = await Promise.all([
         supabase
           .from('user_profiles')
@@ -98,10 +98,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (!data && !authUser) return null;
 
-      // Priority order for system_role:
-      // 1. auth.users raw_user_meta_data (set at account creation, most reliable)
-      // 2. user_profiles.system_role (updated by migration)
-      // 3. fallback to 'staff_member'
       const metaSystemRole =
         authUser?.user_metadata?.system_role ||
         authUser?.app_metadata?.system_role ||
@@ -120,7 +116,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         profileSystemRole ||
         'staff_member';
 
-      // Resolve role (admin/manager/staff) from metadata or profile
       const metaRole = authUser?.user_metadata?.role || '';
       const resolvedRole =
         data?.role ||
@@ -151,6 +146,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
+    // Initial session load — do this once
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
@@ -158,17 +154,28 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const p = await fetchProfile(session.user.id);
         setProfile(p);
       }
+      initialLoadDone.current = true;
       setLoading(false);
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Skip the first SIGNED_IN event that fires right after getSession
+      // to avoid a redundant double-fetch on page load
+      if (event === 'SIGNED_IN' && !initialLoadDone.current) {
+        return;
+      }
+
       setSession(session);
       setUser(session?.user ?? null);
+
       if (session?.user) {
-        const p = await fetchProfile(session.user.id);
-        setProfile(p);
+        // Only re-fetch profile on meaningful auth events
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+          const p = await fetchProfile(session.user.id);
+          setProfile(p);
+        }
       } else {
         setProfile(null);
       }
@@ -176,6 +183,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     return () => subscription.unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Email/Password Sign Up
@@ -246,7 +254,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const canViewSensitiveData = (): boolean => {
     const level = getRoleLevel();
-    return level >= 50; // programme_officer and above
+    return level >= 50;
   };
 
   const getRoleLevel = (): number => {
@@ -262,30 +270,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (profile?.avatarInitials) return profile.avatarInitials;
     const name = getDisplayName();
     const parts = name.trim().split(' ');
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    }
+    if (parts.length >= 2) return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
     return name.slice(0, 2).toUpperCase();
   };
 
-  const value: AuthContextType = {
-    user,
-    session,
-    profile,
-    loading,
-    signUp,
-    signIn,
-    signOut,
-    getCurrentUser,
-    isEmailVerified,
-    getUserProfile,
-    isHROrDirector,
-    isManagerOrAbove,
-    canViewSensitiveData,
-    getRoleLevel,
-    getDisplayName,
-    getInitials,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        profile,
+        loading,
+        signUp,
+        signIn,
+        signOut,
+        getCurrentUser,
+        isEmailVerified,
+        getUserProfile,
+        isHROrDirector,
+        isManagerOrAbove,
+        canViewSensitiveData,
+        getRoleLevel,
+        getDisplayName,
+        getInitials,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 };

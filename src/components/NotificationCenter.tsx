@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 
@@ -42,54 +42,74 @@ export default function NotificationCenter() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
+  const [unreadCount, setUnreadCount] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
+  const hasFetched = useRef(false);
+  const channelRef = useRef<ReturnType<typeof createClient> | null>(null);
 
+  // Fetch unread count on mount (lightweight — count only)
   useEffect(() => {
     const supabase = createClient();
+    supabase
+      .from('notifications')
+      .select('id', { count: 'exact', head: true })
+      .eq('is_read', false)
+      .then(({ count }) => {
+        if (count != null) setUnreadCount(count);
+      });
 
-    async function fetchNotifications() {
-      setLoading(true);
-      try {
-        const { data } = await supabase
-          .from('notifications')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(50);
-        setNotifications(data || []);
-      } catch {
-        // silently fail
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchNotifications();
-
-    // Real-time subscription
+    // Subscribe to new notifications for badge count only
     const channel = supabase
-      .channel('notifications-realtime')
+      .channel('notifications-badge')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'notifications' },
         (payload) => {
-          setNotifications((prev) => [payload.new as Notification, ...prev].slice(0, 50));
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'notifications' },
-        (payload) => {
-          setNotifications((prev) =>
-            prev.map((n) => n.id === (payload.new as Notification).id ? payload.new as Notification : n)
-          );
+          setUnreadCount(c => c + 1);
+          // If panel is open, prepend to list
+          setNotifications(prev => {
+            if (prev.length === 0 && !hasFetched.current) return prev;
+            return [payload.new as Notification, ...prev].slice(0, 20);
+          });
         }
       )
       .subscribe();
+
+    channelRef.current = supabase;
 
     return () => {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  // Lazy-load full notification list only when panel is first opened
+  const fetchNotifications = useCallback(async () => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+    setLoading(true);
+    try {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from('notifications')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      setNotifications(data || []);
+      const unread = (data || []).filter((n: Notification) => !n.is_read).length;
+      setUnreadCount(unread);
+    } catch {
+      // silently fail
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleOpen = useCallback(() => {
+    setOpen(v => {
+      if (!v) fetchNotifications();
+      return !v;
+    });
+  }, [fetchNotifications]);
 
   // Close on outside click
   useEffect(() => {
@@ -102,7 +122,6 @@ export default function NotificationCenter() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [open]);
 
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
   const displayed = filter === 'unread' ? notifications.filter((n) => !n.is_read) : notifications;
 
   async function markAllRead() {
@@ -111,18 +130,20 @@ export default function NotificationCenter() {
     if (unreadIds.length === 0) return;
     await supabase.from('notifications').update({ is_read: true }).in('id', unreadIds);
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    setUnreadCount(0);
   }
 
   async function markRead(id: string) {
     const supabase = createClient();
     await supabase.from('notifications').update({ is_read: true }).eq('id', id);
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n));
+    setUnreadCount(c => Math.max(0, c - 1));
   }
 
   return (
     <div className="relative" ref={panelRef}>
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={handleOpen}
         className="relative p-2 rounded-md hover:bg-muted text-muted-foreground transition-colors"
         aria-label="Notifications"
       >

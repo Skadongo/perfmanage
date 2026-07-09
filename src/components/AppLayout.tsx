@@ -19,9 +19,15 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [currentYear, setCurrentYear] = useState<number>(2026);
   const menuRef = useRef<HTMLDivElement>(null);
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
+
+  // Resolve year client-side to avoid hydration mismatch
+  useEffect(() => {
+    setCurrentYear(new Date().getFullYear());
+  }, []);
 
   // Close user menu on outside click
   useEffect(() => {
@@ -86,6 +92,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
               width={48}
               height={48}
               className="object-contain h-10 w-auto"
+              priority
             />
             <div className="hidden sm:flex flex-col leading-tight">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -145,6 +152,15 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                   {/* Menu items */}
                   <div className="py-1">
                     <button
+                      onClick={() => { setUserMenuOpen(false); router.push('/change-password'); }}
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                      </svg>
+                      Change Password
+                    </button>
+                    <button
                       onClick={handleSignOut}
                       className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
                     >
@@ -183,7 +199,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
               </div>
             </div>
             <p className="text-[11px] text-muted-foreground text-center">
-              © {new Date().getFullYear()} East, Central &amp; Southern Africa Health Community. All rights reserved.
+              © {currentYear} East, Central &amp; Southern Africa Health Community. All rights reserved.
             </p>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">

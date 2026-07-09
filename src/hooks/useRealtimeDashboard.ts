@@ -38,11 +38,12 @@ export function useRealtimeDashboard({
   const [realtimeActive, setRealtimeActive] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const isMounted = useRef(true);
+  // Debounce timer ref to avoid rapid re-fetches on burst DB changes
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchLiveStats = useCallback(async () => {
     const supabase = createClient();
     try {
-      // Build reviews query — scope to staffId if provided (Staff Member view)
       let reviewsQuery = supabase
         .from('mid_year_reviews')
         .select('review_status, supervisor_rating, staff_id');
@@ -51,16 +52,17 @@ export function useRealtimeDashboard({
         reviewsQuery = reviewsQuery.eq('staff_id', staffId);
       }
 
-      const { data: reviews } = await reviewsQuery;
-
-      const { count: totalStaff } = await supabase
-        .from('staff')
-        .select('id', { count: 'exact', head: true })
-        .eq('employment_status', 'active');
+      const [reviewsResult, staffResult] = await Promise.all([
+        reviewsQuery,
+        supabase
+          .from('staff')
+          .select('id', { count: 'exact', head: true })
+          .eq('employment_status', 'active'),
+      ]);
 
       if (!isMounted.current) return;
 
-      const reviewList = reviews || [];
+      const reviewList = reviewsResult.data || [];
       const total = reviewList.length;
       const submitted = reviewList.filter(r =>
         ['submitted', 'reviewed', 'approved'].includes(r.review_status)
@@ -89,7 +91,7 @@ export function useRealtimeDashboard({
         submitted,
         approved,
         avgRating,
-        totalStaff: totalStaff ?? 0,
+        totalStaff: staffResult.count ?? 0,
         pendingReviews: pending,
         lastUpdated: timeStr,
       });
@@ -97,6 +99,15 @@ export function useRealtimeDashboard({
       // silently fail — keep previous stats
     }
   }, [staffId]);
+
+  // Debounced version to prevent rapid re-fetches on burst changes
+  const debouncedFetch = useCallback(() => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      fetchLiveStats();
+      setRefreshKey(k => k + 1);
+    }, 500);
+  }, [fetchLiveStats]);
 
   const refetch = useCallback(() => {
     fetchLiveStats();
@@ -116,8 +127,7 @@ export function useRealtimeDashboard({
         'postgres_changes',
         { event: '*', schema: 'public', table: 'mid_year_reviews' },
         () => {
-          fetchLiveStats();
-          setRefreshKey(k => k + 1);
+          debouncedFetch();
           onPerformanceChange?.();
         }
       )
@@ -125,28 +135,21 @@ export function useRealtimeDashboard({
         if (isMounted.current) setRealtimeActive(status === 'SUBSCRIBED');
       });
 
-    // Channel 2: staff table — staff updates (new hires, status changes)
+    // Channel 2: staff + user_profiles — staff/role updates (merged to reduce connections)
     const staffChannel = supabase
       .channel('rt-dashboard-staff')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'staff' },
         () => {
-          fetchLiveStats();
-          setRefreshKey(k => k + 1);
+          debouncedFetch();
           onStaffChange?.();
         }
       )
-      .subscribe();
-
-    // Channel 3: user_profiles — role assignment changes
-    const profilesChannel = supabase
-      .channel('rt-dashboard-profiles')
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'user_profiles' },
         payload => {
-          // Notify if system_role or role changed
           const newRow = payload.new as Record<string, unknown>;
           const oldRow = payload.old as Record<string, unknown>;
           if (newRow?.system_role !== oldRow?.system_role || newRow?.role !== oldRow?.role) {
@@ -157,27 +160,13 @@ export function useRealtimeDashboard({
       )
       .subscribe();
 
-    // Channel 4: workplan_settings — workplan updates
-    const workplansChannel = supabase
-      .channel('rt-dashboard-workplans')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'workplan_settings' },
-        () => {
-          setRefreshKey(k => k + 1);
-          onPerformanceChange?.();
-        }
-      )
-      .subscribe();
-
     return () => {
       isMounted.current = false;
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
       supabase.removeChannel(reviewsChannel);
       supabase.removeChannel(staffChannel);
-      supabase.removeChannel(profilesChannel);
-      supabase.removeChannel(workplansChannel);
     };
-  }, [fetchLiveStats, onStaffChange, onRoleChange, onPerformanceChange]);
+  }, [fetchLiveStats, debouncedFetch, onStaffChange, onRoleChange, onPerformanceChange]);
 
   return { liveStats, realtimeActive, refreshKey, refetch };
 }

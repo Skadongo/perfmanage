@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import ReviewTable from './components/ReviewTable';
 import ReviewStatsDashboard from './components/ReviewStatsDashboard';
@@ -70,7 +70,9 @@ export default function EvaluationReviewsPage() {
   });
   const [stageLoading, setStageLoading] = useState(true);
 
-  const supabase = createClient();
+  // Stable supabase client ref — prevents re-creation on every render
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
 
   const fetchStageCounts = useCallback(async () => {
     setStageLoading(true);
