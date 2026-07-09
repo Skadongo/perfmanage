@@ -15,6 +15,15 @@ interface AppLayoutProps {
   actions?: React.ReactNode;
 }
 
+function getRoleLabel(systemRole: string | undefined): string {
+  if (!systemRole) return 'Staff';
+  if (systemRole === 'executive_director') return 'Director General';
+  return systemRole
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 export default function AppLayout({ children, pageTitle, pageSubtitle, actions }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -24,12 +33,10 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
 
-  // Resolve year client-side to avoid hydration mismatch
   useEffect(() => {
     setCurrentYear(new Date().getFullYear());
   }, []);
 
-  // Close user menu on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -49,12 +56,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
     }
   };
 
-  const roleLabel = (() => {
-    const sr = profile?.systemRole;
-    if (!sr) return 'Staff';
-    if (sr === 'executive_director') return 'Director General';
-    return sr.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-  })();
+  const roleLabel = getRoleLabel(profile?.systemRole);
 
   return (
     <div className="min-h-screen bg-background flex overflow-x-hidden">
