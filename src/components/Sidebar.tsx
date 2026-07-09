@@ -38,7 +38,8 @@ const NAV_GROUPS = [
 {
   label: 'Intelligence',
   items: [
-  { label: 'Analytics & Reports', href: '/analytics-reports', icon: 'EcsaAnalyticsIcon', badge: null }]
+  { label: 'Analytics & Reports', href: '/analytics-reports', icon: 'EcsaAnalyticsIcon', badge: null },
+  { label: 'System Health', href: '/system-health', icon: 'ServerStackIcon', badge: null }]
 
 },
 {
