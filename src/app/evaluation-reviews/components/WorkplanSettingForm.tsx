@@ -534,7 +534,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
   const autosaveEnabled = !!form.staffId;
   const { saveDraft, recoverDraft, clearDraft } = useAutosave({
     staffId: form.staffId || null,
-    workplanId: form.staffId ? `workplan-draft-${form.staffId}` : null,
+    workplanId: null,
     draftType: 'workplan_setting',
     reviewPeriod: form.fiscalYear || 'annual',
     formData: {
@@ -558,8 +558,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
   // Recover draft when staff member is selected
   useEffect(() => {
     if (!form.staffId) return;
-    const draftWorkplanId = `workplan-draft-${form.staffId}`;
-    recoverDraft(draftWorkplanId, form.staffId, form.fiscalYear || 'annual').then((data) => {
+    recoverDraft(null, form.staffId, form.fiscalYear || 'annual').then((data) => {
       if (data?.form_data) {
         const fd = data.form_data as any;
         setForm((prev) => ({
@@ -748,8 +747,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
       }
 
       // Clear draft after successful submission
-      const draftWorkplanId = `workplan-draft-${form.staffId}`;
-      await clearDraft(draftWorkplanId, form.staffId, form.fiscalYear || 'annual');
+      await clearDraft(null, form.staffId, form.fiscalYear || 'annual');
 
       setSavedWorkplanId(data?.id ?? null);
       setSubmitted(true);
