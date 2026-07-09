@@ -50,7 +50,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   };
 
   const roleLabel = profile?.systemRole
-    ? profile.systemRole.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+    ? profile.systemRole === 'executive_director' ?'Director General' : profile.systemRole.replace(/_/g,' ').replace(/\b\w/g, (c) => c.toUpperCase())
     : 'Staff';
 
   return (
