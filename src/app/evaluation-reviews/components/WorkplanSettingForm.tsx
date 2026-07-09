@@ -16,14 +16,19 @@ interface StaffOption {
   supervisor_name: string | null;
 }
 
+// NEW: KPI entry with label and target
+interface KPIEntry {
+  id: string;
+  label: string;
+  target: string;
+}
+
 interface PerspectiveRow {
   id: string;
   perspective: string;
   objective: string;
-  kpis: string[];
-  customKpis: string;
+  kpis: KPIEntry[];
   weight: number;
-  target: string;
   keyActivities: string;
 }
 
@@ -61,7 +66,6 @@ interface RowErrors {
   perspective?: string;
   objective?: string;
   weight?: string;
-  target?: string;
   kpis?: string;
 }
 
@@ -94,40 +98,49 @@ const PERSPECTIVES = [
   'Innovation Learning & Growth',
 ];
 
-const KPI_OPTIONS = [
-  { id: 'k1', label: 'Budget Variance (≤5% of approved budget)', perspective: 'Financial/Stewardship' },
-  { id: 'k2', label: 'Cost Recovery Rate (10% from all new grants)', perspective: 'Financial/Stewardship' },
-  { id: 'k3', label: 'Payroll Accuracy (zero-error rate)', perspective: 'Financial/Stewardship' },
-  { id: 'k4', label: 'Grant Disbursement Efficiency (within 5 days)', perspective: 'Financial/Stewardship' },
-  { id: 'k5', label: 'Reporting Timeliness (100% donor reports by deadline)', perspective: 'Financial/Stewardship' },
-  { id: 'k6', label: 'Unqualified Audited Financial Statements by Sept 30', perspective: 'Financial/Stewardship' },
-  { id: 'k7', label: 'Revenue Growth (% increase in membership contributions)', perspective: 'Financial/Stewardship' },
-  { id: 'k8', label: 'Procurement Savings (% reduction in admin costs)', perspective: 'Financial/Stewardship' },
-  { id: 'k9', label: 'Internal Service Level (SLA) — 48h resolution rate', perspective: 'Customer/Stakeholder' },
-  { id: 'k10', label: 'Employee Engagement Index (annual survey score)', perspective: 'Customer/Stakeholder' },
-  { id: 'k11', label: 'Recruitment Efficiency (avg. time-to-hire ≤90 days)', perspective: 'Customer/Stakeholder' },
-  { id: 'k12', label: 'System Availability (99.9% uptime)', perspective: 'Customer/Stakeholder' },
-  { id: 'k13', label: 'Service Desk Resolution Rate (critical tickets ≤4h)', perspective: 'Customer/Stakeholder' },
-  { id: 'k14', label: 'Visitor / Stakeholder Satisfaction Index', perspective: 'Customer/Stakeholder' },
-  { id: 'k15', label: 'On-Time Performance (pickups/arrivals ≥98%)', perspective: 'Customer/Stakeholder' },
-  { id: 'k16', label: 'No. of countries achieving WHO Maturity Level 3/4', perspective: 'Customer/Stakeholder' },
-  { id: 'k17', label: 'PMS System Adoption Rate (100% of staff)', perspective: 'Internal Business Processes' },
-  { id: 'k18', label: 'Data Integrity (0% error rate in HR digital repository)', perspective: 'Internal Business Processes' },
-  { id: 'k19', label: 'Audit Readiness (zero high-risk findings)', perspective: 'Internal Business Processes' },
-  { id: 'k20', label: 'ERP Adoption Rate (100% of financial transactions)', perspective: 'Internal Business Processes' },
-  { id: 'k21', label: 'Internal Control Compliance (zero high-risk audit findings)', perspective: 'Internal Business Processes' },
-  { id: 'k22', label: 'Data Warehouse Readiness (% completion)', perspective: 'Internal Business Processes' },
-  { id: 'k23', label: 'Automation Rate (% HR/Finance processes migrated)', perspective: 'Internal Business Processes' },
-  { id: 'k24', label: 'Logbook Accuracy (100% error-free daily logs)', perspective: 'Internal Business Processes' },
-  { id: 'k25', label: 'CPD Completion Rate (% staff meeting annual PD targets)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k26', label: 'Staff Turnover Rate (target ≤5% voluntary turnover)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k27', label: 'Leadership Development (% mid-level managers trained)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k28', label: 'Cybersecurity Maturity (0 successful breaches)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k29', label: 'ISO Certification Progress (ISO 27001 / ISO 9001)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k30', label: 'Corporate Governance Index Score (target: 60%)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k31', label: 'Employee Retention Rate (target: 95%)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k32', label: 'Implementation Rate of AI/ERP Systems', perspective: 'Innovation Learning & Growth' },
-];
+// KPI suggestions by perspective (labels only — user can also type their own)
+const KPI_SUGGESTIONS: Record<string, string[]> = {
+  'Financial/Stewardship': [
+    'Budget Variance (≤5% of approved budget)',
+    'Cost Recovery Rate (10% from all new grants)',
+    'Payroll Accuracy (zero-error rate)',
+    'Grant Disbursement Efficiency (within 5 days)',
+    'Reporting Timeliness (100% donor reports by deadline)',
+    'Unqualified Audited Financial Statements by Sept 30',
+    'Revenue Growth (% increase in membership contributions)',
+    'Procurement Savings (% reduction in admin costs)',
+  ],
+  'Customer/Stakeholder': [
+    'Internal Service Level (SLA) — 48h resolution rate',
+    'Employee Engagement Index (annual survey score)',
+    'Recruitment Efficiency (avg. time-to-hire ≤90 days)',
+    'System Availability (99.9% uptime)',
+    'Service Desk Resolution Rate (critical tickets ≤4h)',
+    'Visitor / Stakeholder Satisfaction Index',
+    'On-Time Performance (pickups/arrivals ≥98%)',
+    'No. of countries achieving WHO Maturity Level 3/4',
+  ],
+  'Internal Business Processes': [
+    'PMS System Adoption Rate (100% of staff)',
+    'Data Integrity (0% error rate in HR digital repository)',
+    'Audit Readiness (zero high-risk findings)',
+    'ERP Adoption Rate (100% of financial transactions)',
+    'Internal Control Compliance (zero high-risk audit findings)',
+    'Data Warehouse Readiness (% completion)',
+    'Automation Rate (% HR/Finance processes migrated)',
+    'Logbook Accuracy (100% error-free daily logs)',
+  ],
+  'Innovation Learning & Growth': [
+    'CPD Completion Rate (% staff meeting annual PD targets)',
+    'Staff Turnover Rate (target ≤5% voluntary turnover)',
+    'Leadership Development (% mid-level managers trained)',
+    'Cybersecurity Maturity (0 successful breaches)',
+    'ISO Certification Progress (ISO 27001 / ISO 9001)',
+    'Corporate Governance Index Score (target: 60%)',
+    'Employee Retention Rate (target: 95%)',
+    'Implementation Rate of AI/ERP Systems',
+  ],
+};
 
 // ─── Predefined Objectives by Perspective ────────────────────────────────────
 const OBJECTIVE_OPTIONS: Record<string, string[]> = {
@@ -335,9 +348,7 @@ function makeRow(): PerspectiveRow {
     perspective: '',
     objective: '',
     kpis: [],
-    customKpis: '',
     weight: 0,
-    target: '',
     keyActivities: '',
   };
 }
@@ -389,8 +400,7 @@ function validateStep1(form: WorkplanFormData): Step1Errors {
     if (!row.perspective) rowErr.perspective = 'Select a BSC perspective.';
     if (!row.objective.trim()) rowErr.objective = 'Objective / Goal Statement is required.';
     if (!row.weight || row.weight < 1 || row.weight > 5) rowErr.weight = 'Weight must be between 1 and 5.';
-    if (!row.target.trim()) rowErr.target = 'Annual Target is required.';
-    if (row.kpis.length === 0) rowErr.kpis = 'Select at least one KPI for this objective.';
+    if (row.kpis.length === 0) rowErr.kpis = 'Add at least one KPI for this objective.';
     if (Object.keys(rowErr).length > 0) errors.rows[idx] = rowErr;
   });
 
@@ -430,7 +440,7 @@ function buildChecklist(form: WorkplanFormData): ChecklistItem[] {
   const totalWeight = form.perspectivesObjectives.reduce((s, r) => s + (Number(r.weight) || 0), 0);
   const totalCompWeight = form.generalCompetencies.reduce((s, c) => s + (Number(c.weight) || 0), 0);
   const allRowsComplete = form.perspectivesObjectives.every(
-    (r) => r.perspective && r.objective.trim() && r.target.trim() && r.kpis.length > 0 && r.weight >= 1 && r.weight <= 5
+    (r) => r.perspective && r.objective.trim() && r.kpis.length > 0 && r.weight >= 1 && r.weight <= 5
   );
 
   return [
@@ -455,7 +465,7 @@ function buildChecklist(form: WorkplanFormData): ChecklistItem[] {
       detail: `${form.perspectivesObjectives.length} objective(s)`,
     },
     {
-      label: 'All objectives complete (perspective, goal, target, KPI)',
+      label: 'All objectives complete (perspective, goal, KPI)',
       done: allRowsComplete,
       detail: allRowsComplete ? 'All fields filled' : 'Some objectives have missing fields',
     },
@@ -478,6 +488,187 @@ function buildChecklist(form: WorkplanFormData): ChecklistItem[] {
       done: !!form.supervisorSignature.trim(),
     },
   ];
+}
+
+// ─── KPI Combobox Component ───────────────────────────────────────────────────
+
+interface KPIComboboxProps {
+  perspective: string;
+  kpis: KPIEntry[];
+  onAdd: (entry: KPIEntry) => void;
+  onRemove: (id: string) => void;
+  onUpdateTarget: (id: string, target: string) => void;
+  hasError?: boolean;
+}
+
+function KPICombobox({ perspective, kpis, onAdd, onRemove, onUpdateTarget, hasError }: KPIComboboxProps) {
+  const [inputValue, setInputValue] = React.useState('');
+  const [open, setOpen] = React.useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const suggestions = perspective ? (KPI_SUGGESTIONS[perspective] || []) : [];
+  const addedLabels = new Set(kpis.map((k) => k.label.toLowerCase()));
+
+  const filtered = suggestions.filter(
+    (s) =>
+      !addedLabels.has(s.toLowerCase()) &&
+      (!inputValue.trim() || s.toLowerCase().includes(inputValue.toLowerCase()))
+  );
+
+  React.useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  function addKPI(label: string) {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    if (addedLabels.has(trimmed.toLowerCase())) return;
+    onAdd({ id: `kpi-${Date.now()}-${Math.random()}`, label: trimmed, target: '' });
+    setInputValue('');
+    setOpen(false);
+    inputRef.current?.focus();
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filtered.length === 1) {
+        addKPI(filtered[0]);
+      } else if (inputValue.trim()) {
+        addKPI(inputValue);
+      }
+    }
+    if (e.key === 'Escape') setOpen(false);
+  }
+
+  const baseBorder = hasError ? 'border-red-400 focus:ring-red-300' : 'border-border focus:ring-primary/30 focus:border-primary';
+
+  return (
+    <div className="space-y-3">
+      {/* Added KPI tags with target inputs */}
+      {kpis.length > 0 && (
+        <div className="space-y-2">
+          {kpis.map((kpi) => (
+            <div key={kpi.id} className="rounded-lg border border-border bg-white p-2.5 space-y-2">
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-600 text-foreground leading-snug">{kpi.label}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onRemove(kpi.id)}
+                  className="flex-shrink-0 p-0.5 rounded hover:bg-red-100 text-muted-foreground hover:text-red-500 transition-colors"
+                  title="Remove KPI"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                    <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+                  </svg>
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-600 text-muted-foreground uppercase tracking-wide flex-shrink-0">Target:</span>
+                <input
+                  type="text"
+                  className="flex-1 text-xs border border-border rounded-md px-2 py-1 bg-muted/30 focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary focus:bg-white transition-colors placeholder:text-muted-foreground/50"
+                  placeholder="e.g. ≥95% by June 2026"
+                  value={kpi.target}
+                  onChange={(e) => onUpdateTarget(kpi.id, e.target.value)}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Combobox input */}
+      <div ref={containerRef} className="relative">
+        <div className={`flex items-center gap-1.5 border rounded-lg px-3 py-2 bg-white focus-within:ring-2 transition-colors ${baseBorder}`}>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0">
+            <path fillRule="evenodd" d="M10 3a.75.75 0 0 1 .75.75v10.638l3.96-4.158a.75.75 0 1 1 1.08 1.04l-5.25 5.5a.75.75 0 0 1-1.08 0l-5.25-5.5a.75.75 0 1 1 1.08-1.04l3.96 4.158V3.75A.75.75 0 0 1 10 3Z" clipRule="evenodd" />
+          </svg>
+          <input
+            ref={inputRef}
+            type="text"
+            className="flex-1 text-xs bg-transparent focus:outline-none placeholder:text-muted-foreground/60"
+            placeholder={
+              perspective
+                ? 'Type a KPI or pick from suggestions, then press Enter…' :'Select a BSC Perspective first…'
+            }
+            value={inputValue}
+            disabled={!perspective}
+            onChange={(e) => { setInputValue(e.target.value); setOpen(true); }}
+            onFocus={() => { if (perspective) setOpen(true); }}
+            onKeyDown={handleKeyDown}
+          />
+          {inputValue.trim() && (
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); addKPI(inputValue); }}
+              className="flex-shrink-0 text-[10px] font-700 text-primary bg-primary/10 hover:bg-primary/20 px-2 py-0.5 rounded transition-colors"
+            >
+              Add
+            </button>
+          )}
+          {suggestions.length > 0 && (
+            <button
+              type="button"
+              tabIndex={-1}
+              onMouseDown={(e) => { e.preventDefault(); setOpen((v) => !v); inputRef.current?.focus(); }}
+              className="flex-shrink-0 p-0.5 rounded hover:bg-muted/60 text-muted-foreground transition-colors"
+              title="Show suggestions"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`}>
+                <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {open && (
+          <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-border rounded-xl shadow-lg max-h-52 overflow-y-auto">
+            {filtered.length > 0 ? (
+              <>
+                <div className="px-3 py-1.5 border-b border-border bg-muted/30 sticky top-0">
+                  <p className="text-[10px] font-600 text-muted-foreground uppercase tracking-wide">
+                    Suggested KPIs — {perspective}
+                  </p>
+                </div>
+                {filtered.map((s, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); addKPI(s); }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-primary/5 hover:text-primary transition-colors border-b border-border/50 last:border-0 text-foreground"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </>
+            ) : inputValue.trim() ? (
+              <div className="px-3 py-2.5 text-xs text-muted-foreground italic">
+                Press <kbd className="px-1 py-0.5 bg-muted border border-border rounded text-[10px] font-600">Enter</kbd> or click <strong>Add</strong> to capture "{inputValue}" as a custom KPI.
+              </div>
+            ) : (
+              <div className="px-3 py-2.5 text-xs text-muted-foreground italic">
+                All suggested KPIs for this perspective have been added.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <p className="text-[10px] text-muted-foreground">
+        Pick from suggestions or type your own KPI and press <kbd className="px-1 py-0.5 bg-muted border border-border rounded text-[9px] font-600">Enter</kbd>. Set a measurable target for each KPI added.
+      </p>
+    </div>
+  );
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -649,12 +840,19 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     });
   }
 
-  function toggleKPI(rowIdx: number, kpiId: string) {
+  function addKPIToRow(rowIdx: number, entry: KPIEntry) {
     const row = form.perspectivesObjectives[rowIdx];
-    const kpis = row.kpis.includes(kpiId)
-      ? row.kpis.filter((k) => k !== kpiId)
-      : [...row.kpis, kpiId];
-    updateRow(rowIdx, 'kpis', kpis);
+    updateRow(rowIdx, 'kpis', [...row.kpis, entry]);
+  }
+
+  function removeKPIFromRow(rowIdx: number, kpiId: string) {
+    const row = form.perspectivesObjectives[rowIdx];
+    updateRow(rowIdx, 'kpis', row.kpis.filter((k) => k.id !== kpiId));
+  }
+
+  function updateKPITarget(rowIdx: number, kpiId: string, target: string) {
+    const row = form.perspectivesObjectives[rowIdx];
+    updateRow(rowIdx, 'kpis', row.kpis.map((k) => k.id === kpiId ? { ...k, target } : k));
   }
 
   function updateCompetencyWeight(idx: number, weight: number) {
@@ -1160,7 +1358,6 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
 
             <div className="space-y-4">
               {form.perspectivesObjectives.map((row, idx) => {
-                const filteredKPIs = KPI_OPTIONS.filter((k) => !row.perspective || k.perspective === row.perspective);
                 const colorCls = PERSPECTIVE_COLORS[row.perspective] || 'bg-muted/30 border-border text-foreground';
                 const rowErr = step1Errors.rows[idx] || {};
                 return (
@@ -1225,69 +1422,20 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
                       />
                     </FormField>
 
-                    <FormField label="Annual Target" required error={rowErr.target}>
-                      <input
-                        className={rowErr.target ? inputErrCls : inputCls}
-                        placeholder="e.g. Achieve 95% budget variance compliance"
-                        value={row.target}
-                        onChange={(e) => updateRow(idx, 'target', e.target.value)}
-                      />
-                    </FormField>
-
-                    {row.perspective && (
-                      <div>
-                        <label className={`block text-xs font-600 mb-2 ${rowErr.kpis ? 'text-red-600' : 'text-foreground'}`}>
-                          KPIs (select all that apply) <span className="text-red-500">*</span>
-                        </label>
-                        <div className="grid grid-cols-1 gap-1.5 pr-1">
-                          {filteredKPIs.map((kpi) => (
-                            <label key={kpi.id} className="flex items-start gap-2 cursor-pointer group">
-                              <input
-                                type="checkbox"
-                                checked={row.kpis.includes(kpi.id)}
-                                onChange={() => toggleKPI(idx, kpi.id)}
-                                className="mt-0.5 accent-primary flex-shrink-0"
-                              />
-                              <span className="text-xs text-foreground group-hover:text-primary transition-colors">{kpi.label}</span>
-                            </label>
-                          ))}
-                        </div>
-                        {row.kpis.length > 0 && (
-                          <p className="text-[10px] text-muted-foreground mt-1">{row.kpis.length} KPI{row.kpis.length > 1 ? 's' : ''} selected</p>
-                        )}
-                        {rowErr.kpis && (
-                          <p className="flex items-center gap-1 mt-1 text-[11px] text-red-600">
-                            <Icon name="ExclamationCircleIcon" size={11} className="flex-shrink-0" />
-                            {rowErr.kpis}
-                          </p>
-                        )}
-
-                        {/* ── Additional / Custom KPIs free-text ── */}
-                        <div className="mt-3 pt-3 border-t border-dashed border-border/60">
-                          <label className="block text-xs font-600 text-foreground mb-1.5 flex items-center gap-1.5">
-                            <Icon name="PencilSquareIcon" size={12} className="text-primary" />
-                            Additional / Custom KPIs
-                            <span className="text-[10px] font-400 text-muted-foreground">(not in the list above)</span>
-                          </label>
-                          <textarea
-                            className={textareaCls}
-                            rows={3}
-                            placeholder="Enter any KPIs specific to this objective that are not listed above. Use one KPI per line or separate with semicolons…"
-                            value={row.customKpis}
-                            onChange={(e) => updateRow(idx, 'customKpis', e.target.value)}
-                          />
-                          {row.customKpis.trim() && (
-                            <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
-                              <Icon name="CheckCircleIcon" size={10} className="text-emerald-500" />
-                              Custom KPIs captured — will be included in the workplan
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                                        <FormField label="KPIs & Targets" required error={rowErr.kpis}>
+                        <KPICombobox
+                          perspective={row.perspective}
+                          kpis={row.kpis}
+                          onAdd={(entry) => addKPIToRow(idx, entry)}
+                          onRemove={(kpiId) => removeKPIFromRow(idx, kpiId)}
+                          onUpdateTarget={(kpiId, target) => updateKPITarget(idx, kpiId, target)}
+                          hasError={!!rowErr.kpis}
+                        />
+                      </FormField>
                     )}
 
                     {!row.perspective && (
-                      <p className="text-[11px] text-muted-foreground italic">Select a BSC Perspective above to see available KPIs.</p>
+                      <p className="text-[11px] text-muted-foreground italic">Select a BSC Perspective above to add KPIs.</p>
                     )}
                   </div>
                 );
