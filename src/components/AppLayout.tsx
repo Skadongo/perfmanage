@@ -49,9 +49,12 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
     }
   };
 
-  const roleLabel = profile?.systemRole
-    ? profile.systemRole === 'executive_director' ?'Director General' : profile.systemRole.replace(/_/g,' ').replace(/\b\w/g, (c) => c.toUpperCase())
-    : 'Staff';
+  const roleLabel = (() => {
+    const sr = profile?.systemRole;
+    if (!sr) return 'Staff';
+    if (sr === 'executive_director') return 'Director General';
+    return sr.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  })();
 
   return (
     <div className="min-h-screen bg-background flex overflow-x-hidden">
