@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import PrintAppraisalLayout from './PrintAppraisalLayout';
@@ -310,6 +310,149 @@ function ObjectiveCombobox({ value, perspective, onChange, hasError }: Objective
           <div className="px-3 py-2.5 text-xs text-muted-foreground italic">
             No predefined objectives match your input — your custom text will be used.
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Staff Combobox Component ─────────────────────────────────────────────────
+interface StaffComboboxProps {
+  value: string;
+  staffList: StaffOption[];
+  placeholder?: string;
+  hasError?: boolean;
+  disabled?: boolean;
+  onChange: (id: string, staff: StaffOption | null) => void;
+}
+
+function StaffCombobox({ value, staffList, placeholder = 'Search staff…', hasError, disabled, onChange }: StaffComboboxProps) {
+  const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState('');
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const selected = staffList.find((s) => s.id === value) || null;
+
+  // Filtered list — show top 50 to keep rendering fast
+  const filtered = React.useMemo(() => {
+    if (!query.trim()) return staffList.slice(0, 50);
+    const q = query.toLowerCase();
+    return staffList.filter(
+      (s) => s.full_name.toLowerCase().includes(q) || s.job_title?.toLowerCase().includes(q)
+    ).slice(0, 50);
+  }, [query, staffList]);
+
+  // Close on outside click
+  React.useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery('');
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  function handleSelect(staff: StaffOption) {
+    onChange(staff.id, staff);
+    setOpen(false);
+    setQuery('');
+  }
+
+  function handleClear(e: React.MouseEvent) {
+    e.stopPropagation();
+    onChange('', null);
+    setQuery('');
+    setOpen(false);
+  }
+
+  const baseCls = 'w-full text-sm border rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 transition-colors';
+  const normalCls = `${baseCls} border-border focus:ring-primary/30 focus:border-primary`;
+  const errorCls = `${baseCls} border-red-400 focus:ring-red-300 focus:border-red-400`;
+
+  return (
+    <div ref={containerRef} className="relative">
+      {/* Trigger button showing selected value or search input */}
+      {open ? (
+        <div className="relative">
+          <input
+            ref={inputRef}
+            autoFocus
+            type="text"
+            className={hasError ? errorCls : normalCls}
+            placeholder="Type name or job title to filter…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <button
+            type="button"
+            tabIndex={-1}
+            onMouseDown={(e) => { e.preventDefault(); setOpen(false); setQuery(''); }}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-muted/60 text-muted-foreground"
+          >
+            <Icon name="XMarkIcon" size={14} />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => { if (!disabled) { setOpen(true); setTimeout(() => inputRef.current?.focus(), 0); } }}
+          className={`w-full text-left text-sm border rounded-lg px-3 py-2 bg-white transition-colors flex items-center justify-between gap-2 ${
+            hasError ? 'border-red-400 focus:ring-red-300' : 'border-border hover:border-primary/50'
+          } ${disabled ? 'opacity-60 cursor-not-allowed bg-muted/40' : 'cursor-pointer'}`}
+        >
+          <span className={selected ? 'text-foreground' : 'text-muted-foreground/60'}>
+            {selected ? `${selected.full_name} — ${selected.job_title}` : placeholder}
+          </span>
+          <span className="flex items-center gap-1 flex-shrink-0">
+            {selected && !disabled && (
+              <span
+                role="button"
+                tabIndex={-1}
+                onMouseDown={handleClear}
+                className="p-0.5 rounded hover:bg-muted/60 text-muted-foreground"
+                title="Clear selection"
+              >
+                <Icon name="XMarkIcon" size={12} />
+              </span>
+            )}
+            <Icon name="ChevronDownIcon" size={14} className="text-muted-foreground" />
+          </span>
+        </button>
+      )}
+
+      {/* Dropdown list */}
+      {open && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-border rounded-xl shadow-lg max-h-56 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <div className="px-3 py-3 text-xs text-muted-foreground italic">
+              {query.trim() ? 'No staff match your search.' : 'No staff available.'}
+            </div>
+          ) : (
+            <>
+              {!query.trim() && staffList.length > 50 && (
+                <div className="px-3 py-1.5 border-b border-border bg-muted/30">
+                  <p className="text-[10px] text-muted-foreground">Showing first 50 — type to search all {staffList.length} staff</p>
+                </div>
+              )}
+              {filtered.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); handleSelect(s); }}
+                  className={`w-full text-left px-3 py-2 text-xs hover:bg-primary/5 hover:text-primary transition-colors border-b border-border/50 last:border-0 ${
+                    value === s.id ? 'bg-primary/10 text-primary font-600' : 'text-foreground'
+                  }`}
+                >
+                  <span className="font-500">{s.full_name}</span>
+                  {s.job_title && <span className="text-muted-foreground ml-1">— {s.job_title}</span>}
+                </button>
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -1077,12 +1220,13 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Staff Member" required error={step0Errors.staffId}>
                   {canSelectAnyStaff ? (
-                    <select
-                      className={step0Errors.staffId ? selectErrCls : selectCls}
+                    <StaffCombobox
                       value={form.staffId}
-                      onChange={(e) => {
-                        const staff = staffList.find((s) => s.id === e.target.value);
-                        setField('staffId', e.target.value);
+                      staffList={staffList}
+                      placeholder="Search and select staff member…"
+                      hasError={!!step0Errors.staffId}
+                      onChange={(id, staff) => {
+                        setField('staffId', id);
                         setField('staffName', staff?.full_name || '');
                         setField('jobTitle', staff?.job_title || '');
                         if (staff?.supervisor_id) {
@@ -1094,12 +1238,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
                           setField('supervisorName', '');
                         }
                       }}
-                    >
-                      <option value="">Select staff member…</option>
-                      {staffList.map((s) => (
-                        <option key={s.id} value={s.id}>{s.full_name} — {s.job_title}</option>
-                      ))}
-                    </select>
+                    />
                   ) : (
                     <div className="flex items-center gap-2">
                       <input
@@ -1116,20 +1255,16 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
                 </FormField>
 
                 <FormField label="Supervisor / Line Manager" required error={step0Errors.supervisorId}>
-                  <select
-                    className={step0Errors.supervisorId ? selectErrCls : selectCls}
+                  <StaffCombobox
                     value={form.supervisorId}
-                    onChange={(e) => {
-                      const sup = staffList.find((s) => s.id === e.target.value);
-                      setField('supervisorId', e.target.value);
-                      setField('supervisorName', sup?.full_name || '');
+                    staffList={staffList}
+                    placeholder="Search and select supervisor…"
+                    hasError={!!step0Errors.supervisorId}
+                    onChange={(id, staff) => {
+                      setField('supervisorId', id);
+                      setField('supervisorName', staff?.full_name || '');
                     }}
-                  >
-                    <option value="">Select supervisor…</option>
-                    {staffList.map((s) => (
-                      <option key={s.id} value={s.id}>{s.full_name} — {s.job_title}</option>
-                    ))}
-                  </select>
+                  />
                 </FormField>
 
                 <FormField label="Fiscal Year" required error={step0Errors.fiscalYear}>
