@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+import { useStaffCache } from '@/hooks/useStaffCache';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -531,6 +532,7 @@ function ReviewCard({ review, onAction }: { review: MidYearReview; onAction: (r:
 
 export default function MidYearReviewsPage() {
   const supabase = createClient();
+  const { getStaff } = useStaffCache();
   const [reviews, setReviews] = useState<MidYearReview[]>([]);
   const [timeline, setTimeline] = useState<ReviewTimeline | null>(null);
   const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -553,10 +555,10 @@ export default function MidYearReviewsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [timelineRes, reviewsRes, staffRes] = await Promise.all([
+      const [timelineRes, reviewsRes, staffData] = await Promise.all([
         supabase
           .from('review_timelines')
-          .select('*')
+          .select('id, review_year, review_period, submission_open_date, submission_deadline, supervisor_review_deadline, approval_deadline, is_active')
           .eq('is_active', true)
           .order('review_year', { ascending: false })
           .limit(1)
@@ -564,31 +566,42 @@ export default function MidYearReviewsPage() {
         supabase
           .from('mid_year_reviews')
           .select(`
-            *,
+            id, staff_id, supervisor_id, timeline_id, review_status,
+            review_year, review_period, kpi_achievements, challenges_faced,
+            support_needed, self_rating, supervisor_comments, supervisor_rating,
+            supervisor_reviewed_at, approved_by, approval_comments, approved_at,
+            submitted_at, rejected_reason, created_at, updated_at,
             staff:staff_id(full_name, job_title, departments(name)),
             supervisor:supervisor_id(full_name, job_title)
           `)
           .order('updated_at', { ascending: false }),
-        supabase
-          .from('staff')
-          .select('id, full_name, job_title, supervisor_id, departments(name)')
-          .eq('employment_status', 'active')
-          .order('full_name'),
+        // Use cache for staff list — avoids a separate DB round-trip
+        getStaff(),
       ]);
 
       if (timelineRes.error) throw timelineRes.error;
       if (reviewsRes.error) throw reviewsRes.error;
-      if (staffRes.error) throw staffRes.error;
 
       setTimeline(timelineRes.data);
       setReviews((reviewsRes.data as MidYearReview[]) || []);
-      setStaff((staffRes.data as StaffMember[]) || []);
+      // Map cached staff to the StaffMember shape used by this page
+      setStaff(
+        staffData
+          .filter((s) => s.employment_status === 'active')
+          .map((s) => ({
+            id: s.id,
+            full_name: s.full_name,
+            job_title: s.job_title,
+            supervisor_id: s.supervisor_id,
+            departments: s.department_name ? { name: s.department_name } : null,
+          })) as StaffMember[]
+      );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load reviews');
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, getStaff]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
