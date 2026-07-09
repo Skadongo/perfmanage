@@ -82,25 +82,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // Track whether initial session load already fetched the profile
   const initialLoadDone = useRef(false);
 
-  const fetchProfile = async (userId: string): Promise<UserProfile | null> => {
+  const fetchProfile = async (userId: string, authUser?: any): Promise<UserProfile | null> => {
     try {
-      const [profileResult, sessionResult] = await Promise.all([
+      // If authUser not provided, fetch it — but prefer the passed-in value to avoid a round-trip
+      const [profileResult, userResult] = await Promise.all([
         supabase
           .from('user_profiles')
-          .select('*')
+          .select('id, email, full_name, role, system_role, department, job_title, avatar_initials, is_active, must_change_password, staff_id')
           .eq('id', userId)
           .maybeSingle(),
-        supabase.auth.getUser(),
+        authUser ? Promise.resolve({ data: { user: authUser } }) : supabase.auth.getUser(),
       ]);
 
       const data = profileResult.data;
-      const authUser = sessionResult.data?.user;
+      const resolvedAuthUser = authUser ?? userResult.data?.user;
 
-      if (!data && !authUser) return null;
+      if (!data && !resolvedAuthUser) return null;
 
       const metaSystemRole =
-        authUser?.user_metadata?.system_role ||
-        authUser?.app_metadata?.system_role ||
+        resolvedAuthUser?.user_metadata?.system_role ||
+        resolvedAuthUser?.app_metadata?.system_role ||
         '';
 
       const profileSystemRole = data?.system_role || '';
@@ -116,7 +117,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         profileSystemRole ||
         'staff_member';
 
-      const metaRole = authUser?.user_metadata?.role || '';
+      const metaRole = resolvedAuthUser?.user_metadata?.role || '';
       const resolvedRole =
         data?.role ||
         (metaRole === 'admin' || metaRole === 'manager' || metaRole === 'staff'
@@ -125,11 +126,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       return {
         id: userId,
-        email: data?.email || authUser?.email || '',
+        email: data?.email || resolvedAuthUser?.email || '',
         fullName:
           data?.full_name ||
-          authUser?.user_metadata?.full_name ||
-          authUser?.email?.split('@')[0] ||
+          resolvedAuthUser?.user_metadata?.full_name ||
+          resolvedAuthUser?.email?.split('@')[0] ||
           '',
         role: resolvedRole,
         systemRole: resolvedSystemRole,
@@ -173,7 +174,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (session?.user) {
         // Only re-fetch profile on meaningful auth events
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-          const p = await fetchProfile(session.user.id);
+          const p = await fetchProfile(session.user.id, session.user);
           setProfile(p);
         }
       } else {

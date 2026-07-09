@@ -57,14 +57,7 @@ export default function AnalyticsReportsPage() {
         const supabase = createClient();
         const { data: reviews, error } = await supabase
           .from('mid_year_reviews')
-          .select(`
-            review_status,
-            supervisor_rating,
-            self_rating,
-            staff:staff_id (
-              system_role
-            )
-          `);
+          .select('review_status, supervisor_rating, self_rating, staff:staff_id(system_role)');
 
         if (error) throw error;
 
@@ -74,41 +67,64 @@ export default function AnalyticsReportsPage() {
         }
 
         const total = reviews.length;
-        const approved = reviews.filter(r => r.review_status === 'approved').length;
-        const submitted = reviews.filter(r => ['submitted', 'reviewed', 'approved'].includes(r.review_status)).length;
+        let approvedCount = 0;
+        let submittedCount = 0;
+        let supRatingSum = 0;
+        let supRatingCount = 0;
 
-        const supRatings = reviews.filter(r => r.supervisor_rating).map(r => r.supervisor_rating as number);
-        const avgScore = supRatings.length > 0
-          ? Math.round((supRatings.reduce((a, b) => a + b, 0) / supRatings.length) * 20 * 10) / 10
+        // Single-pass aggregation — compute totals and per-role buckets simultaneously
+        const roleMap: Record<string, {
+          supSum: number; supCount: number;
+          selfSum: number; selfCount: number;
+          subCount: number; appCount: number; total: number;
+        }> = {};
+
+        for (const r of reviews as Array<{
+          review_status: string;
+          supervisor_rating: number | null;
+          self_rating: number | null;
+          staff: { system_role: string | null } | null;
+        }>) {
+          const isApproved = r.review_status === 'approved';
+          const isSubmitted = ['submitted', 'reviewed', 'approved'].includes(r.review_status);
+
+          if (isApproved) approvedCount++;
+          if (isSubmitted) submittedCount++;
+          if (r.supervisor_rating != null) {
+            supRatingSum += r.supervisor_rating;
+            supRatingCount++;
+          }
+
+          const role = r.staff?.system_role || 'unknown';
+          if (role === 'unknown') continue;
+
+          if (!roleMap[role]) {
+            roleMap[role] = { supSum: 0, supCount: 0, selfSum: 0, selfCount: 0, subCount: 0, appCount: 0, total: 0 };
+          }
+          const bucket = roleMap[role];
+          bucket.total++;
+          if (isSubmitted) bucket.subCount++;
+          if (isApproved) bucket.appCount++;
+          if (r.supervisor_rating != null) { bucket.supSum += r.supervisor_rating; bucket.supCount++; }
+          if (r.self_rating != null) { bucket.selfSum += r.self_rating; bucket.selfCount++; }
+        }
+
+        const avgScore = supRatingCount > 0
+          ? Math.round((supRatingSum / supRatingCount) * 20 * 10) / 10
           : 0;
 
-        // Group by role
         const byRole: ReviewSummary['byRole'] = {};
-        reviews.forEach((r: { review_status: string; supervisor_rating: number | null; self_rating: number | null; staff: { system_role: string | null } | null }) => {
-          const role = r.staff?.system_role || 'unknown';
-          if (role === 'unknown') return;
-          if (!byRole[role]) byRole[role] = { avgSup: 0, avgSelf: 0, submissionRate: 0, approvalRate: 0, count: 0 };
-          byRole[role].count++;
-        });
-
-        // Compute per-role averages
-        const byRoleDetailed: ReviewSummary['byRole'] = {};
-        Object.keys(byRole).forEach(role => {
-          const roleReviews = reviews.filter((r: { staff: { system_role: string | null } | null }) => r.staff?.system_role === role);
-          const supR = roleReviews.filter(r => r.supervisor_rating).map(r => r.supervisor_rating as number);
-          const selfR = roleReviews.filter(r => r.self_rating).map(r => r.self_rating as number);
-          const subCount = roleReviews.filter(r => ['submitted', 'reviewed', 'approved'].includes(r.review_status)).length;
-          const appCount = roleReviews.filter(r => r.review_status === 'approved').length;
-          byRoleDetailed[role] = {
-            avgSup: supR.length > 0 ? Math.round((supR.reduce((a, b) => a + b, 0) / supR.length) * 20 * 10) / 10 : 0,
-            avgSelf: selfR.length > 0 ? Math.round((selfR.reduce((a, b) => a + b, 0) / selfR.length) * 20 * 10) / 10 : 0,
-            submissionRate: roleReviews.length > 0 ? Math.round((subCount / roleReviews.length) * 100) : 0,
-            approvalRate: roleReviews.length > 0 ? Math.round((appCount / roleReviews.length) * 100) : 0,
-            count: roleReviews.length,
+        for (const [role, b] of Object.entries(roleMap)) {
+          byRole[role] = {
+            avgSup: b.supCount > 0 ? Math.round((b.supSum / b.supCount) * 20 * 10) / 10 : 0,
+            avgSelf: b.selfCount > 0 ? Math.round((b.selfSum / b.selfCount) * 20 * 10) / 10 : 0,
+            submissionRate: b.total > 0 ? Math.round((b.subCount / b.total) * 100) : 0,
+            approvalRate: b.total > 0 ? Math.round((b.appCount / b.total) * 100) : 0,
+            count: b.total,
           };
-        });
+        }
 
-        setSummary({ total, approved, submitted, avgScore, byRole: byRoleDetailed });
+        setSummary({ total, approved: approvedCount, submitted: submittedCount, avgScore, byRole });
       } catch {
         // silently fail — summary strip will show static fallback
       } finally {

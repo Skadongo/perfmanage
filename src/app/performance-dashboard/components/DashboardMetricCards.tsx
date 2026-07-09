@@ -41,24 +41,15 @@ export default function DashboardMetricCards({
     async function fetchMetrics() {
       const supabase = createClient();
       try {
-        // Build reviews query — scope to staffId if provided
+        // Build all queries upfront
         let reviewsQuery = supabase
           .from('mid_year_reviews')
-          .select('review_status, self_rating, supervisor_rating, overall_supervisor_score, overall_self_score');
+          .select('review_status, supervisor_rating');
 
         if (staffId) {
           reviewsQuery = reviewsQuery.eq('staff_id', staffId);
         }
 
-        const { data: reviews } = await reviewsQuery;
-
-        // Fetch total active staff count
-        const { count: totalStaff } = await supabase
-          .from('staff')
-          .select('id', { count: 'exact', head: true })
-          .eq('employment_status', 'active');
-
-        // Fetch workplans — scope if staffId provided
         let workplansQuery = supabase
           .from('workplan_settings')
           .select('status, workflow_stage');
@@ -67,11 +58,19 @@ export default function DashboardMetricCards({
           workplansQuery = workplansQuery.eq('staff_id', staffId);
         }
 
-        const { data: workplans } = await workplansQuery;
+        // Run all 3 queries in parallel
+        const [reviewsResult, staffCountResult, workplansResult] = await Promise.all([
+          reviewsQuery,
+          supabase
+            .from('staff')
+            .select('id', { count: 'exact', head: true })
+            .eq('employment_status', 'active'),
+          workplansQuery,
+        ]);
 
-        const reviewList = reviews || [];
-        const workplanList = workplans || [];
-        const staffCount = totalStaff ?? 0;
+        const reviewList = reviewsResult.data || [];
+        const workplanList = workplansResult.data || [];
+        const staffCount = staffCountResult.count ?? 0;
 
         const submittedReviews = reviewList.filter(r =>
           ['submitted', 'reviewed', 'approved'].includes(r.review_status)

@@ -77,10 +77,10 @@ export default function EvaluationReviewsPage() {
   const fetchStageCounts = useCallback(async () => {
     setStageLoading(true);
     try {
-      const { data } = await supabase.
-      from('workplan_settings').
-      select('workflow_stage').
-      eq('status', 'signed');
+      const { data } = await supabase
+        .from('workplan_settings')
+        .select('workflow_stage')
+        .eq('status', 'signed');
 
       const counts: WorkflowStageCounts = {
         workplanPending: 0,
@@ -115,13 +115,12 @@ export default function EvaluationReviewsPage() {
     async function fetchSummary() {
       setStatsLoading(true);
       try {
-        const { data, error } = await supabase.
-        from('mid_year_reviews').
-        select(`
+        const { data, error } = await supabase
+          .from('mid_year_reviews')
+          .select(`
             id,
             review_status,
             review_period,
-            review_year,
             self_rating,
             supervisor_rating,
             staff:staff_id (
@@ -170,8 +169,8 @@ export default function EvaluationReviewsPage() {
       }
     }
 
-    fetchSummary();
-    fetchStageCounts();
+    // Run both fetches in parallel
+    Promise.all([fetchSummary(), fetchStageCounts()]);
   }, [fetchStageCounts]);
 
   const totalReviews = reviewsSummary.length;

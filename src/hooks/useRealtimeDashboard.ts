@@ -38,15 +38,16 @@ export function useRealtimeDashboard({
   const [realtimeActive, setRealtimeActive] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const isMounted = useRef(true);
-  // Debounce timer ref to avoid rapid re-fetches on burst DB changes
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Stable client ref — never recreated
+  const supabaseRef = useRef(createClient());
 
   const fetchLiveStats = useCallback(async () => {
-    const supabase = createClient();
+    const supabase = supabaseRef.current;
     try {
       let reviewsQuery = supabase
         .from('mid_year_reviews')
-        .select('review_status, supervisor_rating, staff_id');
+        .select('review_status, supervisor_rating', { count: 'planned' });
 
       if (staffId) {
         reviewsQuery = reviewsQuery.eq('staff_id', staffId);
@@ -118,7 +119,7 @@ export function useRealtimeDashboard({
     isMounted.current = true;
     fetchLiveStats();
 
-    const supabase = createClient();
+    const supabase = supabaseRef.current;
 
     // Channel 1: mid_year_reviews — performance data changes
     const reviewsChannel = supabase
