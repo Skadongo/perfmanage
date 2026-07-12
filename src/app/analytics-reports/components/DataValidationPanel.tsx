@@ -4,6 +4,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import Icon from '@/components/ui/AppIcon';
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 interface StaffRecord {
   id: string;
   full_name: string;
@@ -56,8 +59,6 @@ export default function DataValidationPanel() {
     setLoading(true);
     setError(null);
     try {
-      const supabase = createClient();
-
       const [staffRes, deptRes] = await Promise.all([
         supabase
           .from('staff')

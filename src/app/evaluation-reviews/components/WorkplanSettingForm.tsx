@@ -6,6 +6,9 @@ import { createClient } from '@/lib/supabase/client';
 import PrintAppraisalLayout from './PrintAppraisalLayout';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface StaffOption {
@@ -704,8 +707,6 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
   const [approving, setApproving] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [stageAdvanced, setStageAdvanced] = useState(false);
-
-  const supabase = createClient();
 
   const [form, setForm] = useState<WorkplanFormData>({
     staffId: '',

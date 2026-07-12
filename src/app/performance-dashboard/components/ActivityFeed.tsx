@@ -4,6 +4,9 @@ import React, { useEffect, useState } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 interface ActivityLog {
   id: string;
   activityType: string;
@@ -39,7 +42,6 @@ export default function ActivityFeed() {
   useEffect(() => {
     const fetchActivities = async () => {
       try {
-        const supabase = createClient();
         const { data, error: fetchError } = await supabase
           .from('activity_logs')
           .select('*')
@@ -65,7 +67,7 @@ export default function ActivityFeed() {
         }));
 
         setActivities(mapped);
-      } catch (err: any) {
+      } catch {
         setError('Could not load activity logs.');
       } finally {
         setLoading(false);

@@ -5,6 +5,9 @@ import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ReviewStatus = 'draft' | 'submitted' | 'reviewed' | 'approved' | 'rejected';
@@ -530,7 +533,6 @@ function ReviewCard({ review, onAction }: { review: MidYearReview; onAction: (r:
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function MidYearReviewsPage() {
-  const supabase = createClient();
   const [reviews, setReviews] = useState<MidYearReview[]>([]);
   const [timeline, setTimeline] = useState<ReviewTimeline | null>(null);
   const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -588,7 +590,7 @@ export default function MidYearReviewsPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

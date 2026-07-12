@@ -4,6 +4,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 
+// Stable singleton — avoids re-creating the client on every render/action
+const supabase = createClient();
+
 interface Notification {
   id: string;
   type: string;
@@ -45,11 +48,9 @@ export default function NotificationCenter() {
   const [unreadCount, setUnreadCount] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
   const hasFetched = useRef(false);
-  const channelRef = useRef<ReturnType<typeof createClient> | null>(null);
 
   // Fetch unread count on mount (lightweight — count only)
   useEffect(() => {
-    const supabase = createClient();
     supabase
       .from('notifications')
       .select('id', { count: 'exact', head: true })
@@ -75,8 +76,6 @@ export default function NotificationCenter() {
       )
       .subscribe();
 
-    channelRef.current = supabase;
-
     return () => {
       supabase.removeChannel(channel);
     };
@@ -88,7 +87,6 @@ export default function NotificationCenter() {
     hasFetched.current = true;
     setLoading(true);
     try {
-      const supabase = createClient();
       const { data } = await supabase
         .from('notifications')
         .select('*')
@@ -125,7 +123,6 @@ export default function NotificationCenter() {
   const displayed = filter === 'unread' ? notifications.filter((n) => !n.is_read) : notifications;
 
   async function markAllRead() {
-    const supabase = createClient();
     const unreadIds = notifications.filter((n) => !n.is_read).map((n) => n.id);
     if (unreadIds.length === 0) return;
     await supabase.from('notifications').update({ is_read: true }).in('id', unreadIds);
@@ -134,7 +131,6 @@ export default function NotificationCenter() {
   }
 
   async function markRead(id: string) {
-    const supabase = createClient();
     await supabase.from('notifications').update({ is_read: true }).eq('id', id);
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n));
     setUnreadCount(c => Math.max(0, c - 1));
@@ -160,97 +156,83 @@ export default function NotificationCenter() {
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2">
+              <Icon name="EcsaNotifyIcon" size={16} className="text-primary" />
               <h3 className="text-sm font-700 text-foreground">Notifications</h3>
               {unreadCount > 0 && (
-                <span className="text-[10px] font-700 bg-destructive text-white px-1.5 py-0.5 rounded-full">
-                  {unreadCount} new
+                <span className="text-[10px] font-700 bg-destructive text-white rounded-full px-1.5 py-0.5">
+                  {unreadCount}
                 </span>
               )}
             </div>
             <div className="flex items-center gap-2">
+              <div className="flex rounded-lg border border-border overflow-hidden text-[11px]">
+                <button
+                  onClick={() => setFilter('all')}
+                  className={`px-2.5 py-1 font-600 transition-colors ${filter === 'all' ? 'bg-primary text-white' : 'text-muted-foreground hover:bg-muted'}`}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setFilter('unread')}
+                  className={`px-2.5 py-1 font-600 transition-colors ${filter === 'unread' ? 'bg-primary text-white' : 'text-muted-foreground hover:bg-muted'}`}
+                >
+                  Unread
+                </button>
+              </div>
               {unreadCount > 0 && (
-                <button onClick={markAllRead} className="text-[11px] text-primary font-600 hover:underline">
+                <button
+                  onClick={markAllRead}
+                  className="text-[11px] text-primary font-600 hover:underline whitespace-nowrap"
+                >
                   Mark all read
                 </button>
               )}
-              <button onClick={() => setOpen(false)} className="p-1 rounded-md hover:bg-muted text-muted-foreground">
-                <Icon name="XMarkIcon" size={14} />
-              </button>
             </div>
           </div>
 
-          {/* Filter tabs */}
-          <div className="flex gap-1 px-4 py-2 border-b border-border">
-            {(['all', 'unread'] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`px-3 py-1 text-xs font-600 rounded-lg capitalize transition-colors ${
-                  filter === f ? 'bg-primary text-white' : 'text-muted-foreground hover:bg-muted'
-                }`}
-              >
-                {f} {f === 'unread' && unreadCount > 0 ? `(${unreadCount})` : ''}
-              </button>
-            ))}
-          </div>
-
-          {/* List */}
-          <div className="flex-1 overflow-y-auto scrollbar-thin">
-            {loading ? (
-              <div className="flex items-center justify-center py-10">
-                <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />
-                <span className="text-xs text-muted-foreground">Loading…</span>
-              </div>
-            ) : displayed.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center px-6">
-                <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
-                  <Icon name="BellIcon" size={22} className="text-muted-foreground" />
-                </div>
-                <p className="text-sm font-600 text-foreground">
-                  {filter === 'unread' ? 'All caught up!' : 'No notifications yet'}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {filter === 'unread' ? 'No unread notifications' : 'Alerts will appear here in real-time'}
-                </p>
-              </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {displayed.map((n) => {
-                  const cfg = TYPE_CONFIG[n.type] || TYPE_CONFIG.default;
-                  return (
-                    <button
-                      key={n.id}
-                      onClick={() => markRead(n.id)}
-                      className={`w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-muted/40 transition-colors ${!n.is_read ? 'bg-primary/3' : ''}`}
-                    >
-                      <div className={`w-8 h-8 rounded-lg ${cfg.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
-                        <Icon name={cfg.icon as Parameters<typeof Icon>[0]['name']} size={15} className={cfg.color} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className={`text-xs font-700 text-foreground leading-snug ${!n.is_read ? 'text-primary' : ''}`}>
-                            {n.title}
-                          </p>
-                          {!n.is_read && (
-                            <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1" />
-                          )}
-                        </div>
-                        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed line-clamp-2">{n.message}</p>
-                        <p className="text-[10px] text-muted-foreground/70 mt-1">{timeAgo(n.created_at)}</p>
-                      </div>
-                    </button>
-                  );
-                })}
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto">
+            {loading && (
+              <div className="flex items-center justify-center py-8">
+                <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
               </div>
             )}
-          </div>
 
-          {/* Footer */}
-          <div className="px-4 py-2.5 border-t border-border bg-muted/20 text-center">
-            <p className="text-[10px] text-muted-foreground flex items-center justify-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
-              Real-time updates active
-            </p>
+            {!loading && displayed.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                <Icon name="EcsaNotifyIcon" size={28} className="opacity-20 mb-2" />
+                <p className="text-xs">
+                  {filter === 'unread' ? 'No unread notifications' : 'No notifications yet'}
+                </p>
+              </div>
+            )}
+
+            {!loading && displayed.map((n) => {
+              const cfg = TYPE_CONFIG[n.type] ?? TYPE_CONFIG.default;
+              return (
+                <button
+                  key={n.id}
+                  onClick={() => !n.is_read && markRead(n.id)}
+                  className={`w-full flex items-start gap-3 px-4 py-3 border-b border-border last:border-0 text-left transition-colors hover:bg-muted/40 ${!n.is_read ? 'bg-primary/5' : ''}`}
+                >
+                  <div className={`w-8 h-8 rounded-lg ${cfg.bg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                    <Icon name={cfg.icon as Parameters<typeof Icon>[0]['name']} size={15} className={cfg.color} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-xs font-600 text-foreground leading-snug ${!n.is_read ? 'font-700' : ''}`}>
+                      {n.title}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug line-clamp-2">
+                      {n.message}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground/60 mt-1">{timeAgo(n.created_at)}</p>
+                  </div>
+                  {!n.is_read && (
+                    <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0 mt-1.5" />
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

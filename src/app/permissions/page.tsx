@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
@@ -216,9 +216,10 @@ function RoleCard({ role, permissions, onToggle, saving }: RoleCardProps) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 export default function PermissionsPage() {
-  const supabaseRef = useRef(createClient());
-  const supabase = supabaseRef.current;
   const [permissions, setPermissions] = useState<RolePermission[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -234,7 +235,7 @@ export default function PermissionsPage() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error } = await supabaseRef.current
+      const { data, error } = await supabase
         .from('role_permissions')
         .select('id, role_name, screen_name, can_view, can_create, can_edit, can_delete, can_approve, updated_at')
         .order('role_name')
@@ -253,7 +254,7 @@ export default function PermissionsPage() {
   const handleToggle = useCallback(async (role: StaffRole, screen: string, permKey: string, value: boolean) => {
     setSaving(true);
     try {
-      const { error } = await supabaseRef.current
+      const { error } = await supabase
         .from('role_permissions')
         .update({ [permKey]: value, updated_at: new Date().toISOString() })
         .eq('role_name', role)

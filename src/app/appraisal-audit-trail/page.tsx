@@ -28,6 +28,9 @@ interface AuditRecord {
 type FilterType = 'all' | 'workplan' | 'evaluation';
 type FilterStatus = 'all' | 'draft' | 'submitted' | 'approved' | 'rejected';
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-GB', {
@@ -86,7 +89,7 @@ function getAvatarColor(name: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
-export default function AppraisalAuditTrailPage() {
+export default function AuditTrailPage() {
   const [records, setRecords] = useState<AuditRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,8 +99,6 @@ export default function AppraisalAuditTrailPage() {
   const [filterYear, setFilterYear] = useState<string>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [exporting, setExporting] = useState<'pdf' | 'excel' | null>(null);
-
-  const supabase = createClient();
 
   const fetchAuditTrail = useCallback(async () => {
     setLoading(true);
@@ -115,7 +116,7 @@ export default function AppraisalAuditTrailPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     fetchAuditTrail();

@@ -4,6 +4,9 @@ import React, { useEffect, useState } from 'react';
 import ProgressBar from '@/components/ui/ProgressBar';
 import { createClient } from '@/lib/supabase/client';
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 interface ScorecardRow {
   role: string;
   finance: { score: number };
@@ -70,8 +73,6 @@ export default function BSCScorecardMatrix() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const supabase = createClient();
-
         const { data: reviews, error: err } = await supabase
           .from('mid_year_reviews')
           .select(`

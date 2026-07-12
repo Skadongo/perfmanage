@@ -5,6 +5,9 @@ import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface WorkplanOption {
@@ -189,8 +192,6 @@ function StepIndicator({ steps, active }: { steps: { label: string; icon: string
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SelfAssessmentPage() {
-  const supabase = createClient();
-
   const [activeStep, setActiveStep] = useState(0);
   const [workplans, setWorkplans] = useState<WorkplanOption[]>([]);
   const [loadingWorkplans, setLoadingWorkplans] = useState(true);

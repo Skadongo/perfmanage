@@ -210,6 +210,9 @@ const inputCls = 'w-full text-sm border border-border rounded-lg px-3 py-2 bg-wh
 const selectCls = inputCls + ' cursor-pointer';
 const textareaCls = inputCls + ' resize-none';
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 interface EvaluationFormProps {
@@ -230,8 +233,6 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   // Autosave state
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutosaveStatus>('idle');
   const [draftRecovered, setDraftRecovered] = useState(false);
-
-  const supabase = createClient();
 
   // Fetch staff list and active timeline from Supabase
   useEffect(() => {

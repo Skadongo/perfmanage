@@ -993,8 +993,10 @@ function PerformanceImportTab({ supabase, showToast }: {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 export default function AdminDashboardPage() {
-  const supabase = createClient();
   const { getDisplayName } = useAuth();
 
   const [activeTab, setActiveTab] = useState<Tab>('staff');

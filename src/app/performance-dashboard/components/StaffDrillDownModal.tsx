@@ -6,6 +6,9 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import ProgressBar from '@/components/ui/ProgressBar';
 import { createClient } from '@/lib/supabase/client';
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 export interface DrillDownFilter {
   type: 'metric' | 'bsc-perspective' | 'kpi-trend';
   label: string;
@@ -25,6 +28,16 @@ interface StaffRecord {
   cpdProgress: number;
   lastActivity: string;
   trend: 'up' | 'down' | 'stable';
+}
+
+/** Deterministic score fallback based on staff id — avoids Math.random() */
+function deterministicScore(id: string, min = 40, max = 80): number {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash << 5) - hash + id.charCodeAt(i);
+    hash |= 0;
+  }
+  return min + (Math.abs(hash) % (max - min + 1));
 }
 
 function filterStaff(staffList: StaffRecord[], filter: DrillDownFilter): StaffRecord[] {
@@ -99,7 +112,6 @@ export default function StaffDrillDownModal({ filter, onClose }: Props) {
     setFetchError(null);
 
     async function fetchStaff() {
-      const supabase = createClient();
       try {
         const { data: staffData, error: staffError } = await supabase
           .from('staff')
@@ -133,16 +145,22 @@ export default function StaffDrillDownModal({ filter, onClose }: Props) {
             new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime()
           )[0];
 
-          const reviewStatus = latestReview
-            ? latestReview.review_status === 'approved' || latestReview.review_status === 'submitted' || latestReview.review_status === 'reviewed' ?'Submitted'
+          const reviewStatus: StaffRecord['reviewStatus'] = latestReview
+            ? ['approved', 'submitted', 'reviewed'].includes(latestReview.review_status)
+              ? 'Submitted'
               : latestReview.review_status === 'draft' ?'Pending' :'Overdue' :'Overdue';
 
           const selfRating = latestReview?.self_rating ?? 0;
           const supervisorRating = latestReview?.supervisor_rating ?? 0;
           const ratingUsed = supervisorRating || selfRating;
-          const kpiScore = ratingUsed > 0 ? Math.round((ratingUsed / 5) * 100) : Math.floor(40 + Math.random() * 40);
+          // Use deterministic fallback instead of Math.random() to avoid hydration issues
+          const kpiScore = ratingUsed > 0
+            ? Math.round((ratingUsed / 5) * 100)
+            : deterministicScore(s.id, 40, 79);
 
-          const cpdProgress = reviewStatus === 'Submitted' ? Math.min(100, kpiScore + 10) : Math.max(20, kpiScore - 15);
+          const cpdProgress = reviewStatus === 'Submitted'
+            ? Math.min(100, kpiScore + 10)
+            : Math.max(20, kpiScore - 15);
 
           const lastActivityDate = latestReview?.submitted_at || latestReview?.updated_at;
           let lastActivity = 'No activity';
@@ -248,137 +266,127 @@ export default function StaffDrillDownModal({ filter, onClose }: Props) {
         <div className="grid grid-cols-3 gap-px bg-border border-b border-border">
           <div className="bg-white px-5 py-3 text-center">
             <p className="text-2xl font-700 tabular-nums font-mono text-foreground">{loading ? '…' : filtered.length}</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Staff Members</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Staff in view</p>
           </div>
           <div className="bg-white px-5 py-3 text-center">
-            <p className="text-2xl font-700 tabular-nums font-mono text-foreground">{loading ? '…' : `${avgKPI}%`}</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Avg KPI Score</p>
+            <p className="text-2xl font-700 tabular-nums font-mono text-emerald-600">{loading ? '…' : submittedCount}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Submitted</p>
           </div>
           <div className="bg-white px-5 py-3 text-center">
-            <p className="text-2xl font-700 tabular-nums font-mono text-foreground">
-              {loading ? '…' : (
-                <>
-                  <span className="text-emerald-600">{submittedCount}</span>
-                  <span className="text-muted-foreground text-base font-500"> / </span>
-                  <span className="text-red-500">{overdueCount}</span>
-                </>
-              )}
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">Reviews: Done / Overdue</p>
+            <p className="text-2xl font-700 tabular-nums font-mono text-red-600">{loading ? '…' : overdueCount}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Overdue</p>
           </div>
         </div>
 
         {/* Search */}
-        <div className="px-6 py-3 border-b border-border">
-          <div className="relative">
-            <Icon name="MagnifyingGlassIcon" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <div className="px-6 py-3 border-b border-border bg-muted/20">
+          <div className="relative max-w-sm">
+            <Icon name="MagnifyingGlassIcon" size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search by name, role, or department…"
+              placeholder="Search staff, role, or department…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors"
             />
           </div>
         </div>
 
         {/* Table */}
-        <div className="overflow-auto flex-1">
-          {loading && (
+        <div className="flex-1 overflow-auto">
+          {loading ? (
             <div className="flex items-center justify-center py-16">
               <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
               <span className="ml-3 text-sm text-muted-foreground">Loading staff data…</span>
             </div>
-          )}
-
-          {fetchError && !loading && (
+          ) : fetchError ? (
             <div className="flex items-center justify-center py-16 text-red-500 text-sm gap-2">
-              <Icon name="ExclamationTriangleIcon" size={16} className="text-red-500" />
+              <Icon name="ExclamationTriangleIcon" size={16} />
               {fetchError}
             </div>
-          )}
-
-          {!loading && !fetchError && (
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+              <Icon name="UsersIcon" size={32} className="mb-3 opacity-30" />
+              <p className="text-sm font-500">No staff match this filter</p>
+              <p className="text-xs mt-1">Try adjusting your search or filter criteria</p>
+            </div>
+          ) : (
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-muted/60 backdrop-blur-sm border-b border-border">
+              <thead className="sticky top-0 bg-muted/40 border-b border-border z-10">
                 <tr>
-                  <th className="text-left px-6 py-2.5 text-[11px] font-700 uppercase tracking-wider text-muted-foreground">
+                  <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground">
                     <button onClick={() => handleSort('name')} className="flex items-center hover:text-foreground transition-colors">
                       Staff Member <SortIcon col="name" />
                     </button>
                   </th>
-                  <th className="text-left px-4 py-2.5 text-[11px] font-700 uppercase tracking-wider text-muted-foreground hidden md:table-cell">Department</th>
-                  <th className="text-left px-4 py-2.5 text-[11px] font-700 uppercase tracking-wider text-muted-foreground">
+                  <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">Department</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">
                     <button onClick={() => handleSort('kpiScore')} className="flex items-center hover:text-foreground transition-colors">
                       KPI Score <SortIcon col="kpiScore" />
                     </button>
                   </th>
-                  <th className="text-left px-4 py-2.5 text-[11px] font-700 uppercase tracking-wider text-muted-foreground hidden sm:table-cell">Review</th>
-                  <th className="text-left px-4 py-2.5 text-[11px] font-700 uppercase tracking-wider text-muted-foreground hidden lg:table-cell">
+                  <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">Review Status</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">
                     <button onClick={() => handleSort('cpdProgress')} className="flex items-center hover:text-foreground transition-colors">
-                      CPD <SortIcon col="cpdProgress" />
+                      CPD Progress <SortIcon col="cpdProgress" />
                     </button>
                   </th>
-                  <th className="text-left px-4 py-2.5 text-[11px] font-700 uppercase tracking-wider text-muted-foreground hidden lg:table-cell">Trend</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">Last Activity</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">Trend</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
-                {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center text-muted-foreground text-sm">
-                      No staff members match your search.
-                    </td>
-                  </tr>
-                ) : (
-                  filtered.map((s) => {
-                    const trendInfo = getTrendIcon(s.trend);
-                    return (
-                      <tr key={s.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-6 py-3">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                              <span className="text-xs font-700 text-primary">{s.name.split(' ').map((n) => n[0]).slice(0, 2).join('')}</span>
-                            </div>
-                            <div>
-                              <p className="font-600 text-foreground text-sm leading-tight">{s.name}</p>
-                              <p className="text-[11px] text-muted-foreground">{s.role}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 hidden md:table-cell">
-                          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-md">{s.department}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-col gap-1 min-w-[80px]">
-                            <span className={`text-sm font-700 tabular-nums font-mono ${s.kpiScore >= 75 ? 'text-emerald-600' : s.kpiScore >= 60 ? 'text-amber-600' : 'text-red-600'}`}>
-                              {s.kpiScore}%
+              <tbody>
+                {filtered.map((staff, idx) => {
+                  const trendInfo = getTrendIcon(staff.trend);
+                  return (
+                    <tr
+                      key={staff.id}
+                      className={`border-b border-border last:border-0 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-muted/10'} hover:bg-primary/5`}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <span className="text-primary text-[10px] font-700">
+                              {staff.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                             </span>
-                            <ProgressBar
-                              value={s.kpiScore}
-                              colorClass={s.kpiScore >= 75 ? 'bg-emerald-500' : s.kpiScore >= 60 ? 'bg-amber-400' : 'bg-red-500'}
-                              height="h-1"
-                            />
                           </div>
-                        </td>
-                        <td className="px-4 py-3 hidden sm:table-cell">
-                          <StatusBadge status={getReviewBadge(s.reviewStatus) as 'success' | 'warning' | 'error'} label={s.reviewStatus} />
-                        </td>
-                        <td className="px-4 py-3 hidden lg:table-cell">
-                          <div className="flex flex-col gap-1 min-w-[60px]">
-                            <span className="text-xs font-600 tabular-nums text-foreground">{s.cpdProgress}%</span>
-                            <ProgressBar value={s.cpdProgress} colorClass="bg-violet-500" height="h-1" />
+                          <div>
+                            <p className="font-600 text-foreground text-xs whitespace-nowrap">{staff.name}</p>
+                            <p className="text-[10px] text-muted-foreground">{staff.role}</p>
                           </div>
-                        </td>
-                        <td className="px-4 py-3 hidden lg:table-cell">
-                          <div className="flex items-center gap-1">
-                            <Icon name={trendInfo.icon} size={14} className={trendInfo.cls} />
-                            <span className={`text-[11px] font-500 capitalize ${trendInfo.cls}`}>{s.trend}</span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{staff.department}</td>
+                      <td className="px-4 py-3 min-w-[120px]">
+                        <div className="flex items-center gap-2">
+                          <ProgressBar
+                            value={staff.kpiScore}
+                            colorClass={staff.kpiScore >= 70 ? 'bg-emerald-500' : staff.kpiScore >= 55 ? 'bg-amber-500' : 'bg-red-500'}
+                            height="h-1.5"
+                          />
+                          <span className="text-xs font-700 tabular-nums font-mono text-foreground whitespace-nowrap">{staff.kpiScore}%</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={getReviewBadge(staff.reviewStatus) as any} label={staff.reviewStatus} />
+                      </td>
+                      <td className="px-4 py-3 min-w-[120px]">
+                        <div className="flex items-center gap-2">
+                          <ProgressBar
+                            value={staff.cpdProgress}
+                            colorClass={staff.cpdProgress >= 80 ? 'bg-violet-500' : 'bg-sky-400'}
+                            height="h-1.5"
+                          />
+                          <span className="text-xs font-700 tabular-nums font-mono text-foreground whitespace-nowrap">{staff.cpdProgress}%</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{staff.lastActivity}</td>
+                      <td className="px-4 py-3">
+                        <Icon name={trendInfo.icon} size={16} className={trendInfo.cls} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -387,11 +395,11 @@ export default function StaffDrillDownModal({ filter, onClose }: Props) {
         {/* Footer */}
         <div className="px-6 py-3 border-t border-border bg-muted/20 flex items-center justify-between">
           <p className="text-[11px] text-muted-foreground">
-            {loading ? 'Loading…' : `Showing ${filtered.length} of ${staffList.length} staff · Q1 2026`}
+            Showing <span className="font-600 text-foreground">{filtered.length}</span> of <span className="font-600 text-foreground">{allStaff.length}</span> staff · Avg KPI: <span className="font-700 tabular-nums font-mono text-foreground">{avgKPI}%</span>
           </p>
           <button
             onClick={onClose}
-            className="text-xs font-600 text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg hover:bg-muted transition-colors"
+            className="px-4 py-1.5 text-xs font-600 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
           >
             Close
           </button>

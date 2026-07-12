@@ -14,6 +14,9 @@ import type { DrillDownFilter } from './StaffDrillDownModal';
 import { createClient } from '@/lib/supabase/client';
 import Icon from '@/components/ui/AppIcon';
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 interface TrendPoint {
   month: string;
   onTrack: number;
@@ -77,7 +80,6 @@ export default function KPITrendChart({ onPointClick }: Props) {
 
   useEffect(() => {
     async function fetchTrendData() {
-      const supabase = createClient();
       try {
         const { data: reviews } = await supabase
           .from('mid_year_reviews')

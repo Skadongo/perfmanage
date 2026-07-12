@@ -6,6 +6,9 @@ import ProgressBar from '@/components/ui/ProgressBar';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 interface KPIStaffDrillDownProps {
   metric: {
     id: string;
@@ -64,7 +67,6 @@ export default function KPIStaffDrillDown({ metric, onClose }: KPIStaffDrillDown
   useEffect(() => {
     if (!metric) return;
     setLoading(true);
-    const supabase = createClient();
 
     async function fetchStaff() {
       try {

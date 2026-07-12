@@ -6,6 +6,9 @@ import ProgressBar from '@/components/ui/ProgressBar';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 
+// Stable singleton — avoids re-creating the client on every render
+const supabase = createClient();
+
 interface AtRiskStaffRecord {
   id: string;
   name: string;
@@ -28,46 +31,22 @@ export default function AtRiskStaffTable() {
 
   useEffect(() => {
     async function fetchAtRiskStaff() {
-      const supabase = createClient();
       try {
-        // Fetch mid_year_reviews with staff and department info
-        const { data: reviews, error: reviewsError } = await supabase
-          .from('mid_year_reviews')
-          .select(`
-            id,
-            review_status,
-            self_rating,
-            supervisor_rating,
-            submitted_at,
-            review_year,
-            staff:staff_id (
-              id,
-              full_name,
-              job_title,
-              supervisor_name,
-              departments:department_id (
-                name
-              )
-            )
-          `)
-          .in('review_status', ['draft', 'submitted', 'rejected'])
-          .order('created_at', { ascending: false });
-
-        if (reviewsError) {
-          setError('Failed to load staff data');
-          return;
-        }
-
-        // Also fetch staff with no reviews at all (draft/missing)
-        const { data: allStaff, error: staffError } = await supabase
+        // Single query: fetch active staff with their reviews via left join.
+        // This replaces the previous two-query pattern (reviews + all staff).
+        const { data: staffData, error: staffError } = await supabase
           .from('staff')
           .select(`
             id,
             full_name,
             job_title,
             supervisor_name,
-            departments:department_id (
-              name
+            departments:department_id ( name ),
+            reviews:mid_year_reviews (
+              id,
+              review_status,
+              self_rating,
+              review_year
             )
           `)
           .eq('employment_status', 'active')
@@ -78,54 +57,56 @@ export default function AtRiskStaffTable() {
           return;
         }
 
-        const reviewedStaffIds = new Set(
-          (reviews || []).map((r: any) => r.staff?.id).filter(Boolean)
-        );
-
         const records: AtRiskStaffRecord[] = [];
 
-        // Process reviews with at-risk/overdue status
-        (reviews || []).forEach((review: any) => {
-          const staff = review.staff;
-          if (!staff) return;
-
+        (staffData || []).forEach((staff: any) => {
           const deptName = staff.departments?.name || 'General';
-          const isOverdue = review.review_status === 'draft' || review.review_status === 'rejected';
-          const selfRating = review.self_rating ?? 3;
-          const progress = Math.min(100, Math.round((selfRating / 5) * 100));
+          const reviews: any[] = staff.reviews || [];
 
-          records.push({
-            id: review.id,
-            name: staff.full_name,
-            role: staff.job_title,
-            perspective: deptName,
-            kpi: isOverdue ? 'Mid-Year Review Submission' : 'Performance Review',
-            current: isOverdue ? 'Not submitted' : `Rating: ${selfRating}/5`,
-            target: 'Submitted & Approved',
-            progress: isOverdue ? 20 : progress,
-            status: isOverdue ? 'overdue' : 'at-risk',
-            dueDate: review.review_year ? `30 Jun ${review.review_year}` : '30 Jun 2026',
-            supervisor: staff.supervisor_name || 'Not assigned',
-          });
-        });
+          // Find the most recent non-approved review (at-risk / overdue)
+          const atRiskReview = reviews.find((r) =>
+            ['draft', 'submitted', 'rejected'].includes(r.review_status)
+          );
 
-        // Add active staff with no review records as overdue
-        (allStaff || []).forEach((staff: any) => {
-          if (reviewedStaffIds.has(staff.id)) return;
-          const deptName = staff.departments?.name || 'General';
-          records.push({
-            id: `no-review-${staff.id}`,
-            name: staff.full_name,
-            role: staff.job_title,
-            perspective: deptName,
-            kpi: 'Mid-Year Review Submission',
-            current: 'No review started',
-            target: 'Submitted & Approved',
-            progress: 0,
-            status: 'overdue',
-            dueDate: '30 Jun 2026',
-            supervisor: staff.supervisor_name || 'Not assigned',
-          });
+          if (atRiskReview) {
+            const isOverdue =
+              atRiskReview.review_status === 'draft' ||
+              atRiskReview.review_status === 'rejected';
+            const selfRating = atRiskReview.self_rating ?? 3;
+            const progress = Math.min(100, Math.round((selfRating / 5) * 100));
+
+            records.push({
+              id: atRiskReview.id,
+              name: staff.full_name,
+              role: staff.job_title,
+              perspective: deptName,
+              kpi: isOverdue ? 'Mid-Year Review Submission' : 'Performance Review',
+              current: isOverdue ? 'Not submitted' : `Rating: ${selfRating}/5`,
+              target: 'Submitted & Approved',
+              progress: isOverdue ? 20 : progress,
+              status: isOverdue ? 'overdue' : 'at-risk',
+              dueDate: atRiskReview.review_year
+                ? `30 Jun ${atRiskReview.review_year}`
+                : '30 Jun 2026',
+              supervisor: staff.supervisor_name || 'Not assigned',
+            });
+          } else if (reviews.length === 0) {
+            // No review at all — overdue
+            records.push({
+              id: `no-review-${staff.id}`,
+              name: staff.full_name,
+              role: staff.job_title,
+              perspective: deptName,
+              kpi: 'Mid-Year Review Submission',
+              current: 'No review started',
+              target: 'Submitted & Approved',
+              progress: 0,
+              status: 'overdue',
+              dueDate: '30 Jun 2026',
+              supervisor: staff.supervisor_name || 'Not assigned',
+            });
+          }
+          // Staff with only approved reviews are not at-risk — skip them
         });
 
         // Sort: overdue first, then at-risk; limit to 10

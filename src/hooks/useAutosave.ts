@@ -29,6 +29,7 @@ export function useAutosave({
   debounceMs = 3000,
 }: UseAutosaveOptions) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Stable client — never recreated across renders
   const supabaseRef = useRef(createClient());
 
   const saveDraft = useCallback(
@@ -37,71 +38,33 @@ export function useAutosave({
       if (!silent) onStatusChange('saving');
       try {
         const supabase = supabaseRef.current;
+        const payload = {
+          staff_id: staffId,
+          workplan_id: workplanId ?? null,
+          draft_type: draftType,
+          review_period: reviewPeriod,
+          form_data: formData,
+          active_step: activeStep,
+          last_saved_at: new Date().toISOString(),
+        };
 
-        if (workplanId) {
-          // Has a real workplan ID — upsert with workplan_id
-          const { error } = await supabase.from('appraisal_drafts').upsert(
-            {
-              staff_id: staffId,
-              workplan_id: workplanId,
-              draft_type: draftType,
-              review_period: reviewPeriod,
-              form_data: formData,
-              active_step: activeStep,
-              last_saved_at: new Date().toISOString(),
-            },
-            { onConflict: 'staff_id,workplan_id,draft_type,review_period' }
-          );
-          if (!error) {
-            onStatusChange('saved');
-            setTimeout(() => onStatusChange('idle'), 3000);
-          } else {
-            console.error('Autosave error (with workplan):', error.message);
-            onStatusChange('error');
-          }
+        // Single upsert regardless of whether workplan_id is set.
+        // The DB migration 20260709210000 added a partial unique index
+        // (staff_id, draft_type, review_period) WHERE workplan_id IS NULL,
+        // so both conflict paths are handled by one round-trip.
+        const conflictKey = workplanId
+          ? 'staff_id,workplan_id,draft_type,review_period' :'staff_id,draft_type,review_period';
+
+        const { error } = await supabase
+          .from('appraisal_drafts')
+          .upsert(payload, { onConflict: conflictKey });
+
+        if (!error) {
+          onStatusChange('saved');
+          setTimeout(() => onStatusChange('idle'), 3000);
         } else {
-          // No real workplan ID yet (new workplan form) — use staff_id-only draft
-          // First try to update an existing draft row
-          const { data: existing } = await supabase
-            .from('appraisal_drafts')
-            .select('id')
-            .eq('staff_id', staffId)
-            .eq('draft_type', draftType)
-            .eq('review_period', reviewPeriod)
-            .is('workplan_id', null)
-            .maybeSingle();
-
-          let error: any = null;
-          if (existing?.id) {
-            const res = await supabase
-              .from('appraisal_drafts')
-              .update({
-                form_data: formData,
-                active_step: activeStep,
-                last_saved_at: new Date().toISOString(),
-              })
-              .eq('id', existing.id);
-            error = res.error;
-          } else {
-            const res = await supabase.from('appraisal_drafts').insert({
-              staff_id: staffId,
-              workplan_id: null,
-              draft_type: draftType,
-              review_period: reviewPeriod,
-              form_data: formData,
-              active_step: activeStep,
-              last_saved_at: new Date().toISOString(),
-            });
-            error = res.error;
-          }
-
-          if (!error) {
-            onStatusChange('saved');
-            setTimeout(() => onStatusChange('idle'), 3000);
-          } else {
-            console.error('Autosave error (no workplan):', error.message);
-            onStatusChange('error');
-          }
+          console.error('Autosave error:', error.message);
+          onStatusChange('error');
         }
       } catch (err) {
         console.error('Autosave exception:', err);

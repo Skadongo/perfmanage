@@ -6,6 +6,9 @@ import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { ROLE_HIERARCHY } from '@/contexts/AuthContext';
 
+// Stable singleton — avoids re-creating the client on every render/action
+const supabase = createClient();
+
 interface Department {
   id: string;
   name: string;
@@ -161,7 +164,6 @@ function CreateStaffModal({ departments, allStaff, onClose, onCreated }: CreateS
     setSaving(true);
     setError(null);
     try {
-      const supabase = createClient();
       const payload: Record<string, unknown> = {
         full_name: form.full_name.trim(),
         job_title: form.job_title.trim(),
@@ -389,7 +391,6 @@ function EditStaffModal({ staff, departments, allStaff, onClose, onUpdated }: Ed
     setSaving(true);
     setError(null);
     try {
-      const supabase = createClient();
       const payload: Record<string, unknown> = {
         full_name: form.full_name.trim(),
         job_title: form.job_title.trim(),
@@ -608,7 +609,6 @@ function ManageAccessModal({ staff, onClose, onUpdated, showToast }: ManageAcces
     setSavingRole(true);
     setError(null);
     try {
-      const supabase = createClient();
       const roleEntry = SYSTEM_ROLES.find((r) => r.value === selectedRole);
       const roleValue = roleEntry?.role ?? 'staff';
 
@@ -659,7 +659,6 @@ function ManageAccessModal({ staff, onClose, onUpdated, showToast }: ManageAcces
     setSavingPassword(true);
     setError(null);
     try {
-      const supabase = createClient();
       const { data, error: rpcError } = await supabase.rpc('admin_reset_staff_password', {
         p_email: staff.email,
         p_new_password: newPassword,
@@ -861,7 +860,6 @@ function RemoveFromDeptModal({ staff, onClose, onRemoved }: RemoveFromDeptModalP
     setRemoving(true);
     setError(null);
     try {
-      const supabase = createClient();
       const { data, error: updateError } = await supabase
         .from('staff')
         .update({ department_id: null })
@@ -1237,7 +1235,6 @@ export default function StaffManagementPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const supabase = createClient();
         const [deptRes, staffRes] = await Promise.all([
           supabase.from('departments').select('*').order('name'),
           supabase
