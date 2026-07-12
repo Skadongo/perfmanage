@@ -94,9 +94,9 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
             <Image
               src="/assets/images/ecsahc_web_logo1-1-1774467575072.png"
               alt="ECSA-HC Logo"
-              width={48}
-              height={48}
-              className="object-contain h-10 w-auto"
+              width={72}
+              height={72}
+              className="object-contain h-14 w-auto"
               priority
             />
             <div className="hidden sm:flex flex-col leading-tight">
