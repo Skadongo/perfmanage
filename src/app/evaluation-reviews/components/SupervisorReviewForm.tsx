@@ -6,9 +6,6 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 
-// Stable singleton — avoids re-creating the client on every render
-const supabase = createClient();
-
 interface SubmittedReview {
   id: string;
   staffName: string;
@@ -57,6 +54,8 @@ export default function SupervisorReviewForm() {
   const [formStates, setFormStates] = useState<Record<string, ReviewFormState>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [actionType, setActionType] = useState<Record<string, 'approve' | 'reject' | null>>({});
+
+  const supabase = createClient();
 
   const fetchSubmittedReviews = useCallback(async () => {
     setLoading(true);

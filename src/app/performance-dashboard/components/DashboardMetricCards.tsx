@@ -6,9 +6,6 @@ import ProgressBar from '@/components/ui/ProgressBar';
 import type { DrillDownFilter } from './StaffDrillDownModal';
 import { createClient } from '@/lib/supabase/client';
 
-// Stable singleton — avoids re-creating the client on every render
-const supabase = createClient();
-
 interface MetricData {
   kpiAchievementRate: number | null;
   reviewCompletionRate: number | null;
@@ -42,6 +39,7 @@ export default function DashboardMetricCards({
 
   useEffect(() => {
     async function fetchMetrics() {
+      const supabase = createClient();
       try {
         // Build all queries upfront
         let reviewsQuery = supabase

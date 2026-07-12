@@ -15,9 +15,6 @@ import { Toaster, toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import RoleGuard from '@/components/RoleGuard';
 
-// Stable singleton — avoids re-creating the client on every render
-const supabase = createClient();
-
 const TABS = [
   { id: 'overview', label: 'Overview', icon: 'EcsaPerformanceIcon' },
   { id: 'frameworks', label: 'External Frameworks', icon: 'EcsaFrameworkIcon' },
@@ -57,6 +54,7 @@ export default function AnalyticsReportsPage() {
   useEffect(() => {
     async function fetchSummary() {
       try {
+        const supabase = createClient();
         const { data: reviews, error } = await supabase
           .from('mid_year_reviews')
           .select('review_status, supervisor_rating, self_rating, staff:staff_id(system_role)');

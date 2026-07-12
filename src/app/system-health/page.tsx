@@ -10,9 +10,6 @@ import {
   Tooltip, ResponsiveContainer, BarChart, Bar,
 } from 'recharts';
 
-// Stable singleton — avoids re-creating the client on every render
-const supabase = createClient();
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface QueryMetric {
@@ -92,6 +89,8 @@ const MAX_HISTORY = 30;
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function SystemHealthPage() {
+  const supabaseRef = useRef(createClient());
+
   const [queryHistory, setQueryHistory] = useState<QueryMetric[]>([]);
   const [authHistory, setAuthHistory] = useState<AuthMetric[]>([]);
   const [dbLoadHistory, setDbLoadHistory] = useState<DbLoadSample[]>([]);
@@ -107,6 +106,7 @@ export default function SystemHealthPage() {
 
   // ── Probe: measure a single query latency ──────────────────────────────────
   const probeQuery = useCallback(async (): Promise<QueryMetric> => {
+    const supabase = supabaseRef.current;
     const start = performance.now();
     let success = true;
     try {
@@ -126,6 +126,7 @@ export default function SystemHealthPage() {
 
   // ── Probe: measure auth session latency ───────────────────────────────────
   const probeAuth = useCallback(async (): Promise<AuthMetric> => {
+    const supabase = supabaseRef.current;
     const start = performance.now();
     try {
       await supabase.auth.getSession();
@@ -141,6 +142,7 @@ export default function SystemHealthPage() {
 
   // ── Probe: simulate DB load via parallel queries ───────────────────────────
   const probeDbLoad = useCallback(async (): Promise<DbLoadSample> => {
+    const supabase = supabaseRef.current;
     const queries = [
       supabase.from('staff').select('id', { count: 'exact', head: true }),
       supabase.from('mid_year_reviews').select('id', { count: 'exact', head: true }),
@@ -207,6 +209,7 @@ export default function SystemHealthPage() {
   // ── Setup realtime subscriptions to monitor ────────────────────────────────
   useEffect(() => {
     isMounted.current = true;
+    const supabase = supabaseRef.current;
 
     const MONITORED: Array<{ channel: string; table: string }> = [
       { channel: 'health-monitor-reviews', table: 'mid_year_reviews' },

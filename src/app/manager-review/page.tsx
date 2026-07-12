@@ -5,9 +5,6 @@ import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 
-// Stable singleton — avoids re-creating the client on every render
-const supabase = createClient();
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ReviewStatus = 'draft' | 'submitted' | 'reviewed' | 'approved' | 'rejected';
@@ -647,6 +644,8 @@ function ReviewDetailModal({ review, onClose, onSave }: ReviewDetailModalProps) 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ManagerReviewPage() {
+  const supabase = createClient();
+
   const [reviews, setReviews] = useState<SelfAssessmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReview, setSelectedReview] = useState<SelfAssessmentRecord | null>(null);

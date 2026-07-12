@@ -10,9 +10,6 @@ import EvaluationComparisonModal from './EvaluationComparisonModal';
 import { exportToCSV, exportToPDF, exportAppraisalPDF } from './ExportUtils';
 import { createClient } from '@/lib/supabase/client';
 
-// Stable singleton — avoids re-creating the client on every render
-const supabase = createClient();
-
 // ── Types ──────────────────────────────────────────────────────────────────────
 type ReviewStatus = 'pending' | 'in-progress' | 'submitted' | 'approved' | 'overdue' | 'draft' | 'reviewed' | 'rejected';
 type KpiStatus = 'achieved' | 'on-track' | 'at-risk' | 'overdue' | 'in-progress';
@@ -97,6 +94,7 @@ export default function ReviewTable() {
       setLoading(true);
       setError(null);
       try {
+        const supabase = createClient();
         const { data, error: fetchError } = await supabase
           .from('mid_year_reviews')
           .select(`
@@ -208,6 +206,7 @@ export default function ReviewTable() {
 
   const handleApprove = async (id: string) => {
     try {
+      const supabase = createClient();
       const { error: updateError } = await supabase
         .from('mid_year_reviews')
         .update({ review_status: 'approved', approved_at: new Date().toISOString() })
@@ -236,6 +235,7 @@ export default function ReviewTable() {
       })
     );
     // Re-fetch reviews to get updated statuses
+    const supabase = createClient();
     supabase
       .from('mid_year_reviews')
       .select(`

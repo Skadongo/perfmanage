@@ -13,9 +13,6 @@ import {
 } from 'recharts';
 import { createClient } from '@/lib/supabase/client';
 
-// Stable singleton — avoids re-creating the client on every render
-const supabase = createClient();
-
 interface KPIDataPoint {
   period: string;
   avgSupervisorRating: number;
@@ -51,6 +48,7 @@ export default function KPIYearOnYearChart() {
   useEffect(() => {
     async function fetchData() {
       try {
+        const supabase = createClient();
         const { data: reviews, error: err } = await supabase
           .from('mid_year_reviews')
           .select('review_year, review_period, supervisor_rating, self_rating, review_status')

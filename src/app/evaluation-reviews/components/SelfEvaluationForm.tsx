@@ -5,9 +5,6 @@ import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
 
-// Stable singleton — avoids re-creating the client on every render
-const supabase = createClient();
-
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface WorkplanOption {
@@ -156,6 +153,8 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
   const [approving, setApproving] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [stageAdvanced, setStageAdvanced] = useState(false);
+
+  const supabase = createClient();
 
   const periodLabel = reviewPeriod === 'mid-year' ? 'Mid-Year' : 'End-Year';
   const periodColor = reviewPeriod === 'mid-year' ? 'bg-sky-600' : 'bg-violet-600';
