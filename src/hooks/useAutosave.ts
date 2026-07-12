@@ -48,47 +48,16 @@ export function useAutosave({
           last_saved_at: new Date().toISOString(),
         };
 
-        // Manual upsert: find existing draft then insert or update.
-        // This avoids the PostgREST onConflict column-string limitation which
-        // cannot resolve partial/functional indexes and throws:
-        // "there is no unique or exclusion constraint matching the ON CONFLICT specification"
-        let existingId: string | null = null;
-        {
-          let q = supabase
-            .from('appraisal_drafts')
-            .select('id')
-            .eq('staff_id', staffId)
-            .eq('draft_type', draftType)
-            .eq('review_period', reviewPeriod);
+        // Single upsert regardless of whether workplan_id is set.
+        // The DB migration 20260709210000 added a partial unique index
+        // (staff_id, draft_type, review_period) WHERE workplan_id IS NULL,
+        // so both conflict paths are handled by one round-trip.
+        const conflictKey = workplanId
+          ? 'staff_id,workplan_id,draft_type,review_period' :'staff_id,draft_type,review_period';
 
-          if (workplanId) {
-            q = q.eq('workplan_id', workplanId);
-          } else {
-            q = q.is('workplan_id', null);
-          }
-
-          const { data } = await q.maybeSingle();
-          existingId = data?.id ?? null;
-        }
-
-        let error: { message: string } | null = null;
-
-        if (existingId) {
-          const { error: updateError } = await supabase
-            .from('appraisal_drafts')
-            .update({
-              form_data: payload.form_data,
-              active_step: payload.active_step,
-              last_saved_at: payload.last_saved_at,
-            })
-            .eq('id', existingId);
-          error = updateError;
-        } else {
-          const { error: insertError } = await supabase
-            .from('appraisal_drafts')
-            .insert(payload);
-          error = insertError;
-        }
+        const { error } = await supabase
+          .from('appraisal_drafts')
+          .upsert(payload, { onConflict: conflictKey });
 
         if (!error) {
           onStatusChange('saved');
