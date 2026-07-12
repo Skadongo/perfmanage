@@ -77,14 +77,14 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       <div className={`flex items-center border-b border-border h-[60px] px-3 ${collapsed ? 'justify-center' : 'justify-between'}`}>
         {!collapsed &&
         <div className="flex items-center gap-2 min-w-0">
-            <AppLogo size={32} />
+            <AppLogo size={48} />
             <span className="font-sans font-700 text-sm text-foreground truncate leading-tight">
               ECSA-HC
               <span className="block text-[10px] font-400 text-muted-foreground">PMS</span>
             </span>
           </div>
         }
-        {collapsed && <AppLogo size={32} />}
+        {collapsed && <AppLogo size={48} />}
         {!collapsed &&
         <button
           onClick={onToggle}
