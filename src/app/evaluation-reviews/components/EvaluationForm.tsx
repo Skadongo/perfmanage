@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
@@ -231,10 +231,12 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutosaveStatus>('idle');
   const [draftRecovered, setDraftRecovered] = useState(false);
 
-  const supabase = createClient();
+  // Stable supabase client ref
+  const supabaseRef = useRef(createClient());
 
   // Fetch staff list and active timeline from Supabase
   useEffect(() => {
+    const supabase = supabaseRef.current;
     async function loadData() {
       setStaffLoading(true);
       try {
@@ -640,7 +642,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
         payload.timeline_id = activeTimeline.id;
       }
 
-      const { error } = await supabase.from('mid_year_reviews').insert(payload);
+      const { error } = await supabaseRef.current.from('mid_year_reviews').insert(payload);
 
       if (error) {
         console.log('Supabase insert error:', error.message);
@@ -655,7 +657,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
       }
 
       // ── Activity log ──
-      await supabase.from('activity_logs').insert({
+      await supabaseRef.current.from('activity_logs').insert({
         activity_type: 'evaluation_submitted',
         actor_name: form.staffName || 'Staff Member',
         action_description: `submitted ${form.reviewType} evaluation`,

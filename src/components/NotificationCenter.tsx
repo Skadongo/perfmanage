@@ -45,18 +45,48 @@ export default function NotificationCenter() {
   const [unreadCount, setUnreadCount] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
   const hasFetched = useRef(false);
-  const channelRef = useRef<ReturnType<typeof createClient> | null>(null);
+  // Stable supabase client — never recreated
+  const supabaseRef = useRef(createClient());
+  // Current user's staff_id — resolved once on mount
+  const staffIdRef = useRef<string | null>(null);
 
-  // Fetch unread count on mount (lightweight — count only)
+  // Resolve current user's staff_id on mount
   useEffect(() => {
-    const supabase = createClient();
-    supabase
-      .from('notifications')
-      .select('id', { count: 'exact', head: true })
-      .eq('is_read', false)
-      .then(({ count }) => {
+    const supabase = supabaseRef.current;
+
+    async function resolveStaffId() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('staff_id')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      staffIdRef.current = profile?.staff_id ?? null;
+
+      // Fetch unread count once staff_id is known
+      if (staffIdRef.current) {
+        let query = supabase
+          .from('notifications')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_read', false)
+          .eq('recipient_staff_id', staffIdRef.current);
+
+        const { count } = await query;
         if (count != null) setUnreadCount(count);
-      });
+      } else {
+        // Fallback: HR/Director — fetch all unread
+        const { count } = await supabase
+          .from('notifications')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_read', false);
+        if (count != null) setUnreadCount(count);
+      }
+    }
+
+    resolveStaffId();
 
     // Subscribe to new notifications for badge count only
     const channel = supabase
@@ -65,17 +95,18 @@ export default function NotificationCenter() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'notifications' },
         (payload) => {
-          setUnreadCount(c => c + 1);
-          // If panel is open, prepend to list
-          setNotifications(prev => {
-            if (prev.length === 0 && !hasFetched.current) return prev;
-            return [payload.new as Notification, ...prev].slice(0, 20);
-          });
+          const newNotif = payload.new as Notification & { recipient_staff_id?: string };
+          // Only increment badge if this notification is for the current user
+          if (!staffIdRef.current || newNotif.recipient_staff_id === staffIdRef.current) {
+            setUnreadCount(c => c + 1);
+            setNotifications(prev => {
+              if (prev.length === 0 && !hasFetched.current) return prev;
+              return [payload.new as Notification, ...prev].slice(0, 20);
+            });
+          }
         }
       )
       .subscribe();
-
-    channelRef.current = supabase;
 
     return () => {
       supabase.removeChannel(channel);
@@ -88,12 +119,19 @@ export default function NotificationCenter() {
     hasFetched.current = true;
     setLoading(true);
     try {
-      const supabase = createClient();
-      const { data } = await supabase
+      const supabase = supabaseRef.current;
+      let query = supabase
         .from('notifications')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(20);
+
+      // Scope to current user's staff_id if available
+      if (staffIdRef.current) {
+        query = query.eq('recipient_staff_id', staffIdRef.current);
+      }
+
+      const { data } = await query;
       setNotifications(data || []);
       const unread = (data || []).filter((n: Notification) => !n.is_read).length;
       setUnreadCount(unread);
@@ -125,7 +163,7 @@ export default function NotificationCenter() {
   const displayed = filter === 'unread' ? notifications.filter((n) => !n.is_read) : notifications;
 
   async function markAllRead() {
-    const supabase = createClient();
+    const supabase = supabaseRef.current;
     const unreadIds = notifications.filter((n) => !n.is_read).map((n) => n.id);
     if (unreadIds.length === 0) return;
     await supabase.from('notifications').update({ is_read: true }).in('id', unreadIds);
@@ -134,7 +172,7 @@ export default function NotificationCenter() {
   }
 
   async function markRead(id: string) {
-    const supabase = createClient();
+    const supabase = supabaseRef.current;
     await supabase.from('notifications').update({ is_read: true }).eq('id', id);
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, is_read: true } : n));
     setUnreadCount(c => Math.max(0, c - 1));

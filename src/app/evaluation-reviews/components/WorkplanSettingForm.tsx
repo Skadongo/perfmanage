@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import PrintAppraisalLayout from './PrintAppraisalLayout';
@@ -716,7 +716,8 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [stageAdvanced, setStageAdvanced] = useState(false);
 
-  const supabase = createClient();
+  // Stable supabase client ref
+  const supabaseRef = useRef(createClient());
   // ── Auth context: lock staff field to logged-in user ─────────────────────
   const { profile } = useAuth();
   const isManagerOrAbove = profile
@@ -795,7 +796,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     async function loadStaff() {
       setStaffLoading(true);
       try {
-        const { data } = await supabase
+        const { data } = await supabaseRef.current
           .from('staff')
           .select('id, full_name, job_title, supervisor_id, supervisor_name')
           .eq('employment_status', 'active')
@@ -831,7 +832,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     if (!ownRecord && profile.email) {
       const emailLower = profile.email.toLowerCase();
       // We need email from the staff table — re-query for this user only
-      supabase
+      supabaseRef.current
         .from('staff')
         .select('id, full_name, job_title, supervisor_id, supervisor_name')
         .eq('email', profile.email)
@@ -1020,7 +1021,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     }
 
     // Ensure unauthenticated users cannot submit (Measure 4 — belt-and-suspenders)
-    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    const { data: { user: currentUser } } = await supabaseRef.current.auth.getUser();
     if (!currentUser) {
       setSaveError('Your session has expired. Please log in again.');
       return;
@@ -1050,14 +1051,14 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
         review_type: 'annual',
       };
 
-      const { data, error } = await supabase.from('workplan_settings').insert(payload).select('id').single();
+      const { data, error } = await supabaseRef.current.from('workplan_settings').insert(payload).select('id').single();
       if (error) {
         setSaveError(error.message || 'Failed to save workplan. Please try again.');
         return;
       }
 
       // ── Measure 5: Audit trail — log workplan creation ────────────────────
-      await supabase.from('activity_logs').insert({
+      await supabaseRef.current.from('activity_logs').insert({
         activity_type: 'workplan_created',
         actor_name: profile?.fullName || form.staffName || 'Staff Member',
         action_description: `set workplan for ${form.fiscalYear}`,
@@ -1085,7 +1086,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     setApproving(true);
     setApprovalError(null);
     try {
-      const { error } = await supabase
+      const { error } = await supabaseRef.current
         .from('workplan_settings')
         .update({
           workflow_stage: 'workplan_approved',
@@ -1100,7 +1101,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
       }
 
       // Log activity
-      await supabase.from('activity_logs').insert({
+      await supabaseRef.current.from('activity_logs').insert({
         activity_type: 'workplan_approved',
         actor_name: profile?.fullName || form.supervisorName || 'Supervisor',
         action_description: 'approved workplan — Mid-Year evaluation now unlocked',

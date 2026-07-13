@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
@@ -644,7 +644,8 @@ function ReviewDetailModal({ review, onClose, onSave }: ReviewDetailModalProps) 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ManagerReviewPage() {
-  const supabase = createClient();
+  // Stable supabase client — created once, never recreated on re-render
+  const supabaseRef = useRef(createClient());
 
   const [reviews, setReviews] = useState<SelfAssessmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -655,6 +656,7 @@ export default function ManagerReviewPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const fetchReviews = useCallback(async () => {
+    const supabase = supabaseRef.current;
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -686,7 +688,7 @@ export default function ManagerReviewPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, []);
 
   useEffect(() => { fetchReviews(); }, [fetchReviews]);
 
@@ -695,6 +697,7 @@ export default function ManagerReviewPage() {
     data: Record<string, unknown>,
     action: 'review' | 'approve' | 'reject'
   ) {
+    const supabase = supabaseRef.current;
     const now = new Date().toISOString();
     let updatePayload: Record<string, unknown> = { ...data, updated_at: now };
 

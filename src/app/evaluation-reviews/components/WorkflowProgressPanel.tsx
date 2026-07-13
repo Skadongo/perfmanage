@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie, Legend,
@@ -92,9 +92,11 @@ export default function WorkflowProgressPanel() {
   const [stats, setStats] = useState<WorkflowStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const supabase = createClient();
+  // Stable supabase client ref
+  const supabaseRef = useRef(createClient());
 
   const fetchStats = useCallback(async () => {
+    const supabase = supabaseRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -172,14 +174,14 @@ export default function WorkflowProgressPanel() {
     fetchStats();
 
     // Real-time subscriptions for live updates
-    const wpChannel = supabase
+    const wpChannel = supabaseRef.current
       .channel('workflow_progress_workplans')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'workplan_settings' }, () => {
         fetchStats();
       })
       .subscribe();
 
-    const rvChannel = supabase
+    const rvChannel = supabaseRef.current
       .channel('workflow_progress_reviews')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mid_year_reviews' }, () => {
         fetchStats();
@@ -187,8 +189,8 @@ export default function WorkflowProgressPanel() {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(wpChannel);
-      supabase.removeChannel(rvChannel);
+      supabaseRef.current.removeChannel(wpChannel);
+      supabaseRef.current.removeChannel(rvChannel);
     };
   }, [fetchStats]);
 
