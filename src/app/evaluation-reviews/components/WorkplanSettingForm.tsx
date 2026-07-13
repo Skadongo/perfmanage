@@ -23,6 +23,14 @@ interface KPIEntry {
   target: string;
 }
 
+// NEW: Custom KPI entry with its own weight
+interface CustomKPIEntry {
+  id: string;
+  label: string;
+  target: string;
+  weight: number;
+}
+
 interface PerspectiveRow {
   id: string;
   perspective: string;
@@ -50,6 +58,7 @@ interface WorkplanFormData {
   reviewYear: number;
   perspectivesObjectives: PerspectiveRow[];
   generalCompetencies: GeneralCompetency[];
+  customKpis: CustomKPIEntry[];
   staffSignature: string;
   supervisorSignature: string;
 }
@@ -439,6 +448,7 @@ interface ChecklistItem {
 function buildChecklist(form: WorkplanFormData): ChecklistItem[] {
   const totalWeight = form.perspectivesObjectives.reduce((s, r) => s + (Number(r.weight) || 0), 0);
   const totalCompWeight = form.generalCompetencies.reduce((s, c) => s + (Number(c.weight) || 0), 0);
+  const totalCustomKpiWeight = form.customKpis.reduce((s, k) => s + (Number(k.weight) || 0), 0);
   const allRowsComplete = form.perspectivesObjectives.every(
     (r) => r.perspective && r.objective.trim() && r.kpis.length > 0 && r.weight >= 1 && r.weight <= 5
   );
@@ -717,6 +727,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     reviewYear: 2026,
     perspectivesObjectives: [makeRow()],
     generalCompetencies: DEFAULT_GENERAL_COMPETENCIES.map((c) => ({ ...c })),
+    customKpis: [],
     staffSignature: '',
     supervisorSignature: '',
   });
@@ -738,6 +749,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
       reviewYear: form.reviewYear,
       perspectivesObjectives: form.perspectivesObjectives,
       generalCompetencies: form.generalCompetencies,
+      customKpis: form.customKpis,
       staffSignature: form.staffSignature,
       supervisorSignature: form.supervisorSignature,
     },
@@ -761,6 +773,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
           reviewYear: fd.reviewYear || prev.reviewYear,
           perspectivesObjectives: fd.perspectivesObjectives?.length ? fd.perspectivesObjectives : prev.perspectivesObjectives,
           generalCompetencies: fd.generalCompetencies?.length ? fd.generalCompetencies : prev.generalCompetencies,
+          customKpis: fd.customKpis || prev.customKpis,
           staffSignature: fd.staffSignature || prev.staffSignature,
           supervisorSignature: fd.supervisorSignature || prev.supervisorSignature,
         }));
@@ -855,6 +868,27 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     updateRow(rowIdx, 'kpis', row.kpis.map((k) => k.id === kpiId ? { ...k, target } : k));
   }
 
+  function addCustomKPI() {
+    const newEntry: CustomKPIEntry = {
+      id: `ckpi-${Date.now()}-${Math.random()}`,
+      label: '',
+      target: '',
+      weight: 0,
+    };
+    setForm((prev) => ({ ...prev, customKpis: [...prev.customKpis, newEntry] }));
+  }
+
+  function removeCustomKPI(id: string) {
+    setForm((prev) => ({ ...prev, customKpis: prev.customKpis.filter((k) => k.id !== id) }));
+  }
+
+  function updateCustomKPI(id: string, field: keyof CustomKPIEntry, value: any) {
+    setForm((prev) => ({
+      ...prev,
+      customKpis: prev.customKpis.map((k) => k.id === id ? { ...k, [field]: value } : k),
+    }));
+  }
+
   function updateCompetencyWeight(idx: number, weight: number) {
     setForm((prev) => {
       const comps = [...prev.generalCompetencies];
@@ -928,6 +962,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
         review_year: form.reviewYear,
         perspectives_objectives: normalizedObjectives,
         general_competencies: form.generalCompetencies,
+        custom_kpis: form.customKpis,
         staff_signature: form.staffSignature,
         staff_signed_at: new Date().toISOString(),
         supervisor_signature: form.supervisorSignature,
@@ -1330,6 +1365,12 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
                 <Icon name={Math.abs(totalCompWeight - 20) < 1 ? 'CheckCircleIcon' : 'ExclamationTriangleIcon'} size={13} />
                 Competencies Weight: {totalCompWeight} / 20 {Math.abs(totalCompWeight - 20) < 1 ? '✓' : '(should equal 20)'}
               </div>
+              {form.customKpis.length > 0 && (
+                <div className="text-xs font-600 px-2.5 py-1.5 rounded-lg border inline-flex items-center gap-1.5 bg-teal-50 text-teal-700 border-teal-200">
+                  <Icon name="PencilSquareIcon" size={13} />
+                  Custom KPIs Weight: {totalCustomKpiWeight} ({form.customKpis.length} KPI{form.customKpis.length !== 1 ? 's' : ''})
+                </div>
+              )}
               <div className="text-xs font-600 px-2.5 py-1.5 rounded-lg border inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 border-blue-200">
                 <Icon name="CalculatorIcon" size={13} />
                 Max Possible Score: {totalWeight + totalCompWeight} / 120
@@ -1451,7 +1492,105 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
               Add Another Objective
             </button>
 
-            {/* ── General Competencies Section ── */}
+            {/* ── Custom KPIs Section ── */}
+            <div className="mt-6">
+              <div className="flex items-start gap-3 mb-3">
+                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0">
+                  <Icon name="PencilSquareIcon" size={15} className="text-teal-600" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-sm font-700 text-foreground">Custom KPIs</h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">Add any additional KPIs that are not tied to a specific BSC perspective. Set a label, measurable target, and weight for each.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addCustomKPI}
+                  className="flex items-center gap-1.5 text-xs font-600 text-teal-700 border border-teal-300 bg-teal-50 hover:bg-teal-100 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0"
+                >
+                  <Icon name="PlusIcon" size={13} />
+                  Add Custom KPI
+                </button>
+              </div>
+
+              {form.customKpis.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-teal-300 bg-teal-50/50 px-4 py-5 text-center">
+                  <Icon name="PencilSquareIcon" size={20} className="text-teal-400 mx-auto mb-2" />
+                  <p className="text-xs font-600 text-teal-700">No custom KPIs added yet</p>
+                  <p className="text-[11px] text-teal-600 mt-0.5">Click "Add Custom KPI" to define a KPI with its own weight, independent of BSC perspectives.</p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-teal-200 bg-teal-50 overflow-hidden">
+                  {/* Header */}
+                  <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-teal-100 border-b border-teal-200">
+                    <div className="col-span-4 text-[10px] font-700 text-teal-700 uppercase tracking-wide">KPI Label</div>
+                    <div className="col-span-4 text-[10px] font-700 text-teal-700 uppercase tracking-wide">Target</div>
+                    <div className="col-span-3 text-[10px] font-700 text-teal-700 uppercase tracking-wide text-center">Weight</div>
+                    <div className="col-span-1" />
+                  </div>
+
+                  {form.customKpis.map((kpi, idx) => (
+                    <div
+                      key={kpi.id}
+                      className={`grid grid-cols-12 gap-2 px-4 py-3 items-start ${idx < form.customKpis.length - 1 ? 'border-b border-teal-100' : ''}`}
+                    >
+                      <div className="col-span-4">
+                        <input
+                          type="text"
+                          className="w-full text-xs border border-teal-300 rounded-lg px-2.5 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-teal-300 focus:border-teal-400 transition-colors placeholder:text-muted-foreground/50"
+                          placeholder="e.g. Report Submission Rate"
+                          value={kpi.label}
+                          onChange={(e) => updateCustomKPI(kpi.id, 'label', e.target.value)}
+                        />
+                      </div>
+                      <div className="col-span-4">
+                        <input
+                          type="text"
+                          className="w-full text-xs border border-teal-300 rounded-lg px-2.5 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-teal-300 focus:border-teal-400 transition-colors placeholder:text-muted-foreground/50"
+                          placeholder="e.g. 100% by June 2026"
+                          value={kpi.target}
+                          onChange={(e) => updateCustomKPI(kpi.id, 'target', e.target.value)}
+                        />
+                      </div>
+                      <div className="col-span-3 flex flex-col items-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={20}
+                          step={0.5}
+                          className="w-16 text-center text-sm font-700 border border-teal-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-teal-300 focus:border-teal-400 transition-colors"
+                          placeholder="0"
+                          value={kpi.weight === 0 ? '' : kpi.weight}
+                          onChange={(e) => updateCustomKPI(kpi.id, 'weight', Number(e.target.value))}
+                        />
+                        <span className="text-[9px] text-teal-600 font-500">weight</span>
+                      </div>
+                      <div className="col-span-1 flex items-center justify-center pt-1">
+                        <button
+                          type="button"
+                          onClick={() => removeCustomKPI(kpi.id)}
+                          className="p-1 rounded-md hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors"
+                          title="Remove custom KPI"
+                        >
+                          <Icon name="TrashIcon" size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Total row */}
+                  <div className="grid grid-cols-12 gap-2 px-4 py-3 border-t-2 border-teal-300 bg-teal-100/60">
+                    <div className="col-span-8">
+                      <p className="text-xs font-700 text-teal-700">Total Custom KPI Weight</p>
+                      <p className="text-[10px] text-teal-600 mt-0.5">{form.customKpis.length} custom KPI{form.customKpis.length !== 1 ? 's' : ''} added</p>
+                    </div>
+                    <div className="col-span-3 flex items-center justify-center">
+                      <span className="text-lg font-800 text-teal-700">{totalCustomKpiWeight}</span>
+                    </div>
+                    <div className="col-span-1" />
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="mt-6">
               <div className="flex items-start gap-3 mb-3">
                 <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
@@ -1633,6 +1772,20 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
                   ))}
                 </div>
               </div>
+              {form.customKpis.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-border">
+                  <p className="text-[10px] font-700 text-muted-foreground mb-1 uppercase tracking-wide">Custom KPIs</p>
+                  <div className="space-y-0.5">
+                    {form.customKpis.map((kpi) => (
+                      <div key={kpi.id} className="flex items-center gap-2 text-xs">
+                        <span className="text-muted-foreground truncate flex-1">{kpi.label || '(no label)'}</span>
+                        {kpi.target && <span className="text-[10px] text-muted-foreground/70 truncate max-w-[100px]">{kpi.target}</span>}
+                        <span className="font-600 text-teal-700 flex-shrink-0">{kpi.weight}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="mt-2 pt-2 border-t border-border space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-700 text-foreground">Max Possible Score</span>
