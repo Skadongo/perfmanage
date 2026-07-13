@@ -802,21 +802,6 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
           .order('full_name', { ascending: true });
         if (data) {
           setStaffList(data as StaffOption[]);
-
-          // ── Auto-lock staff field to logged-in user (Measure 1) ──────────
-          if (!isManagerOrAbove && profile?.staffId) {
-            const ownRecord = (data as StaffOption[]).find((s) => s.id === profile.staffId);
-            if (ownRecord) {
-              setForm((prev) => ({
-                ...prev,
-                staffId: ownRecord.id,
-                staffName: ownRecord.full_name,
-                jobTitle: ownRecord.job_title,
-                supervisorId: ownRecord.supervisor_id || prev.supervisorId,
-                supervisorName: ownRecord.supervisor_name || prev.supervisorName,
-              }));
-            }
-          }
         }
       } catch (err) {
         console.log('Error loading staff:', err);
@@ -826,7 +811,59 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     }
     loadStaff();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.staffId, isManagerOrAbove]);
+  }, []);
+
+  // ── Auto-lock staff field to logged-in user (Measure 1) ──────────────────
+  // Runs whenever staffList or profile changes so the lock fires even if
+  // profile loads after the staff list is already fetched.
+  useEffect(() => {
+    if (isManagerOrAbove) return;           // managers can pick any staff
+    if (!profile) return;                   // profile not yet loaded
+    if (staffList.length === 0) return;     // staff list not yet loaded
+    if (form.staffId) return;               // already locked — don't overwrite
+
+    // Primary match: by staff_id stored in user_profiles
+    let ownRecord = profile.staffId
+      ? staffList.find((s) => s.id === profile.staffId)
+      : undefined;
+
+    // Fallback: match by email when staff_id is not set in user_profiles
+    if (!ownRecord && profile.email) {
+      const emailLower = profile.email.toLowerCase();
+      // We need email from the staff table — re-query for this user only
+      supabase
+        .from('staff')
+        .select('id, full_name, job_title, supervisor_id, supervisor_name')
+        .eq('email', profile.email)
+        .eq('employment_status', 'active')
+        .maybeSingle()
+        .then(({ data: staffByEmail }) => {
+          if (staffByEmail) {
+            setForm((prev) => ({
+              ...prev,
+              staffId: staffByEmail.id,
+              staffName: staffByEmail.full_name,
+              jobTitle: staffByEmail.job_title,
+              supervisorId: staffByEmail.supervisor_id || prev.supervisorId,
+              supervisorName: staffByEmail.supervisor_name || prev.supervisorName,
+            }));
+          }
+        });
+      return;
+    }
+
+    if (ownRecord) {
+      setForm((prev) => ({
+        ...prev,
+        staffId: ownRecord!.id,
+        staffName: ownRecord!.full_name,
+        jobTitle: ownRecord!.job_title,
+        supervisorId: ownRecord!.supervisor_id || prev.supervisorId,
+        supervisorName: ownRecord!.supervisor_name || prev.supervisorName,
+      }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staffList, profile, isManagerOrAbove]);
 
   function setField<K extends keyof WorkplanFormData>(key: K, value: WorkplanFormData[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
