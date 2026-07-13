@@ -5,6 +5,7 @@ import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import PrintAppraisalLayout from './PrintAppraisalLayout';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
+import { useAuth } from '@/contexts/AuthContext';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -716,6 +717,11 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
   const [stageAdvanced, setStageAdvanced] = useState(false);
 
   const supabase = createClient();
+  // ── Auth context: lock staff field to logged-in user ─────────────────────
+  const { profile } = useAuth();
+  const isManagerOrAbove = profile
+    ? ['executive_director', 'deputy_director', 'hr_admin_officer', 'programme_manager', 'finance_manager', 'support_admin'].includes(profile.systemRole)
+    : false;
 
   const [form, setForm] = useState<WorkplanFormData>({
     staffId: '',
@@ -794,7 +800,24 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
           .select('id, full_name, job_title, supervisor_id, supervisor_name')
           .eq('employment_status', 'active')
           .order('full_name', { ascending: true });
-        if (data) setStaffList(data as StaffOption[]);
+        if (data) {
+          setStaffList(data as StaffOption[]);
+
+          // ── Auto-lock staff field to logged-in user (Measure 1) ──────────
+          if (!isManagerOrAbove && profile?.staffId) {
+            const ownRecord = (data as StaffOption[]).find((s) => s.id === profile.staffId);
+            if (ownRecord) {
+              setForm((prev) => ({
+                ...prev,
+                staffId: ownRecord.id,
+                staffName: ownRecord.full_name,
+                jobTitle: ownRecord.job_title,
+                supervisorId: ownRecord.supervisor_id || prev.supervisorId,
+                supervisorName: ownRecord.supervisor_name || prev.supervisorName,
+              }));
+            }
+          }
+        }
       } catch (err) {
         console.log('Error loading staff:', err);
       } finally {
@@ -802,7 +825,8 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
       }
     }
     loadStaff();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.staffId, isManagerOrAbove]);
 
   function setField<K extends keyof WorkplanFormData>(key: K, value: WorkplanFormData[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -950,6 +974,21 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
       return;
     }
 
+    // ── Measure 3: Server-side ownership check ────────────────────────────
+    // Verify the staff_id being submitted matches the logged-in user's own staff record.
+    // Managers/HR are exempt and may submit on behalf of any staff member.
+    if (!isManagerOrAbove && profile?.staffId && form.staffId !== profile.staffId) {
+      setSaveError('You can only set a workplan for your own account. Please refresh and try again.');
+      return;
+    }
+
+    // Ensure unauthenticated users cannot submit (Measure 4 — belt-and-suspenders)
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    if (!currentUser) {
+      setSaveError('Your session has expired. Please log in again.');
+      return;
+    }
+
     setSaving(true);
     setSaveError(null);
 
@@ -979,6 +1018,18 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
         setSaveError(error.message || 'Failed to save workplan. Please try again.');
         return;
       }
+
+      // ── Measure 5: Audit trail — log workplan creation ────────────────────
+      await supabase.from('activity_logs').insert({
+        activity_type: 'workplan_created',
+        actor_name: profile?.fullName || form.staffName || 'Staff Member',
+        action_description: `set workplan for ${form.fiscalYear}`,
+        subject_name: form.staffName,
+        subject_detail: `Workplan ID: ${data?.id} | Fiscal Year: ${form.fiscalYear} | Submitted by auth user: ${currentUser.id}`,
+        icon_name: 'ClipboardDocumentCheckIcon',
+        icon_bg: 'bg-sky-50',
+        icon_color: 'text-sky-600',
+      });
 
       // Clear draft after successful submission
       await clearDraft(null, form.staffId, form.fiscalYear || 'annual');
@@ -1014,10 +1065,10 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
       // Log activity
       await supabase.from('activity_logs').insert({
         activity_type: 'workplan_approved',
-        actor_name: form.supervisorName || 'Supervisor',
+        actor_name: profile?.fullName || form.supervisorName || 'Supervisor',
         action_description: 'approved workplan — Mid-Year evaluation now unlocked',
         subject_name: form.staffName,
-        subject_detail: form.fiscalYear,
+        subject_detail: `Workplan ID: ${savedWorkplanId} | Fiscal Year: ${form.fiscalYear} | Approved by: ${profile?.fullName || form.supervisorName}`,
         icon_name: 'CheckBadgeIcon',
         icon_bg: 'bg-emerald-50',
         icon_color: 'text-emerald-600',
@@ -1281,29 +1332,39 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Staff Member" required error={step0Errors.staffId}>
-                  <select
-                    className={step0Errors.staffId ? selectErrCls : selectCls}
-                    value={form.staffId}
-                    onChange={(e) => {
-                      const staff = staffList.find((s) => s.id === e.target.value);
-                      setField('staffId', e.target.value);
-                      setField('staffName', staff?.full_name || '');
-                      setField('jobTitle', staff?.job_title || '');
-                      if (staff?.supervisor_id) {
-                        const sup = staffList.find((s) => s.id === staff.supervisor_id);
-                        setField('supervisorId', staff.supervisor_id);
-                        setField('supervisorName', sup?.full_name || staff.supervisor_name || '');
-                      } else {
-                        setField('supervisorId', '');
-                        setField('supervisorName', '');
-                      }
-                    }}
-                  >
-                    <option value="">Select staff member…</option>
-                    {staffList.map((s) => (
-                      <option key={s.id} value={s.id}>{s.full_name} — {s.job_title}</option>
-                    ))}
-                  </select>
+                  {/* ── Measure 1: Lock staff field for non-managers ─────── */}
+                  {!isManagerOrAbove ? (
+                    <div className={`${inputCls} bg-muted/40 cursor-not-allowed flex items-center gap-2`}>
+                      <Icon name="LockClosedIcon" size={13} className="text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm text-foreground truncate">
+                        {form.staffName || 'Loading your profile…'}
+                      </span>
+                    </div>
+                  ) : (
+                    <select
+                      className={step0Errors.staffId ? selectErrCls : selectCls}
+                      value={form.staffId}
+                      onChange={(e) => {
+                        const staff = staffList.find((s) => s.id === e.target.value);
+                        setField('staffId', e.target.value);
+                        setField('staffName', staff?.full_name || '');
+                        setField('jobTitle', staff?.job_title || '');
+                        if (staff?.supervisor_id) {
+                          const sup = staffList.find((s) => s.id === staff.supervisor_id);
+                          setField('supervisorId', staff.supervisor_id);
+                          setField('supervisorName', sup?.full_name || staff.supervisor_name || '');
+                        } else {
+                          setField('supervisorId', '');
+                          setField('supervisorName', '');
+                        }
+                      }}
+                    >
+                      <option value="">Select staff member…</option>
+                      {staffList.map((s) => (
+                        <option key={s.id} value={s.id}>{s.full_name} — {s.job_title}</option>
+                      ))}
+                    </select>
+                  )}
                 </FormField>
 
                 <FormField label="Supervisor / Line Manager" required error={step0Errors.supervisorId}>
