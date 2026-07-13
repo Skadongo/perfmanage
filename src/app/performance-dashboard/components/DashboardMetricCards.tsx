@@ -7,6 +7,7 @@ import ProgressBar from '@/components/ui/ProgressBar';
 import type { DrillDownFilter } from './StaffDrillDownModal';
 import { createClient } from '@/lib/supabase/client';
 import { MetricCardSkeleton } from '@/components/ui/SkeletonLoader';
+import { roleCachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 
 interface MetricData {
   kpiAchievementRate: number | null;
@@ -25,75 +26,88 @@ interface Props {
   visibleMetricIds?: string[];
   showHeroMetric?: boolean;
   staffId?: string | null;
+  /** systemRole from UserProfile — used to scope the cache key per role */
+  systemRole?: string;
 }
 
 // Fetcher used by SWR — runs outside React render cycle
-async function fetchMetrics(staffId: string | null | undefined): Promise<MetricData> {
-  const supabase = createClient();
+async function fetchMetrics(
+  staffId: string | null | undefined,
+  systemRole: string
+): Promise<MetricData> {
+  return roleCachedFetch(
+    'dashboard-metrics',
+    systemRole,
+    async () => {
+      const supabase = createClient();
 
-  let reviewsQuery = supabase
-    .from('mid_year_reviews')
-    .select('review_status, supervisor_rating');
-  if (staffId) reviewsQuery = reviewsQuery.eq('staff_id', staffId);
+      let reviewsQuery = supabase
+        .from('mid_year_reviews')
+        .select('review_status, supervisor_rating');
+      if (staffId) reviewsQuery = reviewsQuery.eq('staff_id', staffId);
 
-  let workplansQuery = supabase
-    .from('workplan_settings')
-    .select('status, workflow_stage');
-  if (staffId) workplansQuery = workplansQuery.eq('staff_id', staffId);
+      let workplansQuery = supabase
+        .from('workplan_settings')
+        .select('status, workflow_stage');
+      if (staffId) workplansQuery = workplansQuery.eq('staff_id', staffId);
 
-  const [reviewsResult, staffCountResult, workplansResult] = await Promise.all([
-    reviewsQuery,
-    supabase
-      .from('staff')
-      .select('id', { count: 'exact', head: true })
-      .eq('employment_status', 'active'),
-    workplansQuery,
-  ]);
+      const [reviewsResult, staffCountResult, workplansResult] = await Promise.all([
+        reviewsQuery,
+        supabase
+          .from('staff')
+          .select('id', { count: 'exact', head: true })
+          .eq('employment_status', 'active'),
+        workplansQuery,
+      ]);
 
-  const reviewList = reviewsResult.data || [];
-  const workplanList = workplansResult.data || [];
-  const staffCount = staffCountResult.count ?? 0;
+      const reviewList = reviewsResult.data || [];
+      const workplanList = workplansResult.data || [];
+      const staffCount = staffCountResult.count ?? 0;
 
-  const submittedReviews = reviewList.filter(r =>
-    ['submitted', 'reviewed', 'approved'].includes(r.review_status)
-  ).length;
-  const denominator = staffId ? Math.max(reviewList.length, 1) : staffCount;
-  const reviewCompletionRate = denominator > 0
-    ? Math.round((submittedReviews / denominator) * 100)
-    : null;
+      const submittedReviews = reviewList.filter(r =>
+        ['submitted', 'reviewed', 'approved'].includes(r.review_status)
+      ).length;
+      const denominator = staffId ? Math.max(reviewList.length, 1) : staffCount;
+      const reviewCompletionRate = denominator > 0
+        ? Math.round((submittedReviews / denominator) * 100)
+        : null;
 
-  const ratedReviews = reviewList.filter(r => r.supervisor_rating != null);
-  const onTrackReviews = ratedReviews.filter(r => (r.supervisor_rating as number) >= 3).length;
-  const kpiAchievementRate = ratedReviews.length > 0
-    ? Math.round((onTrackReviews / ratedReviews.length) * 100)
-    : null;
+      const ratedReviews = reviewList.filter(r => r.supervisor_rating != null);
+      const onTrackReviews = ratedReviews.filter(r => (r.supervisor_rating as number) >= 3).length;
+      const kpiAchievementRate = ratedReviews.length > 0
+        ? Math.round((onTrackReviews / ratedReviews.length) * 100)
+        : null;
 
-  const ratings = reviewList
-    .filter(r => r.supervisor_rating != null)
-    .map(r => r.supervisor_rating as number);
-  const avgSupervisorRating = ratings.length > 0
-    ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
-    : null;
+      const ratings = reviewList
+        .filter(r => r.supervisor_rating != null)
+        .map(r => r.supervisor_rating as number);
+      const avgSupervisorRating = ratings.length > 0
+        ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
+        : null;
 
-  const approvedWorkplans = workplanList.filter(w =>
-    w.status === 'approved' || w.workflow_stage === 'approved'
-  ).length;
-  const cpdDenominator = staffId ? Math.max(workplanList.length, 1) : staffCount;
-  const cpdCompletionRate = cpdDenominator > 0
-    ? Math.round((approvedWorkplans / cpdDenominator) * 100)
-    : null;
+      const approvedWorkplans = workplanList.filter(w =>
+        w.status === 'approved' || w.workflow_stage === 'approved'
+      ).length;
+      const cpdDenominator = staffId ? Math.max(workplanList.length, 1) : staffCount;
+      const cpdCompletionRate = cpdDenominator > 0
+        ? Math.round((approvedWorkplans / cpdDenominator) * 100)
+        : null;
 
-  return {
-    kpiAchievementRate,
-    reviewCompletionRate,
-    reviewsSubmitted: submittedReviews,
-    reviewsTotal: staffId ? reviewList.length : staffCount,
-    workplansTotal: workplanList.length,
-    workplansApproved: approvedWorkplans,
-    cpdCompletionRate,
-    avgSupervisorRating,
-    totalStaff: staffCount,
-  };
+      return {
+        kpiAchievementRate,
+        reviewCompletionRate,
+        reviewsSubmitted: submittedReviews,
+        reviewsTotal: staffId ? reviewList.length : staffCount,
+        workplansTotal: workplanList.length,
+        workplansApproved: approvedWorkplans,
+        cpdCompletionRate,
+        avgSupervisorRating,
+        totalStaff: staffCount,
+      };
+    },
+    TTL_DASHBOARD_METRICS,
+    staffId
+  );
 }
 
 export default function DashboardMetricCards({
@@ -101,11 +115,12 @@ export default function DashboardMetricCards({
   visibleMetricIds,
   showHeroMetric = true,
   staffId,
+  systemRole = 'staff_member',
 }: Props) {
   // SWR: show stale data instantly while revalidating in background
   const { data: metrics, isLoading } = useSWR(
-    ['dashboard-metrics', staffId ?? 'org'],
-    () => fetchMetrics(staffId),
+    ['dashboard-metrics', systemRole, staffId ?? 'org'],
+    () => fetchMetrics(staffId, systemRole),
     {
       revalidateOnFocus: false,
       dedupingInterval: 30_000, // 30 s dedup window
@@ -249,18 +264,19 @@ export default function DashboardMetricCards({
     : filteredMetrics;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 gap-4">
-      {/* Hero card — spans 2 cols */}
+    /* Responsive grid: 1 col on mobile, 2 on sm, 3 on lg, 4 on xl */
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+      {/* Hero card — spans full width on mobile, 2 cols on sm+ */}
       {heroMetric && (
         <button
           onClick={() => onMetricClick({ type: 'metric', label: heroMetric.label, subLabel: `${heroMetric.value} · Target: ${heroMetric.target}`, value: heroMetric.rawValue, status: heroMetric.drillStatus })}
-          className="col-span-1 md:col-span-2 bg-primary rounded-xl p-5 shadow-card border border-primary/20 flex flex-col gap-3 text-left cursor-pointer hover:brightness-105 active:scale-[0.99] transition-all focus:outline-none focus:ring-2 focus:ring-white/50"
+          className="col-span-1 sm:col-span-2 bg-primary rounded-xl p-4 sm:p-5 shadow-card border border-primary/20 flex flex-col gap-3 text-left cursor-pointer hover:brightness-105 active:scale-[0.99] transition-all focus:outline-none focus:ring-2 focus:ring-white/50"
           aria-label={`View staff breakdown for ${heroMetric.label}`}
         >
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs font-600 uppercase tracking-wider text-primary-foreground/70">{heroMetric.label}</p>
-              <p className="text-4xl font-700 text-white mt-1 tabular-nums font-mono">{heroMetric.value}</p>
+              <p className="text-3xl sm:text-4xl font-700 text-white mt-1 tabular-nums font-mono">{heroMetric.value}</p>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center">
@@ -269,7 +285,7 @@ export default function DashboardMetricCards({
             </div>
           </div>
           <ProgressBar value={heroMetric.rawValue} colorClass="bg-white/60" height="h-1.5" />
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-1">
             <p className="text-xs text-primary-foreground/70">{heroMetric.description}</p>
             <span className="text-xs font-600 text-white bg-white/20 px-2 py-0.5 rounded-full">{heroMetric.delta}</span>
           </div>
@@ -288,7 +304,7 @@ export default function DashboardMetricCards({
         <button
           key={metric.id}
           onClick={() => onMetricClick({ type: 'metric', label: metric.label, subLabel: `${metric.value} · Target: ${metric.target}`, value: metric.rawValue, status: metric.drillStatus })}
-          className={`bg-white rounded-xl p-4 shadow-card border ${metric.alert ? metric.borderColor : 'border-border'} flex flex-col gap-3 ${metric.alert ? metric.bgColor : ''} text-left cursor-pointer hover:shadow-elevated active:scale-[0.99] transition-all focus:outline-none focus:ring-2 focus:ring-primary/30`}
+          className={`bg-white rounded-xl p-3 sm:p-4 shadow-card border ${metric.alert ? metric.borderColor : 'border-border'} flex flex-col gap-3 ${metric.alert ? metric.bgColor : ''} text-left cursor-pointer hover:shadow-elevated active:scale-[0.99] transition-all focus:outline-none focus:ring-2 focus:ring-primary/30`}
           aria-label={`View staff breakdown for ${metric.label}`}
         >
           <div className="flex items-start justify-between">
@@ -306,7 +322,7 @@ export default function DashboardMetricCards({
             <p className={`text-2xl font-700 mt-0.5 tabular-nums font-mono ${metric.color}`}>{metric.value}</p>
           </div>
           <ProgressBar value={metric.rawValue} colorClass={metric.progressColor} height="h-1.5" />
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-1">
             <span className={`text-[11px] font-500 ${metric.positive ? 'text-emerald-600' : 'text-red-600'}`}>
               {metric.delta}
             </span>

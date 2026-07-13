@@ -5,7 +5,7 @@ import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { CardListSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
-import { cachedFetch } from '@/lib/cache';
+import { roleCachedFetch, TTL_STAFF_LIST } from '@/lib/cache';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -561,9 +561,10 @@ export default function MidYearReviewsPage() {
     setLoading(true);
     setError(null);
     try {
-      // Staff list is rarely-changing — cache for 5 minutes
-      const staffData = await cachedFetch(
+      // Staff list is rarely-changing — cache for 5 minutes, scoped by role
+      const staffData = await roleCachedFetch(
         'staff-active-list',
+        'all',
         async () => {
           const { data, error } = await supabase
             .from('staff')
@@ -573,7 +574,7 @@ export default function MidYearReviewsPage() {
           if (error) throw error;
           return data;
         },
-        5 * 60_000
+        TTL_STAFF_LIST
       );
 
       // Timeline + reviews run in parallel; reviews paginated

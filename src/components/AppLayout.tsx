@@ -47,6 +47,11 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Close mobile menu on route change (navigation)
+  useEffect(() => {
+    setMobileOpen(false);
+  }, []);
+
   const handleSignOut = async () => {
     try {
       await signOut();
@@ -60,29 +65,25 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
 
   return (
     <div className="min-h-screen bg-background flex overflow-x-hidden">
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-30 lg:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
+      {/* Sidebar — handles its own mobile overlay internally */}
+      <Sidebar
+        collapsed={collapsed}
+        onToggle={() => setCollapsed(!collapsed)}
+        mobileOpen={mobileOpen}
+        onMobileClose={() => setMobileOpen(false)}
+      />
 
-      {/* Sidebar — hidden on mobile unless open */}
-      <div className={`${mobileOpen ? 'block' : 'hidden'} lg:block`}>
-        <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
-      </div>
-
-      {/* Main content */}
+      {/* Main content — offset by sidebar width on desktop */}
       <div
         className={`flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-300 ease-in-out ml-0 ${
           collapsed ? 'lg:ml-16' : 'lg:ml-60'
         }`}
       >
         {/* Topbar */}
-        <header className="h-16 bg-white border-b border-border border-t-2 border-t-primary flex items-center px-4 lg:px-6 gap-4 sticky top-0 z-20">
+        <header className="h-14 sm:h-16 bg-white border-b border-border border-t-2 border-t-primary flex items-center px-3 sm:px-4 lg:px-6 gap-2 sm:gap-4 sticky top-0 z-20">
+          {/* Mobile hamburger */}
           <button
-            className="lg:hidden p-2 rounded-md hover:bg-muted text-muted-foreground"
+            className="lg:hidden p-2 rounded-md hover:bg-muted text-muted-foreground flex-shrink-0"
             onClick={() => setMobileOpen(true)}
             aria-label="Open menu"
           >
@@ -90,16 +91,16 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
           </button>
 
           {/* ECSA-HC Logo + Contact */}
-          <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
             <Image
               src="/assets/images/ecsahc_web_logo1-1-1774467575072.png"
               alt="ECSA-HC Logo"
               width={72}
               height={72}
-              className="object-contain h-14 w-auto"
+              className="object-contain h-10 sm:h-14 w-auto"
               priority
             />
-            <div className="hidden sm:flex flex-col leading-tight">
+            <div className="hidden md:flex flex-col leading-tight">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Icon name="EcsaPhoneIcon" size={12} className="text-primary flex-shrink-0" />
                 <span>+255-27-2973677/8</span>
@@ -114,13 +115,13 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
           <div className="flex-1 min-w-0">
             {pageTitle && (
               <div>
-                <h1 className="text-base font-700 text-foreground leading-tight truncate">{pageTitle}</h1>
-                {pageSubtitle && <p className="text-xs text-muted-foreground truncate">{pageSubtitle}</p>}
+                <h1 className="text-sm sm:text-base font-700 text-foreground leading-tight truncate">{pageTitle}</h1>
+                {pageSubtitle && <p className="text-[11px] sm:text-xs text-muted-foreground truncate hidden sm:block">{pageSubtitle}</p>}
               </div>
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {actions}
             <NotificationCenter />
 
@@ -128,10 +129,10 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
             <div className="relative" ref={menuRef}>
               <button
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
-                className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full hover:bg-muted transition-colors"
+                className="flex items-center gap-1.5 sm:gap-2 pl-1 pr-1.5 sm:pr-2 py-1 rounded-full hover:bg-muted transition-colors"
                 aria-label="User menu"
               >
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                   <span className="text-primary text-xs font-700">{getInitials()}</span>
                 </div>
                 <div className="hidden md:flex flex-col items-start leading-tight">
@@ -182,14 +183,14 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
         </header>
 
         {/* Page content */}
-        <main className="flex-1 p-4 lg:p-6 xl:p-8 w-full max-w-screen-2xl mx-auto overflow-x-hidden">
+        <main className="flex-1 p-3 sm:p-4 lg:p-6 xl:p-8 w-full max-w-screen-2xl mx-auto overflow-x-hidden">
           {children}
         </main>
 
         {/* Footer */}
         <footer className="border-t border-border bg-white mt-auto">
           <div className="h-1 bg-primary w-full" />
-          <div className="px-4 lg:px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="px-3 sm:px-4 lg:px-6 py-3 sm:py-4 flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-3">
             <div className="flex items-center gap-2.5">
               <Image
                 src="/assets/images/ecsahc_web_logo1-1-1774467575072.png"
@@ -206,7 +207,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
             <p className="text-[11px] text-muted-foreground text-center">
               © {currentYear} East, Central &amp; Southern Africa Health Community. All rights reserved.
             </p>
-            <div className="flex items-center gap-4">
+            <div className="hidden sm:flex items-center gap-4">
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <Icon name="EcsaPhoneIcon" size={11} className="text-primary flex-shrink-0" />
                 <span>+255-27-2973677/8</span>

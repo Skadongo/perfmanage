@@ -5,7 +5,7 @@ import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { CardListSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
-import { cachedFetch } from '@/lib/cache';
+import { roleCachedFetch, TTL_WORKPLAN_LIST } from '@/lib/cache';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -233,9 +233,10 @@ export default function SelfAssessmentPage() {
       const supabase = supabaseRef.current;
       setLoadingWorkplans(true);
       try {
-        // Cache workplan list for 2 minutes — rarely changes mid-session
-        const data = await cachedFetch(
+        // Cache workplan list for 2 minutes — rarely changes mid-session, scoped by role
+        const data = await roleCachedFetch(
           'workplan-signed-list',
+          'all',
           async () => {
             const { data: rows, error } = await supabase
               .from('workplan_settings')
@@ -250,7 +251,7 @@ export default function SelfAssessmentPage() {
             if (error) throw error;
             return rows;
           },
-          2 * 60_000
+          TTL_WORKPLAN_LIST
         );
 
         const mapped: WorkplanOption[] = (data ?? []).map((row: any) => ({

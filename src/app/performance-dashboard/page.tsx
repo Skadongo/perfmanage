@@ -176,18 +176,18 @@ export default function PerformanceDashboardPage() {
 
         {/* Live KPI strip */}
         {config.showLiveStrip && liveStats && (
-          <div className={`grid gap-3 ${
+          <div className={`grid gap-2 sm:gap-3 ${
             stripItems.length <= 2 ? 'grid-cols-2' :
-            stripItems.length === 3 ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'
+            stripItems.length === 3 ? 'grid-cols-3': 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6'
           }`}>
             {stripItems.map((item) => {
               const raw = liveStats[item.key] as number;
               const display = item.format ? item.format(raw) : String(raw);
               return (
-                <div key={item.key} className={`${item.bg} rounded-xl p-3 border border-border/50`}>
-                  <p className={`text-xl font-700 tabular-nums font-mono ${item.color}`}>{display}</p>
-                  <p className="text-[11px] font-600 text-foreground mt-0.5">{item.label}</p>
-                  <p className="text-[10px] text-muted-foreground">{item.sub(liveStats)}</p>
+                <div key={item.key} className={`${item.bg} rounded-xl p-2.5 sm:p-3 border border-border/50`}>
+                  <p className={`text-lg sm:text-xl font-700 tabular-nums font-mono ${item.color}`}>{display}</p>
+                  <p className="text-[11px] font-600 text-foreground mt-0.5 truncate">{item.label}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{item.sub(liveStats)}</p>
                 </div>
               );
             })}
@@ -219,6 +219,7 @@ export default function PerformanceDashboardPage() {
               visibleMetricIds={config.visibleMetrics}
               showHeroMetric={config.showHeroMetric}
               staffId={scopedStaffId}
+              systemRole={systemRole}
               key={`metrics-${refreshKey}`}
             />
           </Suspense>
