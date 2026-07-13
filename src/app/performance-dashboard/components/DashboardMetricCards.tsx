@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
+import useSWR from 'swr';
 import Icon from '@/components/ui/AppIcon';
 import ProgressBar from '@/components/ui/ProgressBar';
 import type { DrillDownFilter } from './StaffDrillDownModal';
 import { createClient } from '@/lib/supabase/client';
+import { MetricCardSkeleton } from '@/components/ui/SkeletonLoader';
 
 interface MetricData {
   kpiAchievementRate: number | null;
@@ -20,12 +22,78 @@ interface MetricData {
 
 interface Props {
   onMetricClick: (filter: DrillDownFilter) => void;
-  /** IDs of metrics to show; if undefined all are shown */
   visibleMetricIds?: string[];
-  /** Whether to render the large hero card */
   showHeroMetric?: boolean;
-  /** If set, scope data to this staff member only */
   staffId?: string | null;
+}
+
+// Fetcher used by SWR — runs outside React render cycle
+async function fetchMetrics(staffId: string | null | undefined): Promise<MetricData> {
+  const supabase = createClient();
+
+  let reviewsQuery = supabase
+    .from('mid_year_reviews')
+    .select('review_status, supervisor_rating');
+  if (staffId) reviewsQuery = reviewsQuery.eq('staff_id', staffId);
+
+  let workplansQuery = supabase
+    .from('workplan_settings')
+    .select('status, workflow_stage');
+  if (staffId) workplansQuery = workplansQuery.eq('staff_id', staffId);
+
+  const [reviewsResult, staffCountResult, workplansResult] = await Promise.all([
+    reviewsQuery,
+    supabase
+      .from('staff')
+      .select('id', { count: 'exact', head: true })
+      .eq('employment_status', 'active'),
+    workplansQuery,
+  ]);
+
+  const reviewList = reviewsResult.data || [];
+  const workplanList = workplansResult.data || [];
+  const staffCount = staffCountResult.count ?? 0;
+
+  const submittedReviews = reviewList.filter(r =>
+    ['submitted', 'reviewed', 'approved'].includes(r.review_status)
+  ).length;
+  const denominator = staffId ? Math.max(reviewList.length, 1) : staffCount;
+  const reviewCompletionRate = denominator > 0
+    ? Math.round((submittedReviews / denominator) * 100)
+    : null;
+
+  const ratedReviews = reviewList.filter(r => r.supervisor_rating != null);
+  const onTrackReviews = ratedReviews.filter(r => (r.supervisor_rating as number) >= 3).length;
+  const kpiAchievementRate = ratedReviews.length > 0
+    ? Math.round((onTrackReviews / ratedReviews.length) * 100)
+    : null;
+
+  const ratings = reviewList
+    .filter(r => r.supervisor_rating != null)
+    .map(r => r.supervisor_rating as number);
+  const avgSupervisorRating = ratings.length > 0
+    ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
+    : null;
+
+  const approvedWorkplans = workplanList.filter(w =>
+    w.status === 'approved' || w.workflow_stage === 'approved'
+  ).length;
+  const cpdDenominator = staffId ? Math.max(workplanList.length, 1) : staffCount;
+  const cpdCompletionRate = cpdDenominator > 0
+    ? Math.round((approvedWorkplans / cpdDenominator) * 100)
+    : null;
+
+  return {
+    kpiAchievementRate,
+    reviewCompletionRate,
+    reviewsSubmitted: submittedReviews,
+    reviewsTotal: staffId ? reviewList.length : staffCount,
+    workplansTotal: workplanList.length,
+    workplansApproved: approvedWorkplans,
+    cpdCompletionRate,
+    avgSupervisorRating,
+    totalStaff: staffCount,
+  };
 }
 
 export default function DashboardMetricCards({
@@ -34,118 +102,32 @@ export default function DashboardMetricCards({
   showHeroMetric = true,
   staffId,
 }: Props) {
-  const [metrics, setMetrics] = useState<MetricData | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function fetchMetrics() {
-      const supabase = createClient();
-      try {
-        // Build all queries upfront
-        let reviewsQuery = supabase
-          .from('mid_year_reviews')
-          .select('review_status, supervisor_rating');
-
-        if (staffId) {
-          reviewsQuery = reviewsQuery.eq('staff_id', staffId);
-        }
-
-        let workplansQuery = supabase
-          .from('workplan_settings')
-          .select('status, workflow_stage');
-
-        if (staffId) {
-          workplansQuery = workplansQuery.eq('staff_id', staffId);
-        }
-
-        // Run all 3 queries in parallel
-        const [reviewsResult, staffCountResult, workplansResult] = await Promise.all([
-          reviewsQuery,
-          supabase
-            .from('staff')
-            .select('id', { count: 'exact', head: true })
-            .eq('employment_status', 'active'),
-          workplansQuery,
-        ]);
-
-        const reviewList = reviewsResult.data || [];
-        const workplanList = workplansResult.data || [];
-        const staffCount = staffCountResult.count ?? 0;
-
-        const submittedReviews = reviewList.filter(r =>
-          ['submitted', 'reviewed', 'approved'].includes(r.review_status)
-        ).length;
-        const denominator = staffId ? Math.max(reviewList.length, 1) : staffCount;
-        const reviewCompletionRate = denominator > 0
-          ? Math.round((submittedReviews / denominator) * 100)
-          : null;
-
-        const ratedReviews = reviewList.filter(r => r.supervisor_rating != null);
-        const onTrackReviews = ratedReviews.filter(r => (r.supervisor_rating as number) >= 3).length;
-        const kpiAchievementRate = ratedReviews.length > 0
-          ? Math.round((onTrackReviews / ratedReviews.length) * 100)
-          : null;
-
-        const ratings = reviewList
-          .filter(r => r.supervisor_rating != null)
-          .map(r => r.supervisor_rating as number);
-        const avgSupervisorRating = ratings.length > 0
-          ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
-          : null;
-
-        const approvedWorkplans = workplanList.filter(w =>
-          w.status === 'approved' || w.workflow_stage === 'approved'
-        ).length;
-        const cpdDenominator = staffId ? Math.max(workplanList.length, 1) : staffCount;
-        const cpdCompletionRate = cpdDenominator > 0
-          ? Math.round((approvedWorkplans / cpdDenominator) * 100)
-          : null;
-
-        setMetrics({
-          kpiAchievementRate,
-          reviewCompletionRate,
-          reviewsSubmitted: submittedReviews,
-          reviewsTotal: staffId ? reviewList.length : staffCount,
-          workplansTotal: workplanList.length,
-          workplansApproved: approvedWorkplans,
-          cpdCompletionRate,
-          avgSupervisorRating,
-          totalStaff: staffCount,
-        });
-      } catch {
-        setMetrics({
-          kpiAchievementRate: null,
-          reviewCompletionRate: null,
-          reviewsSubmitted: 0,
-          reviewsTotal: 0,
-          workplansTotal: 0,
-          workplansApproved: 0,
-          cpdCompletionRate: null,
-          avgSupervisorRating: null,
-          totalStaff: 0,
-        });
-      } finally {
-        setLoading(false);
-      }
+  // SWR: show stale data instantly while revalidating in background
+  const { data: metrics, isLoading } = useSWR(
+    ['dashboard-metrics', staffId ?? 'org'],
+    () => fetchMetrics(staffId),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 30_000, // 30 s dedup window
+      fallbackData: undefined,
     }
+  );
 
-    fetchMetrics();
-  }, [staffId]);
-
-  if (loading) {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 gap-4">
-        {[...Array(showHeroMetric ? 6 : 4)].map((_, i) => (
-          <div
-            key={i}
-            className={`${i === 0 && showHeroMetric ? 'col-span-1 md:col-span-2' : ''} bg-muted/40 rounded-xl p-5 animate-pulse h-36`}
-          />
-        ))}
-      </div>
-    );
+  if (isLoading && !metrics) {
+    return <MetricCardSkeleton count={showHeroMetric ? 6 : 4} />;
   }
 
-  const m = metrics!;
+  const m: MetricData = metrics ?? {
+    kpiAchievementRate: null,
+    reviewCompletionRate: null,
+    reviewsSubmitted: 0,
+    reviewsTotal: 0,
+    workplansTotal: 0,
+    workplansApproved: 0,
+    cpdCompletionRate: null,
+    avgSupervisorRating: null,
+    totalStaff: 0,
+  };
 
   const kpiValue = m.kpiAchievementRate !== null ? `${m.kpiAchievementRate}%` : '—';
   const kpiRaw = m.kpiAchievementRate ?? 0;

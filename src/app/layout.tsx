@@ -2,6 +2,7 @@ import React from 'react';
 import type { Metadata, Viewport } from 'next';
 import '../styles/tailwind.css';
 import { AuthProvider } from '@/contexts/AuthContext';
+import SWRProvider from '@/components/SWRProvider';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -24,7 +25,9 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <AuthProvider>
-          {children}
+          <SWRProvider>
+            {children}
+          </SWRProvider>
         </AuthProvider>
 
         <script type="module" async src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Fperfmanage6773back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.19" />

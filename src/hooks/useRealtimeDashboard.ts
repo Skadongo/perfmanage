@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { cacheGet, cacheSet } from '@/lib/cache';
 
 export interface LiveStats {
   totalReviews: number;
@@ -28,6 +29,8 @@ interface UseRealtimeDashboardReturn {
   refetch: () => void;
 }
 
+const CACHE_TTL = 30_000; // 30 s — short enough to feel live, long enough to avoid hammering DB
+
 export function useRealtimeDashboard({
   staffId,
   onStaffChange,
@@ -42,19 +45,31 @@ export function useRealtimeDashboard({
   // Stable client ref — never recreated
   const supabaseRef = useRef(createClient());
 
-  const fetchLiveStats = useCallback(async () => {
+  const cacheKey = `live-stats:${staffId ?? 'org'}`;
+
+  const fetchLiveStats = useCallback(async (forceRefresh = false) => {
     const supabase = supabaseRef.current;
-    try {
-      let reviewsQuery = supabase
-        .from('mid_year_reviews')
-        .select('review_status, supervisor_rating', { count: 'planned' });
 
-      if (staffId) {
-        reviewsQuery = reviewsQuery.eq('staff_id', staffId);
+    // Return cached value immediately if available and not forcing refresh
+    if (!forceRefresh) {
+      const cached = cacheGet<LiveStats>(cacheKey);
+      if (cached) {
+        if (isMounted.current) setLiveStats(cached);
+        return;
       }
+    }
 
+    try {
+      // Run both queries in parallel, select only needed columns
       const [reviewsResult, staffResult] = await Promise.all([
-        reviewsQuery,
+        staffId
+          ? supabase
+              .from('mid_year_reviews')
+              .select('review_status, supervisor_rating')
+              .eq('staff_id', staffId)
+          : supabase
+              .from('mid_year_reviews')
+              .select('review_status, supervisor_rating'),
         supabase
           .from('staff')
           .select('id', { count: 'exact', head: true })
@@ -87,7 +102,7 @@ export function useRealtimeDashboard({
         second: '2-digit',
       });
 
-      setLiveStats({
+      const stats: LiveStats = {
         totalReviews: total,
         submitted,
         approved,
@@ -95,23 +110,26 @@ export function useRealtimeDashboard({
         totalStaff: staffResult.count ?? 0,
         pendingReviews: pending,
         lastUpdated: timeStr,
-      });
+      };
+
+      cacheSet(cacheKey, stats, CACHE_TTL);
+      setLiveStats(stats);
     } catch {
       // silently fail — keep previous stats
     }
-  }, [staffId]);
+  }, [staffId, cacheKey]);
 
-  // Debounced version to prevent rapid re-fetches on burst changes
+  // Debounced version to prevent rapid re-fetches on burst DB changes (500 ms window)
   const debouncedFetch = useCallback(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
-      fetchLiveStats();
+      fetchLiveStats(true); // force refresh on realtime event
       setRefreshKey(k => k + 1);
     }, 500);
   }, [fetchLiveStats]);
 
   const refetch = useCallback(() => {
-    fetchLiveStats();
+    fetchLiveStats(true);
     setRefreshKey(k => k + 1);
   }, [fetchLiveStats]);
 
@@ -121,9 +139,9 @@ export function useRealtimeDashboard({
 
     const supabase = supabaseRef.current;
 
-    // Channel 1: mid_year_reviews — performance data changes
-    const reviewsChannel = supabase
-      .channel('rt-dashboard-reviews')
+    // Single merged channel for all dashboard tables — reduces Supabase connections
+    const dashboardChannel = supabase
+      .channel('rt-dashboard')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'mid_year_reviews' },
@@ -132,13 +150,6 @@ export function useRealtimeDashboard({
           onPerformanceChange?.();
         }
       )
-      .subscribe(status => {
-        if (isMounted.current) setRealtimeActive(status === 'SUBSCRIBED');
-      });
-
-    // Channel 2: staff + user_profiles — staff/role updates (merged to reduce connections)
-    const staffChannel = supabase
-      .channel('rt-dashboard-staff')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'staff' },
@@ -159,13 +170,15 @@ export function useRealtimeDashboard({
           setRefreshKey(k => k + 1);
         }
       )
-      .subscribe();
+      .subscribe(status => {
+        if (isMounted.current) setRealtimeActive(status === 'SUBSCRIBED');
+      });
 
     return () => {
       isMounted.current = false;
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
-      supabase.removeChannel(reviewsChannel);
-      supabase.removeChannel(staffChannel);
+      // Unsubscribe and remove channel on unmount
+      supabase.removeChannel(dashboardChannel);
     };
   }, [fetchLiveStats, debouncedFetch, onStaffChange, onRoleChange, onPerformanceChange]);
 

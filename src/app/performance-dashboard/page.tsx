@@ -1,16 +1,9 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, lazy, Suspense } from 'react';
 import AppLayout from '@/components/AppLayout';
-import DashboardMetricCards from './components/DashboardMetricCards';
-import BSCPerspectiveChart from './components/BSCPerspectiveChart';
-import KPITrendChart from './components/KPITrendChart';
-import FrameworkIndicators from './components/FrameworkIndicators';
-import AtRiskStaffTable from './components/AtRiskStaffTable';
-import ActivityFeed from './components/ActivityFeed';
-import StaffDrillDownModal, { type DrillDownFilter } from './components/StaffDrillDownModal';
 import Icon from '@/components/ui/AppIcon';
-import StrategicPlanSection from './components/StrategicPlanSection';
+import { ChartSkeleton, MetricCardSkeleton, TableSkeleton } from '@/components/ui/SkeletonLoader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRealtimeDashboard, type LiveStats } from '@/hooks/useRealtimeDashboard';
 import {
@@ -18,6 +11,17 @@ import {
   getRoleDashboardConfig,
   type RoleDashboardConfig,
 } from './config/roleDashboardConfig';
+import type { DrillDownFilter } from './components/StaffDrillDownModal';
+
+// ── Lazy-load heavy dashboard widgets ──────────────────────────────────────
+const DashboardMetricCards  = lazy(() => import('./components/DashboardMetricCards'));
+const BSCPerspectiveChart   = lazy(() => import('./components/BSCPerspectiveChart'));
+const KPITrendChart         = lazy(() => import('./components/KPITrendChart'));
+const FrameworkIndicators   = lazy(() => import('./components/FrameworkIndicators'));
+const AtRiskStaffTable      = lazy(() => import('./components/AtRiskStaffTable'));
+const ActivityFeed          = lazy(() => import('./components/ActivityFeed'));
+const StaffDrillDownModal   = lazy(() => import('./components/StaffDrillDownModal'));
+const StrategicPlanSection  = lazy(() => import('./components/StrategicPlanSection'));
 
 // ── Live strip metric definitions ──────────────────────────────────────────
 interface StripItem {
@@ -86,28 +90,19 @@ function RoleChangeBanner({ onDismiss }: { onDismiss: () => void }) {
       <span className="flex-1 font-500">
         Your role or a staff member&apos;s role was just updated. Dashboard data has been refreshed.
       </span>
-      <button
-        onClick={onDismiss}
-        className="text-amber-600 hover:text-amber-800 transition-colors"
-        aria-label="Dismiss"
-      >
+      <button onClick={onDismiss} className="text-amber-600 hover:text-amber-800 transition-colors" aria-label="Dismiss">
         <Icon name="XMarkIcon" size={16} />
       </button>
     </div>
   );
 }
 
-// ── Staff update banner ─────────────────────────────────────────────────────
 function StaffUpdateBanner({ onDismiss }: { onDismiss: () => void }) {
   return (
     <div className="flex items-center gap-3 bg-sky-50 border border-sky-200 rounded-xl px-4 py-3 text-sm text-sky-800">
       <Icon name="UsersIcon" size={16} className="text-sky-600 flex-shrink-0" />
       <span className="flex-1 font-500">Staff records updated — dashboard synced in real time.</span>
-      <button
-        onClick={onDismiss}
-        className="text-sky-600 hover:text-sky-800 transition-colors"
-        aria-label="Dismiss"
-      >
+      <button onClick={onDismiss} className="text-sky-600 hover:text-sky-800 transition-colors" aria-label="Dismiss">
         <Icon name="XMarkIcon" size={16} />
       </button>
     </div>
@@ -118,15 +113,12 @@ function StaffUpdateBanner({ onDismiss }: { onDismiss: () => void }) {
 export default function PerformanceDashboardPage() {
   const { profile } = useAuth();
 
-  // Resolve role bucket and config
   const systemRole = profile?.systemRole ?? 'default';
   const roleBucket = resolveRoleBucket(systemRole);
   const config: RoleDashboardConfig = getRoleDashboardConfig(roleBucket);
 
-  // For staff_member, scope data to their own staffId
   const scopedStaffId = roleBucket === 'staff_member' ? (profile?.staffId ?? null) : null;
 
-  // Notification banners
   const [showRoleBanner, setShowRoleBanner] = useState(false);
   const [showStaffBanner, setShowStaffBanner] = useState(false);
 
@@ -140,7 +132,6 @@ export default function PerformanceDashboardPage() {
     setTimeout(() => setShowStaffBanner(false), 6000);
   }, []);
 
-  // Real-time hook
   const { liveStats, realtimeActive, refreshKey } = useRealtimeDashboard({
     staffId: scopedStaffId,
     onRoleChange: handleRoleChange,
@@ -148,11 +139,9 @@ export default function PerformanceDashboardPage() {
   });
 
   const [drillFilter, setDrillFilter] = useState<DrillDownFilter | null>(null);
-
   const handleDrillDown = (filter: DrillDownFilter) => setDrillFilter(filter);
   const handleCloseModal = () => setDrillFilter(null);
 
-  // Build live strip items based on role config
   const stripItems = ALL_STRIP_ITEMS.filter(item =>
     config.liveStripMetrics.includes(item.key as typeof config.liveStripMetrics[number])
   );
@@ -163,31 +152,17 @@ export default function PerformanceDashboardPage() {
       pageSubtitle={config.dashboardSubtitle}
       actions={
         <div className="flex items-center gap-2">
-          {/* Role badge */}
-          <span
-            className={`hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 ${config.roleBadgeClass}`}
-          >
+          <span className={`hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 ${config.roleBadgeClass}`}>
             <Icon name="UserCircleIcon" size={12} />
-            {profile?.fullName
-              ? profile.fullName.split(' ')[0]
-              : config.roleLabel}
+            {profile?.fullName ? profile.fullName.split(' ')[0] : config.roleLabel}
           </span>
-
-          {/* Live indicator */}
-          <span
-            className={`hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-              realtimeActive
-                ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :'text-muted-foreground bg-muted border-border'
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full inline-block ${
-                realtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'
-              }`}
-            />
+          <span className={`hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+            realtimeActive
+              ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :'text-muted-foreground bg-muted border-border'
+          }`}>
+            <span className={`w-2 h-2 rounded-full inline-block ${realtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} />
             {realtimeActive ? 'Live' : 'Connecting…'}
           </span>
-
           <button className="btn-brand">
             <Icon name="EcsaExportIcon" size={14} className="text-white" />
             <span className="hidden sm:inline">Export</span>
@@ -196,8 +171,6 @@ export default function PerformanceDashboardPage() {
       }
     >
       <div className="space-y-5">
-
-        {/* Role-change notification banners */}
         {showRoleBanner && <RoleChangeBanner onDismiss={() => setShowRoleBanner(false)} />}
         {showStaffBanner && <StaffUpdateBanner onDismiss={() => setShowStaffBanner(false)} />}
 
@@ -205,19 +178,14 @@ export default function PerformanceDashboardPage() {
         {config.showLiveStrip && liveStats && (
           <div className={`grid gap-3 ${
             stripItems.length <= 2 ? 'grid-cols-2' :
-            stripItems.length === 3 ? 'grid-cols-3': 'grid-cols-2 sm:grid-cols-4'
+            stripItems.length === 3 ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'
           }`}>
             {stripItems.map((item) => {
               const raw = liveStats[item.key] as number;
               const display = item.format ? item.format(raw) : String(raw);
               return (
-                <div
-                  key={item.key}
-                  className={`${item.bg} rounded-xl p-3 border border-border/50`}
-                >
-                  <p className={`text-xl font-700 tabular-nums font-mono ${item.color}`}>
-                    {display}
-                  </p>
+                <div key={item.key} className={`${item.bg} rounded-xl p-3 border border-border/50`}>
+                  <p className={`text-xl font-700 tabular-nums font-mono ${item.color}`}>{display}</p>
                   <p className="text-[11px] font-600 text-foreground mt-0.5">{item.label}</p>
                   <p className="text-[10px] text-muted-foreground">{item.sub(liveStats)}</p>
                 </div>
@@ -226,43 +194,41 @@ export default function PerformanceDashboardPage() {
           </div>
         )}
 
-        {/* Section: Strategic Plan — Directors + Staff Members */}
+        {/* Strategic Plan — lazy loaded */}
         {config.showStrategicPlan && (
           <section>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xs font-600 uppercase tracking-wider text-muted-foreground">
-                Strategic Plan 2024–2034
-              </h2>
+              <h2 className="text-xs font-600 uppercase tracking-wider text-muted-foreground">Strategic Plan 2024–2034</h2>
               <span className="text-[11px] text-muted-foreground">ECSA-HC · 10-Year Roadmap</span>
             </div>
-            <StrategicPlanSection />
+            <Suspense fallback={<div className="animate-pulse bg-muted/40 rounded-xl h-32" />}>
+              <StrategicPlanSection />
+            </Suspense>
           </section>
         )}
 
-        {/* Section: Hero Metrics */}
+        {/* Hero Metrics — each widget loads independently */}
         <section>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs font-600 uppercase tracking-wider text-muted-foreground">
-              Key Performance Indicators
-            </h2>
+            <h2 className="text-xs font-600 uppercase tracking-wider text-muted-foreground">Key Performance Indicators</h2>
             <span className="text-[11px] text-muted-foreground">FY 2025–2026 · Balanced Scorecard</span>
           </div>
-          <DashboardMetricCards
-            onMetricClick={handleDrillDown}
-            visibleMetricIds={config.visibleMetrics}
-            showHeroMetric={config.showHeroMetric}
-            staffId={scopedStaffId}
-            key={`metrics-${refreshKey}`}
-          />
+          <Suspense fallback={<MetricCardSkeleton count={config.showHeroMetric ? 6 : 4} />}>
+            <DashboardMetricCards
+              onMetricClick={handleDrillDown}
+              visibleMetricIds={config.visibleMetrics}
+              showHeroMetric={config.showHeroMetric}
+              staffId={scopedStaffId}
+              key={`metrics-${refreshKey}`}
+            />
+          </Suspense>
         </section>
 
-        {/* Section: Charts */}
+        {/* Charts — each loads independently */}
         {(config.showKPITrendChart || config.showBSCChart) && (
           <section>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xs font-600 uppercase tracking-wider text-muted-foreground">
-                Trend Analysis
-              </h2>
+              <h2 className="text-xs font-600 uppercase tracking-wider text-muted-foreground">Trend Analysis</h2>
               <span className="text-[11px] text-primary flex items-center gap-1">
                 <Icon name="EcsaKPIIcon" size={12} className="text-primary" />
                 Click charts to drill down
@@ -270,47 +236,50 @@ export default function PerformanceDashboardPage() {
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {config.showKPITrendChart && (
-                <KPITrendChart onPointClick={handleDrillDown} key={`kpi-${refreshKey}`} />
+                <Suspense fallback={<ChartSkeleton height={240} />}>
+                  <KPITrendChart onPointClick={handleDrillDown} key={`kpi-${refreshKey}`} />
+                </Suspense>
               )}
               {config.showBSCChart && (
-                <BSCPerspectiveChart onBarClick={handleDrillDown} key={`bsc-${refreshKey}`} />
+                <Suspense fallback={<ChartSkeleton height={240} />}>
+                  <BSCPerspectiveChart onBarClick={handleDrillDown} key={`bsc-${refreshKey}`} />
+                </Suspense>
               )}
             </div>
           </section>
         )}
 
-        {/* Section: External Framework Indicators — Directors + Admins only */}
+        {/* Framework Indicators — lazy loaded */}
         {config.showFrameworkIndicators && (
           <section>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xs font-600 uppercase tracking-wider text-muted-foreground">
-                External Framework Indicators
-              </h2>
-              <span className="text-[11px] text-muted-foreground">
-                HEPRR-MPA · World Bank · JEE/SPAR
-              </span>
+              <h2 className="text-xs font-600 uppercase tracking-wider text-muted-foreground">External Framework Indicators</h2>
+              <span className="text-[11px] text-muted-foreground">HEPRR-MPA · World Bank · JEE/SPAR</span>
             </div>
-            <FrameworkIndicators />
+            <Suspense fallback={<ChartSkeleton height={180} />}>
+              <FrameworkIndicators />
+            </Suspense>
           </section>
         )}
 
-        {/* Section: At-Risk Table + Activity Feed */}
+        {/* At-Risk Table + Activity Feed — each loads independently */}
         {(config.showAtRiskTable || config.showActivityFeed) && (
           <section>
-            <div
-              className={`grid gap-4 ${
-                config.showAtRiskTable && config.showActivityFeed
-                  ? 'grid-cols-1 xl:grid-cols-3' :'grid-cols-1'
-              }`}
-            >
+            <div className={`grid gap-4 ${
+              config.showAtRiskTable && config.showActivityFeed ? 'grid-cols-1 xl:grid-cols-3' : 'grid-cols-1'
+            }`}>
               {config.showAtRiskTable && (
                 <div className={config.showActivityFeed ? 'xl:col-span-2' : ''}>
-                  <AtRiskStaffTable key={`risk-${refreshKey}`} />
+                  <Suspense fallback={<TableSkeleton rows={5} cols={5} />}>
+                    <AtRiskStaffTable key={`risk-${refreshKey}`} />
+                  </Suspense>
                 </div>
               )}
               {config.showActivityFeed && (
                 <div>
-                  <ActivityFeed key={`feed-${refreshKey}`} />
+                  <Suspense fallback={<div className="animate-pulse bg-muted/40 rounded-xl h-64" />}>
+                    <ActivityFeed key={`feed-${refreshKey}`} />
+                  </Suspense>
                 </div>
               )}
             </div>
@@ -318,8 +287,12 @@ export default function PerformanceDashboardPage() {
         )}
       </div>
 
-      {/* Staff Drill-Down Modal */}
-      <StaffDrillDownModal filter={drillFilter} onClose={handleCloseModal} />
+      {/* Staff Drill-Down Modal — only rendered when needed */}
+      {drillFilter && (
+        <Suspense fallback={null}>
+          <StaffDrillDownModal filter={drillFilter} onClose={handleCloseModal} />
+        </Suspense>
+      )}
     </AppLayout>
   );
 }

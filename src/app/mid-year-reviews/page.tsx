@@ -3,7 +3,9 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
+import { CardListSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
+import { cachedFetch } from '@/lib/cache';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,6 +73,8 @@ const RATING_LABELS: Record<number, string> = {
   4: 'Exceeds Expectations',
   5: 'Outstanding',
 };
+
+const PAGE_SIZE = 20;
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 
@@ -532,8 +536,8 @@ function ReviewCard({ review, onAction }: { review: MidYearReview; onAction: (r:
 export default function MidYearReviewsPage() {
   // Stable supabase client — created once, never recreated on re-render
   const supabaseRef = useRef(createClient());
-  const [reviews, setReviews] = useState<MidYearReview[]>([]);
   const [timeline, setTimeline] = useState<ReviewTimeline | null>(null);
+  const [reviews, setReviews] = useState<MidYearReview[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -545,6 +549,8 @@ export default function MidYearReviewsPage() {
   const [showNewReviewModal, setShowNewReviewModal] = useState(false);
   const [newReviewStaffId, setNewReviewStaffId] = useState('');
   const [creatingReview, setCreatingReview] = useState(false);
+  // Pagination
+  const [page, setPage] = useState(0);
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => {
     setToast({ message, type });
@@ -555,10 +561,26 @@ export default function MidYearReviewsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [timelineRes, reviewsRes, staffRes] = await Promise.all([
+      // Staff list is rarely-changing — cache for 5 minutes
+      const staffData = await cachedFetch(
+        'staff-active-list',
+        async () => {
+          const { data, error } = await supabase
+            .from('staff')
+            .select('id, full_name, job_title, supervisor_id, departments(name)')
+            .eq('employment_status', 'active')
+            .order('full_name');
+          if (error) throw error;
+          return data;
+        },
+        5 * 60_000
+      );
+
+      // Timeline + reviews run in parallel; reviews paginated
+      const [timelineRes, reviewsRes] = await Promise.all([
         supabase
           .from('review_timelines')
-          .select('*')
+          .select('id, review_year, review_period, submission_open_date, submission_deadline, supervisor_review_deadline, approval_deadline, is_active')
           .eq('is_active', true)
           .order('review_year', { ascending: false })
           .limit(1)
@@ -566,31 +588,32 @@ export default function MidYearReviewsPage() {
         supabase
           .from('mid_year_reviews')
           .select(`
-            *,
+            id, staff_id, supervisor_id, timeline_id,
+            review_status, review_year, review_period,
+            kpi_achievements, challenges_faced, support_needed,
+            self_rating, supervisor_comments, supervisor_rating,
+            supervisor_reviewed_at, approved_by, approval_comments,
+            approved_at, submitted_at, rejected_reason,
+            created_at, updated_at,
             staff:staff_id(full_name, job_title, departments(name)),
             supervisor:supervisor_id(full_name, job_title)
           `)
-          .order('updated_at', { ascending: false }),
-        supabase
-          .from('staff')
-          .select('id, full_name, job_title, supervisor_id, departments(name)')
-          .eq('employment_status', 'active')
-          .order('full_name'),
+          .order('updated_at', { ascending: false })
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1),
       ]);
 
       if (timelineRes.error) throw timelineRes.error;
       if (reviewsRes.error) throw reviewsRes.error;
-      if (staffRes.error) throw staffRes.error;
 
       setTimeline(timelineRes.data);
       setReviews((reviewsRes.data as MidYearReview[]) || []);
-      setStaff((staffRes.data as StaffMember[]) || []);
+      setStaff((staffData as StaffMember[]) || []);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load reviews');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -760,10 +783,7 @@ export default function MidYearReviewsPage() {
 
         {/* Content */}
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Icon name="EcsaRefreshIcon" size={24} className="animate-spin text-primary" />
-            <span className="ml-3 text-muted-foreground">Loading reviews...</span>
-          </div>
+          <CardListSkeleton count={5} />
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Icon name="EcsaWarningIcon" size={32} className="text-rose-400 mb-3" />

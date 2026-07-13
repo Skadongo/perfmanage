@@ -3,7 +3,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
+import { TableSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
+
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,6 +97,8 @@ const DEFAULT_COMPETENCIES: GeneralCompetency[] = [
 
 const inputCls = 'w-full text-sm border border-border rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors placeholder:text-muted-foreground/60';
 const textareaCls = inputCls + ' resize-none';
+
+const PAGE_SIZE = 25;
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -654,9 +658,14 @@ export default function ManagerReviewPage() {
   const [filterPeriod, setFilterPeriod] = useState<'all' | 'mid-year' | 'annual'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  // Pagination
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
 
-  const fetchReviews = useCallback(async () => {
+  const fetchReviews = useCallback(async (resetPage = false) => {
     const supabase = supabaseRef.current;
+    const currentPage = resetPage ? 0 : page;
+    if (resetPage) setPage(0);
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -678,17 +687,20 @@ export default function ManagerReviewPage() {
           )
         `)
         .in('review_status', ['submitted', 'reviewed', 'approved', 'rejected'])
-        .order('submitted_at', { ascending: false });
+        .order('submitted_at', { ascending: false })
+        .range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1);
 
       if (error) throw error;
-      setReviews((data ?? []) as unknown as SelfAssessmentRecord[]);
+      const rows = (data ?? []) as unknown as SelfAssessmentRecord[];
+      setReviews(rows);
+      setHasMore(rows.length === PAGE_SIZE);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to load reviews';
       setToast({ message: msg, type: 'error' });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page]);
 
   useEffect(() => { fetchReviews(); }, [fetchReviews]);
 
@@ -848,9 +860,8 @@ export default function ManagerReviewPage() {
         {/* Reviews Table */}
         <div className="bg-white border border-border rounded-2xl overflow-hidden">
           {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mr-3" />
-              <span className="text-sm text-muted-foreground">Loading self-assessments…</span>
+            <div className="p-4">
+              <TableSkeleton rows={6} cols={5} />
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center px-6">

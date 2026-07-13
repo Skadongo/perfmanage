@@ -3,7 +3,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
+import { CardListSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
+import { cachedFetch } from '@/lib/cache';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -231,18 +233,25 @@ export default function SelfAssessmentPage() {
       const supabase = supabaseRef.current;
       setLoadingWorkplans(true);
       try {
-        const { data, error } = await supabase
-          .from('workplan_settings')
-          .select(`
-            id, fiscal_year, review_year, workflow_stage,
-            perspectives_objectives, general_competencies,
-            staff:staff_id ( id, full_name ),
-            supervisor:supervisor_id ( id, full_name )
-          `)
-          .eq('status', 'signed')
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
+        // Cache workplan list for 2 minutes — rarely changes mid-session
+        const data = await cachedFetch(
+          'workplan-signed-list',
+          async () => {
+            const { data: rows, error } = await supabase
+              .from('workplan_settings')
+              .select(`
+                id, fiscal_year, review_year, workflow_stage,
+                perspectives_objectives, general_competencies,
+                staff:staff_id ( id, full_name ),
+                supervisor:supervisor_id ( id, full_name )
+              `)
+              .eq('status', 'signed')
+              .order('created_at', { ascending: false });
+            if (error) throw error;
+            return rows;
+          },
+          2 * 60_000
+        );
 
         const mapped: WorkplanOption[] = (data ?? []).map((row: any) => ({
           id: row.id,
@@ -628,10 +637,7 @@ export default function SelfAssessmentPage() {
             />
 
             {loadingWorkplans ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mr-3" />
-                <span className="text-sm text-muted-foreground">Loading workplans…</span>
-              </div>
+              <CardListSkeleton count={3} />
             ) : workplans.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
