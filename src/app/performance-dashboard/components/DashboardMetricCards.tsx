@@ -26,6 +26,8 @@ interface Props {
   visibleMetricIds?: string[];
   showHeroMetric?: boolean;
   staffId?: string | null;
+  /** supervisorId — when set, scopes data to direct reports of this supervisor */
+  supervisorId?: string | null;
   /** systemRole from UserProfile — used to scope the cache key per role */
   systemRole?: string;
 }
@@ -33,6 +35,7 @@ interface Props {
 // Fetcher used by SWR — runs outside React render cycle
 async function fetchMetrics(
   staffId: string | null | undefined,
+  supervisorId: string | null | undefined,
   systemRole: string
 ): Promise<MetricData> {
   return roleCachedFetch(
@@ -43,20 +46,43 @@ async function fetchMetrics(
 
       let reviewsQuery = supabase
         .from('mid_year_reviews')
-        .select('review_status, supervisor_rating');
-      if (staffId) reviewsQuery = reviewsQuery.eq('staff_id', staffId);
+        .select('review_status, supervisor_rating, staff_id, supervisor_id');
+      if (staffId) {
+        reviewsQuery = reviewsQuery.eq('staff_id', staffId);
+      } else if (supervisorId) {
+        reviewsQuery = reviewsQuery.eq('supervisor_id', supervisorId);
+      }
 
       let workplansQuery = supabase
         .from('workplan_settings')
-        .select('status, workflow_stage');
-      if (staffId) workplansQuery = workplansQuery.eq('staff_id', staffId);
+        .select('status, workflow_stage, staff_id');
+      if (staffId) {
+        workplansQuery = workplansQuery.eq('staff_id', staffId);
+      } else if (supervisorId) {
+        // Get direct reports first
+        const { data: directReports } = await supabase
+          .from('staff')
+          .select('id')
+          .eq('supervisor_id', supervisorId)
+          .eq('employment_status', 'active');
+        const directIds = (directReports || []).map((s: any) => s.id);
+        if (directIds.length > 0) {
+          workplansQuery = workplansQuery.in('staff_id', directIds);
+        }
+      }
 
       const [reviewsResult, staffCountResult, workplansResult] = await Promise.all([
         reviewsQuery,
-        supabase
-          .from('staff')
-          .select('id', { count: 'exact', head: true })
-          .eq('employment_status', 'active'),
+        supervisorId
+          ? supabase
+              .from('staff')
+              .select('id', { count: 'exact', head: true })
+              .eq('supervisor_id', supervisorId)
+              .eq('employment_status', 'active')
+          : supabase
+              .from('staff')
+              .select('id', { count: 'exact', head: true })
+              .eq('employment_status', 'active'),
         workplansQuery,
       ]);
 
@@ -106,7 +132,7 @@ async function fetchMetrics(
       };
     },
     TTL_DASHBOARD_METRICS,
-    staffId
+    staffId ?? supervisorId
   );
 }
 
@@ -115,12 +141,13 @@ export default function DashboardMetricCards({
   visibleMetricIds,
   showHeroMetric = true,
   staffId,
+  supervisorId,
   systemRole = 'staff_member',
 }: Props) {
   // SWR: show stale data instantly while revalidating in background
   const { data: metrics, isLoading } = useSWR(
-    ['dashboard-metrics', systemRole, staffId ?? 'org'],
-    () => fetchMetrics(staffId, systemRole),
+    ['dashboard-metrics', systemRole, staffId ?? supervisorId ?? 'org'],
+    () => fetchMetrics(staffId, supervisorId, systemRole),
     {
       revalidateOnFocus: false,
       dedupingInterval: 30_000, // 30 s dedup window

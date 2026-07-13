@@ -20,7 +20,12 @@ interface AtRiskStaffRecord {
   supervisor: string;
 }
 
-export default function AtRiskStaffTable() {
+interface Props {
+  /** When set, only shows direct reports of this supervisor */
+  supervisorId?: string | null;
+}
+
+export default function AtRiskStaffTable({ supervisorId }: Props) {
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [staffList, setStaffList] = useState<AtRiskStaffRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,8 +35,8 @@ export default function AtRiskStaffTable() {
     async function fetchAtRiskStaff() {
       const supabase = createClient();
       try {
-        // Fetch mid_year_reviews with staff and department info
-        const { data: reviews, error: reviewsError } = await supabase
+        // Build reviews query — scope to direct reports if supervisorId provided
+        let reviewsQuery = supabase
           .from('mid_year_reviews')
           .select(`
             id,
@@ -53,13 +58,12 @@ export default function AtRiskStaffTable() {
           .in('review_status', ['draft', 'submitted', 'rejected'])
           .order('created_at', { ascending: false });
 
-        if (reviewsError) {
-          setError('Failed to load staff data');
-          return;
+        if (supervisorId) {
+          reviewsQuery = reviewsQuery.eq('supervisor_id', supervisorId);
         }
 
-        // Also fetch staff with no reviews at all (draft/missing)
-        const { data: allStaff, error: staffError } = await supabase
+        // Build staff query — scope to direct reports if supervisorId provided
+        let staffQuery = supabase
           .from('staff')
           .select(`
             id,
@@ -73,19 +77,31 @@ export default function AtRiskStaffTable() {
           .eq('employment_status', 'active')
           .limit(50);
 
-        if (staffError) {
+        if (supervisorId) {
+          staffQuery = staffQuery.eq('supervisor_id', supervisorId);
+        }
+
+        const [reviewsResult, allStaffResult] = await Promise.all([reviewsQuery, staffQuery]);
+
+        if (reviewsResult.error) {
+          setError('Failed to load staff data');
+          return;
+        }
+        if (allStaffResult.error) {
           setError('Failed to load staff data');
           return;
         }
 
+        const reviews = reviewsResult.data || [];
+        const allStaff = allStaffResult.data || [];
+
         const reviewedStaffIds = new Set(
-          (reviews || []).map((r: any) => r.staff?.id).filter(Boolean)
+          reviews.map((r: any) => r.staff?.id).filter(Boolean)
         );
 
         const records: AtRiskStaffRecord[] = [];
 
-        // Process reviews with at-risk/overdue status
-        (reviews || []).forEach((review: any) => {
+        reviews.forEach((review: any) => {
           const staff = review.staff;
           if (!staff) return;
 
@@ -109,8 +125,7 @@ export default function AtRiskStaffTable() {
           });
         });
 
-        // Add active staff with no review records as overdue
-        (allStaff || []).forEach((staff: any) => {
+        allStaff.forEach((staff: any) => {
           if (reviewedStaffIds.has(staff.id)) return;
           const deptName = staff.departments?.name || 'General';
           records.push({
@@ -128,7 +143,6 @@ export default function AtRiskStaffTable() {
           });
         });
 
-        // Sort: overdue first, then at-risk; limit to 10
         records.sort((a, b) => {
           if (a.status === 'overdue' && b.status !== 'overdue') return -1;
           if (a.status !== 'overdue' && b.status === 'overdue') return 1;
@@ -144,7 +158,7 @@ export default function AtRiskStaffTable() {
     }
 
     fetchAtRiskStaff();
-  }, []);
+  }, [supervisorId]);
 
   const overdueCount = staffList.filter(s => s.status === 'overdue').length;
   const atRiskCount = staffList.filter(s => s.status === 'at-risk').length;
@@ -153,8 +167,12 @@ export default function AtRiskStaffTable() {
     <div className="bg-white rounded-xl border border-border shadow-card">
       <div className="flex items-center justify-between p-5 border-b border-border">
         <div>
-          <h3 className="text-sm font-700 text-foreground">At-Risk & Overdue KPIs</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Staff requiring immediate attention · Q1 2026</p>
+          <h3 className="text-sm font-700 text-foreground">
+            {supervisorId ? 'Your Team — At-Risk & Overdue KPIs' : 'At-Risk & Overdue KPIs'}
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {supervisorId ? 'Direct reports requiring attention' : 'Staff requiring immediate attention'} · Q1 2026
+          </p>
         </div>
         {!loading && !error && (
           <span className="text-[11px] bg-red-50 text-red-700 border border-red-200 px-2 py-1 rounded-md font-600">
@@ -179,7 +197,7 @@ export default function AtRiskStaffTable() {
 
       {!loading && !error && staffList.length === 0 && (
         <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">
-          No at-risk staff found.
+          {supervisorId ? 'All your direct reports are on track.' : 'No at-risk staff found.'}
         </div>
       )}
 
