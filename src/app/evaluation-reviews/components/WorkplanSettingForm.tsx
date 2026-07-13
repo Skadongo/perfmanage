@@ -905,6 +905,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
 
   const totalWeight = form.perspectivesObjectives.reduce((s, r) => s + (Number(r.weight) || 0), 0);
   const totalCompWeight = form.generalCompetencies.reduce((s, c) => s + (Number(c.weight) || 0), 0);
+  const totalCustomKpiWeight = (form.customKpis || []).reduce((s, k) => s + (Number(k.weight) || 0), 0);
 
   const steps = [
     { label: 'Staff & Supervisor', icon: 'UserIcon' },
