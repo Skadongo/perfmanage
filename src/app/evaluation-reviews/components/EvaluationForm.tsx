@@ -404,10 +404,11 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
 
   // ── Autosave hook ────────────────────────────────────────────────────────
   const autosaveEnabled = !!form.staffId && !isFormReadOnly;
-  const autosaveDraftWorkplanId = form.staffId ? `eval-draft-${form.staffId}` : null;
+  // Pass null as workplanId — EvaluationForm drafts are not linked to a workplan
+  // (the fake 'eval-draft-...' string was being stored as a UUID FK and failing)
   const { saveDraft, recoverDraft, clearDraft } = useAutosave({
     staffId: form.staffId || null,
-    workplanId: autosaveDraftWorkplanId,
+    workplanId: null,
     draftType: 'evaluation_form',
     reviewPeriod: form.reviewPeriod || 'mid-year',
     formData: {
@@ -447,8 +448,8 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   // Recover draft when staff member is selected
   useEffect(() => {
     if (!form.staffId) return;
-    const draftWpId = `eval-draft-${form.staffId}`;
-    recoverDraft(draftWpId, form.staffId, form.reviewPeriod || 'mid-year').then((data) => {
+    // Pass null as workplanId — evaluation drafts are not linked to a workplan
+    recoverDraft(null, form.staffId, form.reviewPeriod || 'mid-year').then((data) => {
       if (data?.form_data) {
         const fd = data.form_data as any;
         setForm((prev) => ({
@@ -779,8 +780,8 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
 
       // Clear draft after successful submission
       if (form.staffId) {
-        const draftWpId = `eval-draft-${form.staffId}`;
-        await clearDraft(draftWpId, form.staffId, form.reviewPeriod || 'mid-year');
+        // Pass null as workplanId — evaluation drafts are not linked to a workplan
+        await clearDraft(null, form.staffId, form.reviewPeriod || 'mid-year');
       }
 
       // ── Audit log: record who submitted and for whom ──────────────────────
