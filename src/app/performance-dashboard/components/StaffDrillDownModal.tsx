@@ -5,15 +5,9 @@ import Icon from '@/components/ui/AppIcon';
 import StatusBadge from '@/components/ui/StatusBadge';
 import ProgressBar from '@/components/ui/ProgressBar';
 import { createClient } from '@/lib/supabase/client';
+import type { DrillDownFilter } from '../types';
 
-export interface DrillDownFilter {
-  type: 'metric' | 'bsc-perspective' | 'kpi-trend';
-  label: string;
-  subLabel?: string;
-  value?: number;
-  status?: 'on-track' | 'at-risk' | 'overdue' | 'alert';
-  color?: string;
-}
+export type { DrillDownFilter } from '../types';
 
 interface StaffRecord {
   id: string;

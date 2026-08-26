@@ -4,7 +4,7 @@ import React from 'react';
 import useSWR from 'swr';
 import Icon from '@/components/ui/AppIcon';
 import ProgressBar from '@/components/ui/ProgressBar';
-import type { DrillDownFilter } from './StaffDrillDownModal';
+import type { DrillDownFilter } from '../types';
 import { createClient } from '@/lib/supabase/client';
 import { MetricCardSkeleton } from '@/components/ui/SkeletonLoader';
 import { roleCachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
