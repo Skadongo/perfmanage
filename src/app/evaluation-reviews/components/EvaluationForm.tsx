@@ -145,15 +145,15 @@ const KPI_STATUS_OPTIONS = ['Achieved', 'On Track', 'At Risk', 'Not Started', 'E
 // Performance bands for the 0–120% scoring model
 // BSC (0–100%) + Competencies (0–20%) = Total (0–120%)
 // Bands as per ECSA-HC policy:
-//   120%        → Outstanding         — 2-Notch Salary Increment
-//   100%–<120%  → Above Average       — 1-Notch Salary Increment
-//   75%–<100%   → Needs Improvement   — No Annual Increment
-//   <50%        → Unsatisfactory      — Mandatory PIP
-//   50%–<75%    → Needs Improvement   — No Annual Increment (no separate band defined)
+//   120%        → Outstanding           — 2-Notch Salary Increment
+//   100%–<120%  → Above Average         — 1-Notch Salary Increment
+//   75%–<100%   → Meets Expectations    — No Annual Increment
+//   50%–<75%    → Needs Improvement     — No Annual Increment
+//   <50%        → Unsatisfactory        — Mandatory PIP
 function getPerformanceBand(score: number): { label: string; increment: string; color: string } {
   if (score >= 120) return { label: 'Outstanding', increment: '2-Notch Salary Increment', color: 'text-emerald-700' };
   if (score >= 100) return { label: 'Above Average', increment: '1-Notch Salary Increment', color: 'text-sky-700' };
-  if (score >= 75)  return { label: 'Needs Improvement', increment: 'No Annual Increment', color: 'text-amber-700' };
+  if (score >= 75)  return { label: 'Meets Expectations', increment: 'No Annual Increment', color: 'text-blue-700' };
   if (score >= 50)  return { label: 'Needs Improvement', increment: 'No Annual Increment', color: 'text-amber-700' };
   return { label: 'Unsatisfactory', increment: 'Mandatory Performance Improvement Plan (PIP)', color: 'text-red-700' };
 }
@@ -346,7 +346,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
     supervisorDevelopmentPlan: '',
     supervisorOverallRating: 3,
     supervisorOverallComments: '',
-    supervisorRecommendation: 'Meets Expectations',
+    supervisorRecommendation: 'Meets Expectations (75%–99%) — No Annual Increment',
     staffSignature: '',
     supervisorSignature: '',
     hrSignature: '',
@@ -1270,6 +1270,62 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
               </div>
             </div>
 
+            {/* ── Live Score Preview Panel ── */}
+            <div className="bg-gradient-to-br from-primary/5 to-primary/10 border border-primary/20 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Icon name="ChartBarIcon" size={14} className="text-primary" />
+                <p className="text-xs font-700 text-primary uppercase tracking-wide">Live Score Preview</p>
+                <span className="ml-auto text-[10px] font-600 text-primary/70 bg-primary/10 px-2 py-0.5 rounded-full">Updates as you rate</span>
+              </div>
+
+              {/* Per-perspective progress bars */}
+              <div className="space-y-2 mb-4">
+                {form.bscRatings.map((bsc, idx) => {
+                  const perspColors = ['bg-emerald-500', 'bg-sky-500', 'bg-violet-500', 'bg-amber-500'];
+                  const perspBgColors = ['bg-emerald-100', 'bg-sky-100', 'bg-violet-100', 'bg-amber-100'];
+                  const perspTextColors = ['text-emerald-700', 'text-sky-700', 'text-violet-700', 'text-amber-700'];
+                  // Contribution of this perspective to the 100% BSC score
+                  const perspContribution = (bsc.selfRating / 5) * bsc.weight;
+                  const perspPct = (perspContribution / 100) * 100; // already in % of 100
+                  return (
+                    <div key={bsc.perspective}>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-[10px] font-600 text-foreground truncate max-w-[60%]">{bsc.perspective}</span>
+                        <span className={`text-[10px] font-700 ${perspTextColors[idx]}`}>
+                          {perspContribution.toFixed(1)}% <span className="font-400 text-muted-foreground">/ {bsc.weight}%</span>
+                        </span>
+                      </div>
+                      <div className={`h-1.5 rounded-full ${perspBgColors[idx]} overflow-hidden`}>
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${perspColors[idx]}`}
+                          style={{ width: `${Math.min((bsc.selfRating / 5) * 100, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Score totals */}
+              <div className="grid grid-cols-3 gap-2 pt-3 border-t border-primary/20">
+                <div className="text-center">
+                  <p className="text-[10px] font-600 text-muted-foreground uppercase tracking-wide mb-0.5">BSC Score</p>
+                  <p className="text-xl font-800 text-foreground tabular-nums">{bscSelfScore100.toFixed(1)}</p>
+                  <p className="text-[10px] text-muted-foreground">/ 100%</p>
+                </div>
+                <div className="text-center border-x border-primary/20">
+                  <p className="text-[10px] font-600 text-muted-foreground uppercase tracking-wide mb-0.5">Competency</p>
+                  <p className="text-xl font-800 text-foreground tabular-nums">{competencySelfScore.toFixed(1)}</p>
+                  <p className="text-[10px] text-muted-foreground">/ 20%</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] font-600 text-primary uppercase tracking-wide mb-0.5">Total</p>
+                  <p className="text-xl font-800 text-primary tabular-nums">{overallSelfScore.toFixed(1)}%</p>
+                  <p className={`text-[10px] font-700 ${getPerformanceBand(overallSelfScore).color}`}>{getPerformanceBand(overallSelfScore).label}</p>
+                </div>
+              </div>
+            </div>
+
             <div className="space-y-4">
               {form.bscRatings.map((bsc, idx) => {
                 const perspColors = [
@@ -1286,8 +1342,15 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                         <Icon name={perspIcons[idx] as any} size={16} className="text-muted-foreground" />
                         <div>
                           <p className="text-sm font-700 text-foreground">{bsc.perspective}</p>
-                          <p className="text-xs text-muted-foreground">Perspective {idx + 1} of 4</p>
+                          <p className="text-xs text-muted-foreground">Perspective {idx + 1} of 4 · Weight: <span className="font-700">{bsc.weight}%</span></p>
                         </div>
+                      </div>
+                      {/* Per-perspective score chip */}
+                      <div className="text-right">
+                        <p className="text-[10px] text-muted-foreground">Contribution</p>
+                        <p className="text-sm font-800 text-foreground tabular-nums">
+                          {((bsc.selfRating / 5) * bsc.weight).toFixed(1)}%
+                        </p>
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1587,8 +1650,9 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
               <FormField label="Recommendation">
                 <select className={`${selectCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={form.supervisorRecommendation} disabled={isFormReadOnly} onChange={(e) => setField('supervisorRecommendation', e.target.value)}>
                   <option>Outstanding (120%) — 2-Notch Salary Increment</option>
-                  <option>Above Average (100%–120%) — 1-Notch Salary Increment</option>
-                  <option>Needs Improvement (75%–99%) — No Annual Increment</option>
+                  <option>Above Average (100%–119%) — 1-Notch Salary Increment</option>
+                  <option>Meets Expectations (75%–99%) — No Annual Increment</option>
+                  <option>Needs Improvement (50%–74%) — No Annual Increment</option>
                   <option>Unsatisfactory (&lt;50%) — Mandatory Performance Improvement Plan (PIP)</option>
                 </select>
               </FormField>
@@ -1662,18 +1726,22 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                 {/* Performance band reference */}
                 <div className="mt-3 bg-muted/40 rounded-lg border border-border p-3">
                   <p className="text-[10px] font-700 text-foreground uppercase tracking-wide mb-2">Performance Band Reference</p>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[10px]">
                     <div className="flex items-start gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0 mt-0.5" />
                       <div><p className="font-700 text-emerald-700">120% — Outstanding</p><p className="text-muted-foreground">2-Notch Salary Increment</p></div>
                     </div>
                     <div className="flex items-start gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-sky-500 flex-shrink-0 mt-0.5" />
-                      <div><p className="font-700 text-sky-700">100%–120% — Above Average</p><p className="text-muted-foreground">1-Notch Salary Increment</p></div>
+                      <div><p className="font-700 text-sky-700">100%–119% — Above Average</p><p className="text-muted-foreground">1-Notch Salary Increment</p></div>
+                    </div>
+                    <div className="flex items-start gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 mt-0.5" />
+                      <div><p className="font-700 text-blue-700">75%–99% — Meets Expectations</p><p className="text-muted-foreground">No Annual Increment</p></div>
                     </div>
                     <div className="flex items-start gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0 mt-0.5" />
-                      <div><p className="font-700 text-amber-700">75%–99% — Needs Improvement</p><p className="text-muted-foreground">No Annual Increment</p></div>
+                      <div><p className="font-700 text-amber-700">50%–74% — Needs Improvement</p><p className="text-muted-foreground">No Annual Increment</p></div>
                     </div>
                     <div className="flex items-start gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-0.5" />
