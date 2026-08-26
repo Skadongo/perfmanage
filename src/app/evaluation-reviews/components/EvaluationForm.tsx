@@ -140,12 +140,19 @@ const RATING_LABELS: Record<number, { label: string; color: string }> = {
 
 const KPI_STATUS_OPTIONS = ['Achieved', 'On Track', 'At Risk', 'Not Started', 'Exceeded'];
 
-// Performance bands for the new 0–120% scoring model
+// Performance bands for the 0–120% scoring model
 // BSC (0–100%) + Competencies (0–20%) = Total (0–120%)
+// Bands as per ECSA-HC policy:
+//   120%        → Outstanding         — 2-Notch Salary Increment
+//   100%–<120%  → Above Average       — 1-Notch Salary Increment
+//   75%–<100%   → Needs Improvement   — No Annual Increment
+//   <50%        → Unsatisfactory      — Mandatory PIP
+//   50%–<75%    → Needs Improvement   — No Annual Increment (no separate band defined)
 function getPerformanceBand(score: number): { label: string; increment: string; color: string } {
   if (score >= 120) return { label: 'Outstanding', increment: '2-Notch Salary Increment', color: 'text-emerald-700' };
   if (score >= 100) return { label: 'Above Average', increment: '1-Notch Salary Increment', color: 'text-sky-700' };
   if (score >= 75)  return { label: 'Needs Improvement', increment: 'No Annual Increment', color: 'text-amber-700' };
+  if (score >= 50)  return { label: 'Needs Improvement', increment: 'No Annual Increment', color: 'text-amber-700' };
   return { label: 'Unsatisfactory', increment: 'Mandatory Performance Improvement Plan (PIP)', color: 'text-red-700' };
 }
 
@@ -1382,7 +1389,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
               <FormField label="Recommendation">
                 <select className={selectCls} value={form.supervisorRecommendation} onChange={(e) => setField('supervisorRecommendation', e.target.value)}>
                   <option>Outstanding (120%) — 2-Notch Salary Increment</option>
-                  <option>Above Average (100%–119%) — 1-Notch Salary Increment</option>
+                  <option>Above Average (100%–120%) — 1-Notch Salary Increment</option>
                   <option>Needs Improvement (75%–99%) — No Annual Increment</option>
                   <option>Unsatisfactory (&lt;50%) — Mandatory Performance Improvement Plan (PIP)</option>
                 </select>
@@ -1464,7 +1471,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                     </div>
                     <div className="flex items-start gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-sky-500 flex-shrink-0 mt-0.5" />
-                      <div><p className="font-700 text-sky-700">100%–119% — Above Average</p><p className="text-muted-foreground">1-Notch Salary Increment</p></div>
+                      <div><p className="font-700 text-sky-700">100%–120% — Above Average</p><p className="text-muted-foreground">1-Notch Salary Increment</p></div>
                     </div>
                     <div className="flex items-start gap-1.5">
                       <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0 mt-0.5" />

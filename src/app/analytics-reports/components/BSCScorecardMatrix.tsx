@@ -151,9 +151,9 @@ export default function BSCScorecardMatrix() {
           <p className="text-xs text-muted-foreground mt-0.5">Derived from mid-year review ratings · BSC Score by Perspective (0–100%) · Total max 120% with competencies</p>
         </div>
         <div className="flex items-center gap-2 text-[10px]">
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 inline-block" />≥100 Outstanding / Above Average</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 inline-block" />≥100 Above Average / Outstanding</span>
           <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-sky-50 inline-block" />75–99 Needs Improvement</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-50 inline-block" />50–74 Below Threshold</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-50 inline-block" />50–74 Needs Improvement</span>
           <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-50 inline-block" />&lt;50 Unsatisfactory</span>
         </div>
       </div>
