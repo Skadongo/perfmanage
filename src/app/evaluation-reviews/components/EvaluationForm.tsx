@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
+import { useAuth } from '@/contexts/AuthContext';
+import { useRouter } from 'next/navigation';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -234,6 +236,8 @@ interface EvaluationFormProps {
 }
 
 export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProps) {
+  const { user, profile, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [activeSection, setActiveSection] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -247,11 +251,24 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutosaveStatus>('idle');
   const [draftRecovered, setDraftRecovered] = useState(false);
 
+  // ── Security: determine if current user is a supervisor/manager ──────────
+  const isSupervisorOrAbove = profile
+    ? ['support_admin', 'executive_director', 'deputy_director', 'hr_admin_officer', 'programme_manager', 'finance_manager'].includes(profile.systemRole)
+    : false;
+
   // Stable supabase client ref
   const supabaseRef = useRef(createClient());
 
+  // ── Security: Redirect unauthenticated users to login ────────────────────
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/login?next=/evaluation-reviews');
+    }
+  }, [authLoading, user, router]);
+
   // Fetch staff list and active timeline from Supabase
   useEffect(() => {
+    if (!user) return;
     const supabase = supabaseRef.current;
     async function loadData() {
       setStaffLoading(true);
@@ -283,7 +300,13 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
       }
     }
     loadData();
-  }, []);
+  }, [user]);
+
+  // ── Security: Auto-populate staff field from logged-in user's profile ────
+  // For regular staff: lock to their own record
+  // For supervisors: allow selecting from direct reports
+  const [myStaffRecord, setMyStaffRecord] = useState<StaffOption | null>(null);
+  const [directReports, setDirectReports] = useState<StaffOption[]>([]);
 
   const [form, setForm] = useState<FormData>({
     staffId: '',
@@ -329,8 +352,58 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
     hrSignature: '',
   });
 
+  useEffect(() => {
+    if (!profile?.staffId || staffList.length === 0) return;
+
+    const myRecord = staffList.find((s) => s.id === profile.staffId) || null;
+    setMyStaffRecord(myRecord);
+
+    if (isSupervisorOrAbove) {
+      // Supervisors/managers can fill for their direct reports
+      const reports = staffList.filter((s) => s.supervisor_id === profile.staffId);
+      setDirectReports(reports);
+    }
+
+    // Auto-populate the form with the logged-in user's own record (default)
+    if (myRecord && !form.staffId) {
+      setForm((prev) => ({
+        ...prev,
+        staffId: myRecord.id,
+        staffName: myRecord.full_name,
+        jobTitle: myRecord.job_title || '',
+        supervisorId: myRecord.supervisor_id || '',
+        supervisor: myRecord.supervisor_name || '',
+      }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.staffId, staffList, isSupervisorOrAbove]);
+
+  // ── Security: Determine if form is read-only (already submitted) ─────────
+  const [existingReviewStatus, setExistingReviewStatus] = useState<string | null>(null);
+  const isFormReadOnly = existingReviewStatus === 'submitted' || existingReviewStatus === 'reviewed' || existingReviewStatus === 'approved';
+
+  // Check if the selected staff already has a submitted evaluation
+  useEffect(() => {
+    if (!form.staffId) {
+      setExistingReviewStatus(null);
+      return;
+    }
+    const supabase = supabaseRef.current;
+    supabase
+      .from('mid_year_reviews')
+      .select('review_status')
+      .eq('staff_id', form.staffId)
+      .eq('review_period', 'mid-year')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        setExistingReviewStatus(data?.review_status ?? null);
+      });
+  }, [form.staffId]);
+
   // ── Autosave hook ────────────────────────────────────────────────────────
-  const autosaveEnabled = !!form.staffId;
+  const autosaveEnabled = !!form.staffId && !isFormReadOnly;
   const autosaveDraftWorkplanId = form.staffId ? `eval-draft-${form.staffId}` : null;
   const { saveDraft, recoverDraft, clearDraft } = useAutosave({
     staffId: form.staffId || null,
@@ -426,10 +499,12 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   ];
 
   function setField<K extends keyof FormData>(key: K, value: FormData[K]) {
+    if (isFormReadOnly) return; // Block all changes after submission
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   function updateGoal(idx: number, field: keyof GoalRow, value: any) {
+    if (isFormReadOnly) return;
     setForm((prev) => {
       const goals = [...prev.goals];
       goals[idx] = { ...goals[idx], [field]: value };
@@ -438,6 +513,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   }
 
   function updateKPI(idx: number, field: keyof KPIRow, value: any) {
+    if (isFormReadOnly) return;
     setForm((prev) => {
       const kpis = [...prev.kpis];
       kpis[idx] = { ...kpis[idx], [field]: value };
@@ -446,6 +522,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   }
 
   function updateBSC(idx: number, field: string, value: any) {
+    if (isFormReadOnly) return;
     setForm((prev) => {
       const bscRatings = [...prev.bscRatings];
       bscRatings[idx] = { ...bscRatings[idx], [field]: value };
@@ -454,6 +531,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   }
 
   function updateCompetency(idx: number, field: string, value: any) {
+    if (isFormReadOnly) return;
     setForm((prev) => {
       const competencyRatings = [...prev.competencyRatings];
       competencyRatings[idx] = { ...competencyRatings[idx], [field]: value };
@@ -462,18 +540,22 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   }
 
   function addGoal() {
+    if (isFormReadOnly) return;
     setForm((prev) => ({ ...prev, goals: [...prev.goals, makeGoal()] }));
   }
 
   function removeGoal(idx: number) {
+    if (isFormReadOnly) return;
     setForm((prev) => ({ ...prev, goals: prev.goals.filter((_, i) => i !== idx) }));
   }
 
   function addKPI() {
+    if (isFormReadOnly) return;
     setForm((prev) => ({ ...prev, kpis: [...prev.kpis, makeKPI()] }));
   }
 
   function removeKPI(idx: number) {
+    if (isFormReadOnly) return;
     setForm((prev) => ({ ...prev, kpis: prev.kpis.filter((_, i) => i !== idx) }));
   }
 
@@ -522,6 +604,19 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   async function handleSubmit() {
     if (!form.staffId) {
       setSaveError('Please select a staff member before submitting.');
+      return;
+    }
+
+    // ── Security: Server-side ownership verification ──────────────────────
+    // Verify the current user is allowed to submit for this staff member
+    if (!isSupervisorOrAbove && profile?.staffId !== form.staffId) {
+      setSaveError('You are not authorised to submit an evaluation for this staff member.');
+      return;
+    }
+
+    // ── Security: Block re-submission if already submitted ────────────────
+    if (isFormReadOnly) {
+      setSaveError('This evaluation has already been submitted and cannot be modified.');
       return;
     }
 
@@ -673,8 +768,12 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
       const { error } = await supabaseRef.current.from('mid_year_reviews').insert(payload);
 
       if (error) {
-        console.log('Supabase insert error:', error.message);
-        setSaveError(error.message || 'Failed to save evaluation. Please try again.');
+        // Handle RLS violation gracefully
+        if (error.code === '42501' || error.message?.includes('policy')) {
+          setSaveError('You are not authorised to submit an evaluation for this staff member. Please contact your HR administrator.');
+        } else {
+          setSaveError(error.message || 'Failed to save evaluation. Please try again.');
+        }
         return;
       }
 
@@ -684,11 +783,15 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
         await clearDraft(draftWpId, form.staffId, form.reviewPeriod || 'mid-year');
       }
 
-      // ── Activity log ──
+      // ── Audit log: record who submitted and for whom ──────────────────────
+      const actorName = profile?.fullName || user?.email || 'Unknown';
+      const isOnBehalf = isSupervisorOrAbove && profile?.staffId !== form.staffId;
       await supabaseRef.current.from('activity_logs').insert({
         activity_type: 'evaluation_submitted',
-        actor_name: form.staffName || 'Staff Member',
-        action_description: `submitted ${form.reviewType} evaluation`,
+        actor_name: actorName,
+        action_description: isOnBehalf
+          ? `${actorName} (${profile?.systemRole || 'supervisor'}) submitted ${form.reviewType} evaluation on behalf of ${form.staffName}`
+          : `submitted ${form.reviewType} evaluation`,
         subject_name: form.staffName,
         subject_detail: form.reviewPeriod,
         icon_name: 'ClipboardDocumentCheckIcon',
@@ -704,6 +807,20 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
     } finally {
       setSaving(false);
     }
+  }
+
+  // ── Show loading while auth resolves ─────────────────────────────────────
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // ── Redirect if not authenticated ─────────────────────────────────────────
+  if (!user) {
+    return null;
   }
 
   if (submitted) {
@@ -726,6 +843,26 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
       </div>
     );
   }
+
+  // ── Read-only banner when form is already submitted ───────────────────────
+  const ReadOnlyBanner = isFormReadOnly ? (
+    <div className="mx-5 mt-4 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+      <Icon name="LockClosedIcon" size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+      <span>
+        <span className="font-700">Read-only: </span>
+        This evaluation has already been submitted and cannot be edited. Status: <span className="font-700 capitalize">{existingReviewStatus}</span>.
+      </span>
+    </div>
+  ) : null;
+
+  // ── Compute which staff options the current user can select ──────────────
+  // Regular staff: only their own record
+  // Supervisors/managers: their own + direct reports
+  const allowedStaffOptions: StaffOption[] = isSupervisorOrAbove
+    ? staffList // Admins/managers see all staff
+    : myStaffRecord
+    ? [myStaffRecord] // Regular staff see only themselves
+    : [];
 
   return (
     <div className="flex flex-col h-full">
@@ -785,6 +922,12 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
               </button>
             </div>
           )}
+          {isFormReadOnly && (
+            <span className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-lg border bg-amber-50 border-amber-200 text-amber-700 flex-shrink-0">
+              <Icon name="LockClosedIcon" size={12} className="text-amber-600" />
+              Read-only
+            </span>
+          )}
         </div>
         <div className="mt-2 h-1 bg-border rounded-full overflow-hidden">
           <div
@@ -793,6 +936,8 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
           />
         </div>
       </div>
+
+      {ReadOnlyBanner}
 
       {/* Form body */}
       <div className="flex-1 overflow-y-auto p-5 space-y-5">
@@ -807,6 +952,29 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                 <span>Complete all fields accurately. This information will appear on the official evaluation record.</span>
               </div>
             </div>
+
+            {/* Security notice for regular staff */}
+            {!isSupervisorOrAbove && myStaffRecord && (
+              <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-800">
+                <Icon name="ShieldCheckIcon" size={14} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+                <span>
+                  <span className="font-700">Locked to your account: </span>
+                  This evaluation is linked to your staff record (<span className="font-700">{myStaffRecord.full_name}</span>). You can only submit evaluations for yourself.
+                </span>
+              </div>
+            )}
+
+            {/* Security notice for supervisors filling on behalf */}
+            {isSupervisorOrAbove && (
+              <div className="flex items-start gap-2 bg-violet-50 border border-violet-200 rounded-xl p-3 text-xs text-violet-800">
+                <Icon name="UserGroupIcon" size={14} className="text-violet-600 flex-shrink-0 mt-0.5" />
+                <span>
+                  <span className="font-700">Supervisor access: </span>
+                  You can fill evaluations for yourself or your direct reports. All submissions are audit-logged with your identity.
+                </span>
+              </div>
+            )}
+
             {staffLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
                 <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -815,40 +983,50 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Staff Name" required>
-                  <select
-                    className={selectCls}
-                    value={form.staffId}
-                    onChange={(e) => {
-                      const staff = staffList.find((s) => s.id === e.target.value);
-                      setField('staffId', e.target.value);
-                      setField('staffName', staff?.full_name || '');
-                      setField('jobTitle', staff?.job_title || '');
-                      if (staff?.supervisor_id) {
-                        const supervisor = staffList.find((s) => s.id === staff.supervisor_id);
-                        setField('supervisorId', staff.supervisor_id);
-                        setField('supervisor', supervisor?.full_name || staff.supervisor_name || '');
-                      } else {
-                        setField('supervisorId', '');
-                        setField('supervisor', '');
-                      }
-                    }}
-                  >
-                    <option value="">Select staff member…</option>
-                    {staffList.map((s) => (
-                      <option key={s.id} value={s.id}>{s.full_name}</option>
-                    ))}
-                  </select>
+                  {/* Regular staff: read-only display of their own name */}
+                  {!isSupervisorOrAbove ? (
+                    <div className={`${inputCls} bg-muted/40 cursor-not-allowed flex items-center gap-2`}>
+                      <Icon name="LockClosedIcon" size={13} className="text-muted-foreground flex-shrink-0" />
+                      <span className="text-foreground font-600">{form.staffName || 'Loading…'}</span>
+                    </div>
+                  ) : (
+                    <select
+                      className={`${selectCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
+                      value={form.staffId}
+                      disabled={isFormReadOnly}
+                      onChange={(e) => {
+                        const staff = staffList.find((s) => s.id === e.target.value);
+                        setField('staffId', e.target.value);
+                        setField('staffName', staff?.full_name || '');
+                        setField('jobTitle', staff?.job_title || '');
+                        if (staff?.supervisor_id) {
+                          const supervisor = staffList.find((s) => s.id === staff.supervisor_id);
+                          setField('supervisorId', staff.supervisor_id);
+                          setField('supervisor', supervisor?.full_name || staff.supervisor_name || '');
+                        } else {
+                          setField('supervisorId', '');
+                          setField('supervisor', '');
+                        }
+                      }}
+                    >
+                      <option value="">Select staff member…</option>
+                      {allowedStaffOptions.map((s) => (
+                        <option key={s.id} value={s.id}>{s.full_name}</option>
+                      ))}
+                    </select>
+                  )}
                 </FormField>
                 <FormField label="Job Title / Designation" required>
-                  <input className={inputCls} value={form.jobTitle} onChange={(e) => setField('jobTitle', e.target.value)} placeholder="Auto-filled from staff selection" />
+                  <input className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={form.jobTitle} onChange={(e) => setField('jobTitle', e.target.value)} placeholder="Auto-filled from staff selection" readOnly={isFormReadOnly} />
                 </FormField>
                 <FormField label="Department / Unit" required>
-                  <input className={inputCls} value={form.department} onChange={(e) => setField('department', e.target.value)} placeholder="e.g. Finance & Admin, Programmes…" />
+                  <input className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={form.department} onChange={(e) => setField('department', e.target.value)} placeholder="e.g. Finance & Admin, Programmes…" readOnly={isFormReadOnly} />
                 </FormField>
                 <FormField label="Supervisor / Line Manager" required>
                   <select
-                    className={selectCls}
+                    className={`${selectCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                     value={form.supervisorId}
+                    disabled={isFormReadOnly}
                     onChange={(e) => {
                       const supervisor = staffList.find((s) => s.id === e.target.value);
                       setField('supervisorId', e.target.value);
@@ -862,7 +1040,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                   </select>
                 </FormField>
                 <FormField label="Review Type" required>
-                  <select className={selectCls} value={form.reviewType} onChange={(e) => setField('reviewType', e.target.value)}>
+                  <select className={`${selectCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={form.reviewType} disabled={isFormReadOnly} onChange={(e) => setField('reviewType', e.target.value)}>
                     <option>Mid-Year Review</option>
                     <option>Annual Review</option>
                     <option>Probationary Review</option>
@@ -870,10 +1048,10 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                   </select>
                 </FormField>
                 <FormField label="Review Period" required>
-                  <input className={inputCls} value={form.reviewPeriod} onChange={(e) => setField('reviewPeriod', e.target.value)} placeholder="e.g. FY 2026–2027 Mid-Year" />
+                  <input className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={form.reviewPeriod} onChange={(e) => setField('reviewPeriod', e.target.value)} placeholder="e.g. FY 2026–2027 Mid-Year" readOnly={isFormReadOnly} />
                 </FormField>
                 <FormField label="Review Date" required>
-                  <input type="date" className={inputCls} value={form.reviewDate} onChange={(e) => setField('reviewDate', e.target.value)} />
+                  <input type="date" className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={form.reviewDate} onChange={(e) => setField('reviewDate', e.target.value)} readOnly={isFormReadOnly} />
                 </FormField>
                 {activeTimeline && (
                   <div className="sm:col-span-2">
@@ -895,8 +1073,9 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
 
             <FormField label="BSC Perspective" required>
               <select
-                className={selectCls}
+                className={`${selectCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                 value={selectedPerspective}
+                disabled={isFormReadOnly}
                 onChange={(e) => setSelectedPerspective(e.target.value)}
               >
                 <option value="">Select a perspective…</option>
@@ -910,10 +1089,12 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
               <div className={`text-xs font-600 px-2.5 py-1 rounded-lg border ${Math.abs(totalWeight - 100) < 1 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
                 Total Weight: {totalWeight}% {Math.abs(totalWeight - 100) < 1 ? '✓' : '(should equal 100%)'}
               </div>
-              <button type="button" onClick={addGoal} className="flex items-center gap-1.5 text-xs font-600 text-primary hover:text-primary/80 transition-colors">
-                <Icon name="PlusCircleIcon" size={14} />
-                Add Goal
-              </button>
+              {!isFormReadOnly && (
+                <button type="button" onClick={addGoal} className="flex items-center gap-1.5 text-xs font-600 text-primary hover:text-primary/80 transition-colors">
+                  <Icon name="PlusCircleIcon" size={14} />
+                  Add Goal
+                </button>
+              )}
             </div>
 
             <div className="space-y-4">
@@ -921,7 +1102,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                 <div key={goal.id} className="border border-border rounded-xl overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-b border-border">
                     <span className="text-xs font-700 text-foreground">Goal {idx + 1}</span>
-                    {form.goals.length > 1 && (
+                    {form.goals.length > 1 && !isFormReadOnly && (
                       <button type="button" onClick={() => removeGoal(idx)} className="text-muted-foreground hover:text-red-500 transition-colors">
                         <Icon name="TrashIcon" size={13} />
                       </button>
@@ -932,11 +1113,12 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                       <div className="sm:col-span-2">
                         <FormField label="Goal / Objective Description" required>
                           <textarea
-                            className={textareaCls}
+                            className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                             rows={2}
                             value={goal.goal}
                             onChange={(e) => updateGoal(idx, 'goal', e.target.value)}
                             placeholder="Describe the agreed goal or objective…"
+                            readOnly={isFormReadOnly}
                           />
                         </FormField>
                       </div>
@@ -945,18 +1127,19 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                           type="number"
                           min={0}
                           max={100}
-                          className={inputCls}
+                          className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                           value={goal.weight}
                           onChange={(e) => updateGoal(idx, 'weight', Number(e.target.value))}
+                          readOnly={isFormReadOnly}
                         />
                       </FormField>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <FormField label="Target / Expected Outcome">
-                        <input className={inputCls} value={goal.target} onChange={(e) => updateGoal(idx, 'target', e.target.value)} placeholder="e.g. 100%, ≤5%, 3 reports…" />
+                        <input className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={goal.target} onChange={(e) => updateGoal(idx, 'target', e.target.value)} placeholder="e.g. 100%, ≤5%, 3 reports…" readOnly={isFormReadOnly} />
                       </FormField>
                       <FormField label="Actual Achievement">
-                        <input className={inputCls} value={goal.actual} onChange={(e) => updateGoal(idx, 'actual', e.target.value)} placeholder="e.g. 94%, 3.2%, 2 reports…" />
+                        <input className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={goal.actual} onChange={(e) => updateGoal(idx, 'actual', e.target.value)} placeholder="e.g. 94%, 3.2%, 2 reports…" readOnly={isFormReadOnly} />
                       </FormField>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -965,11 +1148,12 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                     </div>
                     <FormField label="Comments / Evidence">
                       <textarea
-                        className={textareaCls}
+                        className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                         rows={2}
                         value={goal.comments}
                         onChange={(e) => updateGoal(idx, 'comments', e.target.value)}
                         placeholder="Supporting evidence, context, or notes…"
+                        readOnly={isFormReadOnly}
                       />
                     </FormField>
                   </div>
@@ -983,12 +1167,14 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
         {activeSection === 2 && (
           <div className="space-y-5">
             <SectionHeader number="3" title="KPI Status" subtitle="Select applicable KPIs, record actuals, and rate performance" icon="ChartBarIcon" />
-            <div className="flex justify-end">
-              <button type="button" onClick={addKPI} className="flex items-center gap-1.5 text-xs font-600 text-primary hover:text-primary/80 transition-colors">
-                <Icon name="PlusCircleIcon" size={14} />
-                Add KPI
-              </button>
-            </div>
+            {!isFormReadOnly && (
+              <div className="flex justify-end">
+                <button type="button" onClick={addKPI} className="flex items-center gap-1.5 text-xs font-600 text-primary hover:text-primary/80 transition-colors">
+                  <Icon name="PlusCircleIcon" size={14} />
+                  Add KPI
+                </button>
+              </div>
+            )}
 
             <div className="space-y-4">
               {form.kpis.map((kpi, idx) => {
@@ -1004,7 +1190,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                           </span>
                         )}
                       </div>
-                      {form.kpis.length > 1 && (
+                      {form.kpis.length > 1 && !isFormReadOnly && (
                         <button type="button" onClick={() => removeKPI(idx)} className="text-muted-foreground hover:text-red-500 transition-colors">
                           <Icon name="TrashIcon" size={13} />
                         </button>
@@ -1013,8 +1199,9 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                     <div className="p-4 space-y-4">
                       <FormField label="Select KPI" required>
                         <select
-                          className={selectCls}
+                          className={`${selectCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                           value={kpi.kpiId}
+                          disabled={isFormReadOnly}
                           onChange={(e) => updateKPI(idx, 'kpiId', e.target.value)}
                         >
                           <option value="">Choose a KPI…</option>
@@ -1029,13 +1216,13 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                       </FormField>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <FormField label="Target">
-                          <input className={inputCls} value={kpi.target} onChange={(e) => updateKPI(idx, 'target', e.target.value)} placeholder="e.g. 100%, ≤5%…" />
+                          <input className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={kpi.target} onChange={(e) => updateKPI(idx, 'target', e.target.value)} placeholder="e.g. 100%, ≤5%…" readOnly={isFormReadOnly} />
                         </FormField>
                         <FormField label="Actual">
-                          <input className={inputCls} value={kpi.actual} onChange={(e) => updateKPI(idx, 'actual', e.target.value)} placeholder="e.g. 94%, 3.2%…" />
+                          <input className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={kpi.actual} onChange={(e) => updateKPI(idx, 'actual', e.target.value)} placeholder="e.g. 94%, 3.2%…" readOnly={isFormReadOnly} />
                         </FormField>
                         <FormField label="Status">
-                          <select className={selectCls} value={kpi.status} onChange={(e) => updateKPI(idx, 'status', e.target.value)}>
+                          <select className={`${selectCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={kpi.status} disabled={isFormReadOnly} onChange={(e) => updateKPI(idx, 'status', e.target.value)}>
                             {KPI_STATUS_OPTIONS.map((s) => <option key={s}>{s}</option>)}
                           </select>
                         </FormField>
@@ -1109,11 +1296,12 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                     </div>
                     <FormField label="Comments">
                       <textarea
-                        className={textareaCls}
+                        className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                         rows={2}
                         value={bsc.comments}
                         onChange={(e) => updateBSC(idx, 'comments', e.target.value)}
                         placeholder={`Notes on ${bsc.perspective} performance…`}
+                        readOnly={isFormReadOnly}
                       />
                     </FormField>
                   </div>
@@ -1184,7 +1372,6 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                   'border-l-purple-400',
                   'border-l-rose-400',
                 ];
-                const totalW = form.competencyRatings.reduce((s, c) => s + (Number(c.weight) || 0), 0);
                 return (
                   <div key={comp.id} className={`border border-border border-l-4 ${compColors[idx]} rounded-xl p-4 space-y-4 bg-white`}>
                     <div>
@@ -1210,14 +1397,16 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                         min={1}
                         max={5}
                         value={comp.weight}
+                        readOnly={isFormReadOnly}
                         onChange={(e) => {
+                          if (isFormReadOnly) return;
                           const val = Math.min(5, Math.max(1, Number(e.target.value) || 1));
                           // Enforce total ≤ 35
                           const otherTotal = form.competencyRatings.reduce((s, c, i) => i === idx ? s : s + (Number(c.weight) || 0), 0);
                           const allowed = Math.min(val, 35 - otherTotal);
                           updateCompetency(idx, 'weight', Math.max(1, allowed));
                         }}
-                        className="w-16 border border-border rounded-lg px-2 py-1 text-sm font-700 text-center focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        className="w-16 border border-border rounded-lg px-2 py-1 text-sm font-700 text-center focus:outline-none focus:ring-2 focus:ring-primary/30 ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}"
                       />
                       <span className="text-[11px] text-muted-foreground">
                         Weighted contribution: <span className="font-700 text-foreground">{comp.weight} × rating</span>
@@ -1230,11 +1419,12 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                     </div>
                     <FormField label="Behavioural Evidence / Comments">
                       <textarea
-                        className={textareaCls}
+                        className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                         rows={2}
                         value={comp.behavioralEvidence}
                         onChange={(e) => updateCompetency(idx, 'behavioralEvidence', e.target.value)}
                         placeholder={`Provide specific examples demonstrating ${comp.label.toLowerCase()}…`}
+                        readOnly={isFormReadOnly}
                       />
                     </FormField>
                   </div>
@@ -1293,29 +1483,32 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
 
             <FormField label="Key Strengths & Achievements" required>
               <textarea
-                className={textareaCls}
+                className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                 rows={4}
                 value={form.selfStrengths}
                 onChange={(e) => setField('selfStrengths', e.target.value)}
                 placeholder="Describe your key achievements, contributions, and strengths during this review period. Include specific examples and measurable outcomes…"
+                readOnly={isFormReadOnly}
               />
             </FormField>
             <FormField label="Challenges & Constraints Faced">
               <textarea
-                className={textareaCls}
+                className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                 rows={3}
                 value={form.selfChallenges}
                 onChange={(e) => setField('selfChallenges', e.target.value)}
                 placeholder="Describe any significant challenges, constraints, or obstacles that affected your performance. What factors were outside your control?…"
+                readOnly={isFormReadOnly}
               />
             </FormField>
             <FormField label="Development Needs & Learning Goals">
               <textarea
-                className={textareaCls}
+                className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                 rows={3}
                 value={form.selfDevelopmentNeeds}
                 onChange={(e) => setField('selfDevelopmentNeeds', e.target.value)}
                 placeholder="Identify skills, knowledge, or competencies you wish to develop. What training or support would help you improve?…"
+                readOnly={isFormReadOnly}
               />
             </FormField>
 
@@ -1324,11 +1517,12 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
               <RatingSelector value={form.selfOverallRating} onChange={(v) => setField('selfOverallRating', v)} label="" />
               <FormField label="Overall Self-Assessment Comments">
                 <textarea
-                  className={textareaCls}
+                  className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                   rows={3}
                   value={form.selfOverallComments}
                   onChange={(e) => setField('selfOverallComments', e.target.value)}
                   placeholder="Provide an overall summary of your performance this period…"
+                  readOnly={isFormReadOnly}
                 />
               </FormField>
             </div>
@@ -1348,29 +1542,32 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
 
             <FormField label="Observed Strengths & Commendations" required>
               <textarea
-                className={textareaCls}
+                className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                 rows={4}
                 value={form.supervisorStrengths}
                 onChange={(e) => setField('supervisorStrengths', e.target.value)}
                 placeholder="Describe the staff member's key strengths, positive contributions, and commendable behaviours observed during this period…"
+                readOnly={isFormReadOnly}
               />
             </FormField>
             <FormField label="Areas for Improvement">
               <textarea
-                className={textareaCls}
+                className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                 rows={3}
                 value={form.supervisorAreasForImprovement}
                 onChange={(e) => setField('supervisorAreasForImprovement', e.target.value)}
                 placeholder="Identify specific areas where the staff member needs to improve. Be constructive and specific…"
+                readOnly={isFormReadOnly}
               />
             </FormField>
             <FormField label="Development Plan & Support Required">
               <textarea
-                className={textareaCls}
+                className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                 rows={3}
                 value={form.supervisorDevelopmentPlan}
                 onChange={(e) => setField('supervisorDevelopmentPlan', e.target.value)}
                 placeholder="Outline the agreed development plan, training recommendations, mentoring, or other support to be provided…"
+                readOnly={isFormReadOnly}
               />
             </FormField>
 
@@ -1379,15 +1576,16 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
               <RatingSelector value={form.supervisorOverallRating} onChange={(v) => setField('supervisorOverallRating', v)} label="Overall Rating" />
               <FormField label="Overall Supervisor Comments">
                 <textarea
-                  className={textareaCls}
+                  className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                   rows={3}
                   value={form.supervisorOverallComments}
                   onChange={(e) => setField('supervisorOverallComments', e.target.value)}
                   placeholder="Provide an overall summary of the staff member's performance…"
+                  readOnly={isFormReadOnly}
                 />
               </FormField>
               <FormField label="Recommendation">
-                <select className={selectCls} value={form.supervisorRecommendation} onChange={(e) => setField('supervisorRecommendation', e.target.value)}>
+                <select className={`${selectCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={form.supervisorRecommendation} disabled={isFormReadOnly} onChange={(e) => setField('supervisorRecommendation', e.target.value)}>
                   <option>Outstanding (120%) — 2-Notch Salary Increment</option>
                   <option>Above Average (100%–120%) — 1-Notch Salary Increment</option>
                   <option>Needs Improvement (75%–99%) — No Annual Increment</option>
@@ -1503,10 +1701,11 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                     <p className="text-xs font-700 text-foreground">Staff Member</p>
                   </div>
                   <input
-                    className={inputCls}
+                    className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                     value={form.staffSignature}
                     onChange={(e) => setField('staffSignature', e.target.value)}
                     placeholder="Type full name to sign…"
+                    readOnly={isFormReadOnly}
                   />
                   <p className="text-[10px] text-muted-foreground">Date: {form.reviewDate || '—'}</p>
                 </div>
@@ -1518,10 +1717,11 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                     <p className="text-xs font-700 text-foreground">Supervisor</p>
                   </div>
                   <input
-                    className={inputCls}
+                    className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                     value={form.supervisorSignature}
                     onChange={(e) => setField('supervisorSignature', e.target.value)}
                     placeholder="Type full name to sign…"
+                    readOnly={isFormReadOnly}
                   />
                   <p className="text-[10px] text-muted-foreground">Date: {form.reviewDate || '—'}</p>
                 </div>
@@ -1533,10 +1733,11 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                     <p className="text-xs font-700 text-foreground">HR Officer</p>
                   </div>
                   <input
-                    className={inputCls}
+                    className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                     value={form.hrSignature}
                     onChange={(e) => setField('hrSignature', e.target.value)}
                     placeholder="Type full name to sign…"
+                    readOnly={isFormReadOnly}
                   />
                   <p className="text-[10px] text-muted-foreground">Date: {form.reviewDate || '—'}</p>
                 </div>
@@ -1550,12 +1751,14 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
               </div>
             )}
 
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-800">
-              <div className="flex items-start gap-2">
-                <Icon name="ExclamationTriangleIcon" size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                <span>Once submitted, this evaluation will be saved to the system and routed to HR for processing. Ensure all sections are complete and all parties have acknowledged the form before submitting.</span>
+            {!isFormReadOnly && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-800">
+                <div className="flex items-start gap-2">
+                  <Icon name="ExclamationTriangleIcon" size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                  <span>Once submitted, this evaluation will be saved to the system and routed to HR for processing. Ensure all sections are complete and all parties have acknowledged the form before submitting.</span>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>
@@ -1582,6 +1785,15 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
           >
             Next
             <Icon name="ChevronRightIcon" size={16} />
+          </button>
+        ) : isFormReadOnly ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex items-center gap-1.5 text-sm font-600 text-white bg-muted-foreground hover:bg-muted-foreground/90 px-4 py-2 rounded-lg transition-all"
+          >
+            <Icon name="XMarkIcon" size={15} />
+            Close (Read-only)
           </button>
         ) : (
           <button
