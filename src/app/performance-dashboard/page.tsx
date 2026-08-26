@@ -12,7 +12,7 @@ import {
   getRoleDashboardConfig,
   type RoleDashboardConfig,
 } from './config/roleDashboardConfig';
-import type { DrillDownFilter } from './types';
+import type { DrillDownFilter } from './components/StaffDrillDownModal';
 
 // ── Lazy-load heavy dashboard widgets ──────────────────────────────────────
 const DashboardMetricCards  = lazy(() => import('./components/DashboardMetricCards'));

@@ -10,7 +10,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import type { DrillDownFilter } from '../types';
+import type { DrillDownFilter } from './StaffDrillDownModal';
 import { createClient } from '@/lib/supabase/client';
 import Icon from '@/components/ui/AppIcon';
 

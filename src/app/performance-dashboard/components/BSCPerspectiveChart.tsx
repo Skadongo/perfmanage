@@ -12,7 +12,7 @@ import {
   Cell,
   ReferenceLine,
 } from 'recharts';
-import type { DrillDownFilter } from '../types';
+import type { DrillDownFilter } from './StaffDrillDownModal';
 
 const DATA = [
   { perspective: 'Finance', shortLabel: 'Finance', score: 68.5, target: 80, color: '#1a5f7a' },
