@@ -254,7 +254,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const canViewSensitiveData = useCallback((): boolean => {
     const level = ROLE_HIERARCHY[profile?.systemRole || ''] ?? 0;
-    return level >= 70;
+    return level >= 80;
   }, [profile?.systemRole]);
 
   const getRoleLevel = useCallback((): number => {
@@ -262,20 +262,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, [profile?.systemRole]);
 
   const getDisplayName = useCallback((): string => {
-    if (!profile) return 'User';
-    return profile.fullName || profile.email?.split('@')[0] || 'User';
+    if (!profile) return '';
+    return profile.fullName || profile.email?.split('@')[0] || '';
   }, [profile]);
 
   const getInitials = useCallback((): string => {
-    if (!profile) return 'U';
+    if (!profile) return '';
     if (profile.avatarInitials) return profile.avatarInitials;
     const name = profile.fullName || profile.email || '';
-    return name
-      .split(' ')
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((n) => n[0].toUpperCase())
-      .join('');
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return name.slice(0, 2).toUpperCase();
   }, [profile]);
 
   const value = useMemo(

@@ -56,6 +56,8 @@ function _ensureRegistered() {
 }
 
 export function useServiceWorker(): ServiceWorkerState {
+  // Start with `true` — the server and first client render agree on this safe default.
+  // The real value from navigator.onLine is applied in useEffect (client-only).
   const [isOnline, setIsOnline] = useState(true);
   const [swReady, setSwReady] = useState(_swReady);
   const [pendingApprovals, setPendingApprovals] = useState(0);
@@ -70,6 +72,9 @@ export function useServiceWorker(): ServiceWorkerState {
   }, []);
 
   useEffect(() => {
+    // Sync real online status from navigator (client-only)
+    setIsOnline(navigator.onLine);
+
     // Sync swReady from module-level state
     setSwReady(_swReady);
 
@@ -78,7 +83,6 @@ export function useServiceWorker(): ServiceWorkerState {
     _listeners.add(onUpdate);
 
     // Online/offline detection — safe to add per-component, cleaned up on unmount
-    setIsOnline(navigator.onLine);
     const handleOnline = () => {
       setIsOnline(true);
       _triggerSync();

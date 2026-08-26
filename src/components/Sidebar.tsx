@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
 import Icon from '@/components/ui/AppIcon';
 import { useAuth } from '@/contexts/AuthContext';
+import ClientOnly from '@/components/ClientOnly';
 
 const NAV_GROUPS = [
 {
@@ -58,7 +59,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
 
   const roleLabel = profile?.systemRole
     ? profile.systemRole.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-    : 'Staff Member';
+    : '';
 
   return (
     <>
@@ -182,25 +183,37 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
           )}
         </nav>
 
-        {/* User */}
+        {/* User — wrapped in ClientOnly to prevent SSR/hydration mismatch */}
         <div className={`border-t border-border p-3 ${collapsed && !mobileOpen ? 'lg:flex lg:justify-center' : ''}`}>
-          {collapsed && !mobileOpen ? (
-            <div className="hidden lg:flex w-8 h-8 rounded-full bg-primary/10 items-center justify-center">
-              <span suppressHydrationWarning className="text-primary text-xs font-700">{getInitials()}</span>
+          <ClientOnly
+            fallback={
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex-shrink-0" />
+                <div className={`flex flex-col gap-1 ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
+                  <div className="h-3 w-20 bg-muted rounded" />
+                  <div className="h-2 w-14 bg-muted rounded" />
+                </div>
+              </div>
+            }
+          >
+            {collapsed && !mobileOpen ? (
+              <div className="hidden lg:flex w-8 h-8 rounded-full bg-primary/10 items-center justify-center">
+                <span className="text-primary text-xs font-700">{getInitials()}</span>
+              </div>
+            ) : null}
+            <div className={`flex items-center gap-2 ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <span className="text-primary text-xs font-700">{getInitials()}</span>
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{roleLabel}</p>
+              </div>
+              <button className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground transition-colors">
+                <Icon name="EcsaSettingsIcon" size={15} />
+              </button>
             </div>
-          ) : null}
-          <div className={`flex items-center gap-2 ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <span suppressHydrationWarning className="text-primary text-xs font-700">{getInitials()}</span>
-            </div>
-            <div className="min-w-0">
-              <p suppressHydrationWarning className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
-              <p suppressHydrationWarning className="text-[11px] text-muted-foreground truncate">{roleLabel}</p>
-            </div>
-            <button className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground transition-colors">
-              <Icon name="EcsaSettingsIcon" size={15} />
-            </button>
-          </div>
+          </ClientOnly>
         </div>
       </aside>
     </>
