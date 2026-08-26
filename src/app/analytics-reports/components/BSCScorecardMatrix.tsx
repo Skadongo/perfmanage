@@ -15,9 +15,9 @@ interface ScorecardRow {
 }
 
 const CELL_COLOR = (score: number) => {
-  if (score >= 85) return 'bg-emerald-100 text-emerald-800';
-  if (score >= 70) return 'bg-sky-50 text-sky-800';
-  if (score >= 55) return 'bg-amber-50 text-amber-800';
+  if (score >= 100) return 'bg-emerald-100 text-emerald-800';
+  if (score >= 75)  return 'bg-sky-50 text-sky-800';
+  if (score >= 50)  return 'bg-amber-50 text-amber-800';
   return 'bg-red-50 text-red-800';
 };
 
@@ -114,6 +114,7 @@ export default function BSCScorecardMatrix() {
           .map(([role, roleReviews]) => {
             const scores = computeBSCScores(roleReviews);
             // Weighted overall using ECSA-HC BSC framework weights: Finance 30%, Customer 30%, Process 25%, Capacity 15%
+            // BSC overall is on 0–100 scale (normalised to 100%)
             const overall = Math.round(
               (scores.finance * 0.30 + scores.customer * 0.30 + scores.process * 0.25 + scores.capacity * 0.15) * 10
             ) / 10;
@@ -147,13 +148,13 @@ export default function BSCScorecardMatrix() {
       <div className="flex items-center justify-between p-5 border-b border-border">
         <div>
           <h3 className="text-sm font-700 text-foreground">BSC Scorecard Matrix — All Roles</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Derived from mid-year review ratings · Score by BSC Perspective (0–100)</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Derived from mid-year review ratings · BSC Score by Perspective (0–100%) · Total max 120% with competencies</p>
         </div>
         <div className="flex items-center gap-2 text-[10px]">
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 inline-block" />≥85 Achieved</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-sky-50 inline-block" />70–84 On Track</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-50 inline-block" />55–69 At Risk</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-50 inline-block" />&lt;55 Overdue</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 inline-block" />≥100 Outstanding/Above Avg</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-sky-50 inline-block" />75–99 Needs Improvement</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-50 inline-block" />50–74 Satisfactory</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-50 inline-block" />&lt;50 Unsatisfactory</span>
         </div>
       </div>
 

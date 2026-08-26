@@ -184,14 +184,14 @@ export default function AnalyticsReportsPage() {
     },
     {
       id: 'astat-bsc',
-      label: 'Avg Supervisor Rating',
-      value: summaryLoading ? '—' : `${bscScore.toFixed(1)}`,
-      sub: summaryLoading ? 'Loading…' : `Across ${summary?.total ?? 0} reviews`,
-      color: bscScore >= 70 ? 'text-emerald-700' : bscScore >= 55 ? 'text-amber-700' : 'text-red-700',
+      label: 'Avg BSC Score (0–100%)',
+      value: summaryLoading ? '—' : `${bscScore.toFixed(1)}%`,
+      sub: summaryLoading ? 'Loading…' : `Across ${summary?.total ?? 0} reviews · max 100%`,
+      color: bscScore >= 75 ? 'text-emerald-700' : bscScore >= 50 ? 'text-amber-700' : 'text-red-700',
       icon: 'EcsaCapacityIcon',
-      bg: bscScore >= 70 ? 'bg-emerald-50' : bscScore >= 55 ? 'bg-amber-50' : 'bg-red-50',
-      trend: bscScore >= 70 ? 'On track' : 'Needs attention',
-      positive: bscScore >= 70,
+      bg: bscScore >= 75 ? 'bg-emerald-50' : bscScore >= 50 ? 'bg-amber-50' : 'bg-red-50',
+      trend: bscScore >= 75 ? 'On track' : 'Needs attention',
+      positive: bscScore >= 75,
     },
   ];
 
