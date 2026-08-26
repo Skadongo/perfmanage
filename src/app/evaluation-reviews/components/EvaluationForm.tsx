@@ -146,7 +146,6 @@ function getPerformanceBand(score: number): { label: string; increment: string; 
   if (score >= 120) return { label: 'Outstanding', increment: '2-Notch Salary Increment', color: 'text-emerald-700' };
   if (score >= 100) return { label: 'Above Average', increment: '1-Notch Salary Increment', color: 'text-sky-700' };
   if (score >= 75)  return { label: 'Needs Improvement', increment: 'No Annual Increment', color: 'text-amber-700' };
-  if (score >= 50)  return { label: 'Satisfactory', increment: 'No Annual Increment', color: 'text-blue-700' };
   return { label: 'Unsatisfactory', increment: 'Mandatory Performance Improvement Plan (PIP)', color: 'text-red-700' };
 }
 
@@ -1064,15 +1063,15 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
         {/* ── Section 3: BSC Perspective Ratings ── */}
         {activeSection === 3 && (
           <div className="space-y-5">
-            <SectionHeader number="4" title="Part 1: BSC Perspective Ratings" subtitle="Rate performance across the 4 Balanced Scorecard perspectives (80% of overall score)" icon="Squares2X2Icon" />
+            <SectionHeader number="4" title="Part 1: BSC Perspective Ratings" subtitle="Rate performance across the 4 Balanced Scorecard perspectives (normalised to 100%)" icon="Squares2X2Icon" />
 
             {/* BSC framework info */}
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-xs text-blue-800">
               <div className="flex items-start gap-2">
                 <Icon name="InformationCircleIcon" size={14} className="text-blue-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-700 mb-1">ECSA-HC Balanced Scorecard — Part 1 (80% Weight)</p>
-                  <p>Rate each perspective 1–5. The weighted BSC score contributes 80% to the overall performance score. Part 2 (General Competencies) contributes the remaining 20%.</p>
+                  <p className="font-700 mb-1">ECSA-HC Balanced Scorecard — Part 1 (Normalised to 100%)</p>
+                  <p>Rate each perspective 1–5. The weighted BSC score is normalised to 100%. Part 2 (General Competencies) adds up to 20%, giving a total maximum of 120%.</p>
                 </div>
               </div>
             </div>
@@ -1137,14 +1136,14 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
         {/* ── Section 4: General Competencies (Part 2) ── */}
         {activeSection === 4 && (
           <div className="space-y-5">
-            <SectionHeader number="5" title="Part 2: General Competencies" subtitle="Rate the 7 general competencies — score normalised to 20% (max 20 points added to overall)" icon="AcademicCapIcon" />
+            <SectionHeader number="5" title="Part 2: General Competencies" subtitle="Rate the 7 general competencies — score normalised to 20% (max 20 points added to overall for a total of 120%)" icon="AcademicCapIcon" />
 
             <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 text-xs text-violet-800">
               <div className="flex items-start gap-2">
                 <Icon name="InformationCircleIcon" size={14} className="text-violet-600 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-700 mb-1">ECSA-HC General Competencies — Part 2 (Normalised to 20%)</p>
-                  <p>Assign a weight (1–5) and a rating (1–5) for each competency. The maximum total weight is 35. The weighted score is normalised to 20 points (out of a total maximum of 120). Leadership (GS3+) is applicable to GS3+ grades.</p>
+                  <p>Assign a weight (1–5) and a rating (1–5) for each competency. The maximum total weight is 35. The weighted score is normalised to 20 points, giving a total maximum score of 120% (BSC 100% + Competencies 20%). Leadership (GS3+) is applicable to GS3+ grades.</p>
                 </div>
               </div>
             </div>
@@ -1238,33 +1237,35 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
 
             {/* Competency Score Summary */}
             <div className="bg-muted/30 rounded-xl border border-border p-4">
-              <p className="text-xs font-700 text-foreground mb-1">Part 2 — Competency Score (Normalized to 0–100)</p>
+              <p className="text-xs font-700 text-foreground mb-1">Part 2 — Competency Score (Normalized to 0–20)</p>
               <p className="text-[11px] text-muted-foreground mb-3">
-                Formula: (Sum of [Weight × Rating]) ÷ (Total Weight × 5) × 100 &nbsp;|&nbsp; Max total weight: 35 &nbsp;|&nbsp; Max score: 100
+                Formula: (Sum of [Weight × Rating]) ÷ (Total Weight × 5) × 20 &nbsp;|&nbsp; Max total weight: 35 &nbsp;|&nbsp; Max score: 20
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <div className="text-center p-3 bg-white rounded-lg border border-border">
                   <p className="text-[11px] font-600 text-muted-foreground uppercase tracking-wide mb-1">Self Competency Score</p>
-                  <p className="text-2xl font-800 text-foreground tabular-nums">{competencySelfScore100.toFixed(1)}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">out of 100</p>
+                  <p className="text-2xl font-800 text-foreground tabular-nums">{competencySelfScore.toFixed(1)}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">out of 20</p>
                 </div>
                 <div className="text-center p-3 bg-white rounded-lg border border-border">
                   <p className="text-[11px] font-600 text-muted-foreground uppercase tracking-wide mb-1">Supervisor Competency Score</p>
-                  <p className="text-2xl font-800 text-foreground tabular-nums">{competencySupervisorScore100.toFixed(1)}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">out of 100</p>
+                  <p className="text-2xl font-800 text-foreground tabular-nums">{competencySupervisorScore.toFixed(1)}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">out of 20</p>
                 </div>
               </div>
               {/* Overall score preview */}
               <div className="mt-3 pt-3 border-t border-border">
-                <p className="text-[11px] font-600 text-muted-foreground mb-2 text-center">Overall Score (0–100) = (BSC × 80%) + (Competencies × 20%)</p>
+                <p className="text-[11px] font-600 text-muted-foreground mb-2 text-center">Overall Score (max 120%) = BSC Score (max 100%) + Competency Score (max 20%)</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="text-center p-2 bg-primary/5 rounded-lg border border-primary/20">
                     <p className="text-[10px] font-600 text-primary uppercase tracking-wide mb-0.5">Overall Self</p>
-                    <p className="text-lg font-800 text-primary tabular-nums">{overallSelfScore.toFixed(1)}</p>
+                    <p className="text-lg font-800 text-primary tabular-nums">{overallSelfScore.toFixed(1)}%</p>
+                    <p className={`text-[10px] font-600 mt-0.5 ${getPerformanceBand(overallSelfScore).color}`}>{getPerformanceBand(overallSelfScore).label}</p>
                   </div>
                   <div className="text-center p-2 bg-primary/5 rounded-lg border border-primary/20">
                     <p className="text-[10px] font-600 text-primary uppercase tracking-wide mb-0.5">Overall Supervisor</p>
-                    <p className="text-lg font-800 text-primary tabular-nums">{overallSupervisorScore.toFixed(1)}</p>
+                    <p className="text-lg font-800 text-primary tabular-nums">{overallSupervisorScore.toFixed(1)}%</p>
+                    <p className={`text-[10px] font-600 mt-0.5 ${getPerformanceBand(overallSupervisorScore).color}`}>{getPerformanceBand(overallSupervisorScore).label}</p>
                   </div>
                 </div>
               </div>
@@ -1383,7 +1384,6 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                   <option>Outstanding (120%) — 2-Notch Salary Increment</option>
                   <option>Above Average (100%–119%) — 1-Notch Salary Increment</option>
                   <option>Needs Improvement (75%–99%) — No Annual Increment</option>
-                  <option>Satisfactory (50%–74%) — No Annual Increment</option>
                   <option>Unsatisfactory (&lt;50%) — Mandatory Performance Improvement Plan (PIP)</option>
                 </select>
               </FormField>
@@ -1442,15 +1442,40 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                   <div className="text-center p-2 bg-primary/5 rounded-lg border border-primary/20">
                     <p className="text-primary font-600 text-[10px]">Overall Self</p>
                     <p className="font-800 text-primary text-base">{overallSelfScore.toFixed(1)}%</p>
-                    <p className="text-[10px] text-primary/70">{getPerformanceBand(overallSelfScore).label}</p>
+                    <p className={`text-[10px] font-600 ${getPerformanceBand(overallSelfScore).color}`}>{getPerformanceBand(overallSelfScore).label}</p>
+                    <p className="text-[9px] text-muted-foreground mt-0.5">{getPerformanceBand(overallSelfScore).increment}</p>
                   </div>
                   <div className="text-center p-2 bg-primary/5 rounded-lg border border-primary/20">
                     <p className="text-primary font-600 text-[10px]">Overall Supervisor</p>
                     <p className="font-800 text-primary text-base">{overallSupervisorScore.toFixed(1)}%</p>
-                    <p className="text-[10px] text-primary/70">{getPerformanceBand(overallSupervisorScore).label}</p>
+                    <p className={`text-[10px] font-600 ${getPerformanceBand(overallSupervisorScore).color}`}>{getPerformanceBand(overallSupervisorScore).label}</p>
+                    <p className="text-[9px] text-muted-foreground mt-0.5">{getPerformanceBand(overallSupervisorScore).increment}</p>
                   </div>
                 </div>
                 <p className="text-[10px] text-muted-foreground mt-2 text-center">Formula: Overall (max 120%) = BSC Score (max 100%) + Competency Score (max 20%)</p>
+
+                {/* Performance band reference */}
+                <div className="mt-3 bg-muted/40 rounded-lg border border-border p-3">
+                  <p className="text-[10px] font-700 text-foreground uppercase tracking-wide mb-2">Performance Band Reference</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
+                    <div className="flex items-start gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0 mt-0.5" />
+                      <div><p className="font-700 text-emerald-700">120% — Outstanding</p><p className="text-muted-foreground">2-Notch Salary Increment</p></div>
+                    </div>
+                    <div className="flex items-start gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-sky-500 flex-shrink-0 mt-0.5" />
+                      <div><p className="font-700 text-sky-700">100%–119% — Above Average</p><p className="text-muted-foreground">1-Notch Salary Increment</p></div>
+                    </div>
+                    <div className="flex items-start gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0 mt-0.5" />
+                      <div><p className="font-700 text-amber-700">75%–99% — Needs Improvement</p><p className="text-muted-foreground">No Annual Increment</p></div>
+                    </div>
+                    <div className="flex items-start gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 mt-0.5" />
+                      <div><p className="font-700 text-red-700">&lt;50% — Unsatisfactory</p><p className="text-muted-foreground">Mandatory PIP</p></div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
