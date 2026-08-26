@@ -107,8 +107,11 @@ export default function AtRiskStaffTable({ supervisorId }: Props) {
 
           const deptName = staff.departments?.name || 'General';
           const isOverdue = review.review_status === 'draft' || review.review_status === 'rejected';
-          const selfRating = review.self_rating ?? 3;
-          const progress = Math.min(100, Math.round((selfRating / 5) * 100));
+          const selfRating = review.self_rating;
+          // Only compute progress from actual rating; null/missing = 0 progress
+          const progress = selfRating != null && selfRating > 0
+            ? Math.min(100, Math.round((selfRating / 5) * 100))
+            : 0;
 
           records.push({
             id: review.id,
@@ -116,7 +119,7 @@ export default function AtRiskStaffTable({ supervisorId }: Props) {
             role: staff.job_title,
             perspective: deptName,
             kpi: isOverdue ? 'Mid-Year Review Submission' : 'Performance Review',
-            current: isOverdue ? 'Not submitted' : `Rating: ${selfRating}/5`,
+            current: isOverdue ? 'Not submitted' : selfRating != null ? `Rating: ${selfRating}/5` : 'Pending rating',
             target: 'Submitted & Approved',
             progress: isOverdue ? 20 : progress,
             status: isOverdue ? 'overdue' : 'at-risk',

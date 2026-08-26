@@ -470,22 +470,31 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   const bscWeightedSupervisorScore =
     form.bscRatings.reduce((s, b) => s + b.supervisorRating * b.weight, 0) / Math.max(bscTotalWeight, 1);
 
-  // Competency score (Part 2 — normalized to 20)
+  // Competency score (Part 2 — normalized to 0–20)
   // Each competency has a weight 1–5, max total = 35 (7 × 5)
-  // Weighted score = sum(rating × weight), max possible = 5 × 35 = 175
+  // Weighted score = sum(rating × weight), max possible = 5 × totalCompWeight
   // Normalized score out of 20 = (sum(rating × weight) / (totalCompWeight × 5)) × 20
   const totalCompWeight = form.competencyRatings.reduce((s, c) => s + (Number(c.weight) || 0), 0);
   const competencyWeightedSelfRaw = form.competencyRatings.reduce((s, c) => s + c.selfRating * (Number(c.weight) || 0), 0);
   const competencyWeightedSupervisorRaw = form.competencyRatings.reduce((s, c) => s + c.supervisorRating * (Number(c.weight) || 0), 0);
   // Max possible = totalCompWeight × 5
   const compMaxPossible = Math.max(totalCompWeight * 5, 1);
-  // Normalized to 20
+  // Normalized to 0–20
   const competencySelfScore = (competencyWeightedSelfRaw / compMaxPossible) * 20;
   const competencySupervisorScore = (competencyWeightedSupervisorRaw / compMaxPossible) * 20;
 
-  // Overall score = (BSC Score × 80%) + (Competency Score × 20%)
-  const overallSelfScore = bscWeightedSelfScore * 0.8 + competencySelfScore * 0.2;
-  const overallSupervisorScore = bscWeightedSupervisorScore * 0.8 + competencySupervisorScore * 0.2;
+  // Scale BSC from 1–5 to 0–100 for consistent overall calculation
+  // bscWeightedScore is on 1–5 scale → multiply by 20 to get 0–100
+  const bscSelfScore100 = bscWeightedSelfScore * 20;
+  const bscSupervisorScore100 = bscWeightedSupervisorScore * 20;
+
+  // Scale competency from 0–20 to 0–100 for consistent overall calculation
+  const competencySelfScore100 = competencySelfScore * 5;
+  const competencySupervisorScore100 = competencySupervisorScore * 5;
+
+  // Overall score (0–100) = (BSC Score × 80%) + (Competency Score × 20%)
+  const overallSelfScore = Math.round((bscSelfScore100 * 0.8 + competencySelfScore100 * 0.2) * 10) / 10;
+  const overallSupervisorScore = Math.round((bscSupervisorScore100 * 0.8 + competencySupervisorScore100 * 0.2) * 10) / 10;
 
   // Legacy aliases for backward compat in summary section
   const weightedSelfScore = overallSelfScore;
@@ -596,11 +605,11 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
         goals_detail: goalsDetail,
         kpis_detail: kpisDetail,
 
-        // ── Computed scores (stored for reporting) ──
-        bsc_self_score: parseFloat(bscWeightedSelfScore.toFixed(4)),
-        bsc_supervisor_score: parseFloat(bscWeightedSupervisorScore.toFixed(4)),
-        competency_self_score: parseFloat(competencySelfScore.toFixed(4)),
-        competency_supervisor_score: parseFloat(competencySupervisorScore.toFixed(4)),
+        // ── Computed scores (stored for reporting, all on 0–100 scale) ──
+        bsc_self_score: parseFloat(bscSelfScore100.toFixed(4)),
+        bsc_supervisor_score: parseFloat(bscSupervisorScore100.toFixed(4)),
+        competency_self_score: parseFloat(competencySelfScore100.toFixed(4)),
+        competency_supervisor_score: parseFloat(competencySupervisorScore100.toFixed(4)),
         overall_self_score: parseFloat(overallSelfScore.toFixed(4)),
         overall_supervisor_score: parseFloat(overallSupervisorScore.toFixed(4)),
 
@@ -1099,13 +1108,13 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
               <div className="grid grid-cols-2 gap-4">
                 <div className="text-center p-3 bg-white rounded-lg border border-border">
                   <p className="text-[11px] font-600 text-muted-foreground uppercase tracking-wide mb-1">Self BSC Score</p>
-                  <p className="text-2xl font-800 text-foreground tabular-nums">{bscWeightedSelfScore.toFixed(2)}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{RATING_LABELS[Math.round(bscWeightedSelfScore)]?.label || '—'}</p>
+                  <p className="text-2xl font-800 text-foreground tabular-nums">{bscSelfScore100.toFixed(1)}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">out of 100 · {RATING_LABELS[Math.round(bscWeightedSelfScore)]?.label || '—'}</p>
                 </div>
                 <div className="text-center p-3 bg-white rounded-lg border border-border">
                   <p className="text-[11px] font-600 text-muted-foreground uppercase tracking-wide mb-1">Supervisor BSC Score</p>
-                  <p className="text-2xl font-800 text-foreground tabular-nums">{bscWeightedSupervisorScore.toFixed(2)}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">{RATING_LABELS[Math.round(bscWeightedSupervisorScore)]?.label || '—'}</p>
+                  <p className="text-2xl font-800 text-foreground tabular-nums">{bscSupervisorScore100.toFixed(1)}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">out of 100 · {RATING_LABELS[Math.round(bscWeightedSupervisorScore)]?.label || '—'}</p>
                 </div>
               </div>
             </div>
@@ -1216,33 +1225,33 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
 
             {/* Competency Score Summary */}
             <div className="bg-muted/30 rounded-xl border border-border p-4">
-              <p className="text-xs font-700 text-foreground mb-1">Part 2 — Competency Score (Normalized to 20)</p>
+              <p className="text-xs font-700 text-foreground mb-1">Part 2 — Competency Score (Normalized to 0–100)</p>
               <p className="text-[11px] text-muted-foreground mb-3">
-                Formula: (Sum of [Weight × Rating]) ÷ (Total Weight × 5) × 20 &nbsp;|&nbsp; Max total weight: 35 &nbsp;|&nbsp; Max score: 20
+                Formula: (Sum of [Weight × Rating]) ÷ (Total Weight × 5) × 100 &nbsp;|&nbsp; Max total weight: 35 &nbsp;|&nbsp; Max score: 100
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <div className="text-center p-3 bg-white rounded-lg border border-border">
                   <p className="text-[11px] font-600 text-muted-foreground uppercase tracking-wide mb-1">Self Competency Score</p>
-                  <p className="text-2xl font-800 text-foreground tabular-nums">{competencySelfScore.toFixed(2)}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">out of 20</p>
+                  <p className="text-2xl font-800 text-foreground tabular-nums">{competencySelfScore100.toFixed(1)}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">out of 100</p>
                 </div>
                 <div className="text-center p-3 bg-white rounded-lg border border-border">
                   <p className="text-[11px] font-600 text-muted-foreground uppercase tracking-wide mb-1">Supervisor Competency Score</p>
-                  <p className="text-2xl font-800 text-foreground tabular-nums">{competencySupervisorScore.toFixed(2)}</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">out of 20</p>
+                  <p className="text-2xl font-800 text-foreground tabular-nums">{competencySupervisorScore100.toFixed(1)}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">out of 100</p>
                 </div>
               </div>
               {/* Overall score preview */}
               <div className="mt-3 pt-3 border-t border-border">
-                <p className="text-[11px] font-600 text-muted-foreground mb-2 text-center">Overall Score Preview = (BSC × 80%) + (Competencies × 20%)</p>
+                <p className="text-[11px] font-600 text-muted-foreground mb-2 text-center">Overall Score (0–100) = (BSC × 80%) + (Competencies × 20%)</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="text-center p-2 bg-primary/5 rounded-lg border border-primary/20">
                     <p className="text-[10px] font-600 text-primary uppercase tracking-wide mb-0.5">Overall Self</p>
-                    <p className="text-lg font-800 text-primary tabular-nums">{overallSelfScore.toFixed(2)}</p>
+                    <p className="text-lg font-800 text-primary tabular-nums">{overallSelfScore.toFixed(1)}</p>
                   </div>
                   <div className="text-center p-2 bg-primary/5 rounded-lg border border-primary/20">
                     <p className="text-[10px] font-600 text-primary uppercase tracking-wide mb-0.5">Overall Supervisor</p>
-                    <p className="text-lg font-800 text-primary tabular-nums">{overallSupervisorScore.toFixed(2)}</p>
+                    <p className="text-lg font-800 text-primary tabular-nums">{overallSupervisorScore.toFixed(1)}</p>
                   </div>
                 </div>
               </div>
@@ -1409,13 +1418,13 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                   <div className="text-center p-2 bg-white rounded-lg border border-border">
                     <p className="text-muted-foreground font-600 text-[10px]">BSC Score (80%)</p>
-                    <p className="font-800 text-foreground text-base">{bscWeightedSelfScore.toFixed(1)}</p>
-                    <p className="text-[10px] text-muted-foreground">Self</p>
+                    <p className="font-800 text-foreground text-base">{bscSelfScore100.toFixed(1)}</p>
+                    <p className="text-[10px] text-muted-foreground">Self / 100</p>
                   </div>
                   <div className="text-center p-2 bg-white rounded-lg border border-border">
                     <p className="text-muted-foreground font-600 text-[10px]">Competency (20%)</p>
-                    <p className="font-800 text-foreground text-base">{competencySelfScore.toFixed(1)}</p>
-                    <p className="text-[10px] text-muted-foreground">Self (out of 20)</p>
+                    <p className="font-800 text-foreground text-base">{competencySelfScore100.toFixed(1)}</p>
+                    <p className="text-[10px] text-muted-foreground">Self / 100</p>
                   </div>
                   <div className="text-center p-2 bg-primary/5 rounded-lg border border-primary/20">
                     <p className="text-primary font-600 text-[10px]">Overall Self</p>

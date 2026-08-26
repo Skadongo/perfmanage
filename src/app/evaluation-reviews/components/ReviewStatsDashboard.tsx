@@ -120,20 +120,19 @@ export default function ReviewStatsDashboard({ reviews }: ReviewStatsDashboardPr
 
   // Avg scores by role
   const avgScoreByRole = useMemo(() => {
-    const map: Record<string, { selfTotal: number; supTotal: number; count: number }> = {};
+    const map: Record<string, { selfTotal: number; selfCount: number; supTotal: number; supCount: number }> = {};
     reviews.forEach(r => {
       if (r.selfScore > 0 || r.supervisorScore > 0) {
-        if (!map[r.role]) map[r.role] = { selfTotal: 0, supTotal: 0, count: 0 };
-        if (r.selfScore > 0) map[r.role].selfTotal += r.selfScore;
-        if (r.supervisorScore > 0) map[r.role].supTotal += r.supervisorScore;
-        map[r.role].count++;
+        if (!map[r.role]) map[r.role] = { selfTotal: 0, selfCount: 0, supTotal: 0, supCount: 0 };
+        if (r.selfScore > 0) { map[r.role].selfTotal += r.selfScore; map[r.role].selfCount++; }
+        if (r.supervisorScore > 0) { map[r.role].supTotal += r.supervisorScore; map[r.role].supCount++; }
       }
     });
     return Object.entries(map).map(([role, d]) => ({
       role: role.length > 20 ? role.slice(0, 18) + '…' : role,
       fullRole: role,
-      selfAvg: d.count > 0 ? parseFloat((d.selfTotal / d.count).toFixed(2)) : 0,
-      supAvg: d.count > 0 ? parseFloat((d.supTotal / d.count).toFixed(2)) : 0,
+      selfAvg: d.selfCount > 0 ? parseFloat((d.selfTotal / d.selfCount).toFixed(2)) : 0,
+      supAvg: d.supCount > 0 ? parseFloat((d.supTotal / d.supCount).toFixed(2)) : 0,
     }));
   }, [reviews]);
 

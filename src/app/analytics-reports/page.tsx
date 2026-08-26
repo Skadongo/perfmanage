@@ -118,8 +118,8 @@ export default function AnalyticsReportsPage() {
           byRole[role] = {
             avgSup: b.supCount > 0 ? Math.round((b.supSum / b.supCount) * 20 * 10) / 10 : 0,
             avgSelf: b.selfCount > 0 ? Math.round((b.selfSum / b.selfCount) * 20 * 10) / 10 : 0,
-            submissionRate: b.total > 0 ? Math.round((b.subCount / b.total) * 100) : 0,
-            approvalRate: b.total > 0 ? Math.round((b.appCount / b.total) * 100) : 0,
+            submissionRate: b.total > 0 ? Math.min(100, Math.round((b.subCount / b.total) * 100)) : 0,
+            approvalRate: b.total > 0 ? Math.min(100, Math.round((b.appCount / b.total) * 100)) : 0,
             count: b.total,
           };
         }
@@ -139,11 +139,11 @@ export default function AnalyticsReportsPage() {
     : 0;
 
   const submissionPct = summary && summary.total > 0
-    ? Math.round((summary.submitted / summary.total) * 100)
+    ? Math.min(100, Math.round((summary.submitted / summary.total) * 100))
     : 0;
 
   const approvalPct = summary && summary.total > 0
-    ? Math.round((summary.approved / summary.total) * 100)
+    ? Math.min(100, Math.round((summary.approved / summary.total) * 100))
     : 0;
 
   const roleEntries = summary ? Object.entries(summary.byRole).slice(0, 6) : [];

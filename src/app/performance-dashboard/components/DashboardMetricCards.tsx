@@ -93,19 +93,23 @@ async function fetchMetrics(
       const submittedReviews = reviewList.filter(r =>
         ['submitted', 'reviewed', 'approved'].includes(r.review_status)
       ).length;
-      const denominator = staffId ? Math.max(reviewList.length, 1) : staffCount;
-      const reviewCompletionRate = denominator > 0
-        ? Math.round((submittedReviews / denominator) * 100)
+      // For a single staff member: denominator is 1 (they either submitted or not)
+      // For org/supervisor view: denominator is total staff count
+      const reviewDenominator = staffId
+        ? 1
+        : Math.max(staffCount, 1);
+      const reviewCompletionRate = reviewDenominator > 0
+        ? Math.min(100, Math.round((submittedReviews / reviewDenominator) * 100))
         : null;
 
-      const ratedReviews = reviewList.filter(r => r.supervisor_rating != null);
+      const ratedReviews = reviewList.filter(r => r.supervisor_rating != null && (r.supervisor_rating as number) > 0);
       const onTrackReviews = ratedReviews.filter(r => (r.supervisor_rating as number) >= 3).length;
       const kpiAchievementRate = ratedReviews.length > 0
-        ? Math.round((onTrackReviews / ratedReviews.length) * 100)
+        ? Math.min(100, Math.round((onTrackReviews / ratedReviews.length) * 100))
         : null;
 
       const ratings = reviewList
-        .filter(r => r.supervisor_rating != null)
+        .filter(r => r.supervisor_rating != null && (r.supervisor_rating as number) > 0)
         .map(r => r.supervisor_rating as number);
       const avgSupervisorRating = ratings.length > 0
         ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
@@ -114,9 +118,11 @@ async function fetchMetrics(
       const approvedWorkplans = workplanList.filter(w =>
         w.status === 'approved' || w.workflow_stage === 'approved'
       ).length;
-      const cpdDenominator = staffId ? Math.max(workplanList.length, 1) : staffCount;
+      const cpdDenominator = staffId
+        ? 1
+        : Math.max(staffCount, 1);
       const cpdCompletionRate = cpdDenominator > 0
-        ? Math.round((approvedWorkplans / cpdDenominator) * 100)
+        ? Math.min(100, Math.round((approvedWorkplans / cpdDenominator) * 100))
         : null;
 
       return {

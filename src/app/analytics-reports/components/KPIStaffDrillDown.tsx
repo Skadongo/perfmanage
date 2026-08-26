@@ -167,32 +167,37 @@ export default function KPIStaffDrillDown({ metric, onClose }: KPIStaffDrillDown
   });
 
   // Comparative analysis data
-  const byDept = filtered.reduce<Record<string, { count: number; avgSelf: number; avgSup: number; selfSum: number; supSum: number; supCount: number }>>((acc, s) => {
-    if (!acc[s.department]) acc[s.department] = { count: 0, avgSelf: 0, avgSup: 0, selfSum: 0, supSum: 0, supCount: 0 };
+  const byDept = filtered.reduce<Record<string, { count: number; avgSelf: number; avgSup: number; selfSum: number; selfCount: number; supSum: number; supCount: number }>>((acc, s) => {
+    if (!acc[s.department]) acc[s.department] = { count: 0, avgSelf: 0, avgSup: 0, selfSum: 0, selfCount: 0, supSum: 0, supCount: 0 };
     acc[s.department].count++;
-    if (s.selfRating > 0) { acc[s.department].selfSum += s.selfRating; }
+    if (s.selfRating > 0) { acc[s.department].selfSum += s.selfRating; acc[s.department].selfCount++; }
     if (s.supervisorRating > 0) { acc[s.department].supSum += s.supervisorRating; acc[s.department].supCount++; }
     return acc;
   }, {});
   Object.values(byDept).forEach((d) => {
-    d.avgSelf = d.count > 0 ? Math.round((d.selfSum / d.count) * 10) / 10 : 0;
+    d.avgSelf = d.selfCount > 0 ? Math.round((d.selfSum / d.selfCount) * 10) / 10 : 0;
     d.avgSup = d.supCount > 0 ? Math.round((d.supSum / d.supCount) * 10) / 10 : 0;
   });
 
-  const byRole = filtered.reduce<Record<string, { count: number; avgSelf: number; selfSum: number; supSum: number; supCount: number }>>((acc, s) => {
-    if (!acc[s.role]) acc[s.role] = { count: 0, avgSelf: 0, selfSum: 0, supSum: 0, supCount: 0 };
+  const byRole = filtered.reduce<Record<string, { count: number; avgSelf: number; selfSum: number; selfCount: number; supSum: number; supCount: number }>>((acc, s) => {
+    if (!acc[s.role]) acc[s.role] = { count: 0, avgSelf: 0, selfSum: 0, selfCount: 0, supSum: 0, supCount: 0 };
     acc[s.role].count++;
-    if (s.selfRating > 0) acc[s.role].selfSum += s.selfRating;
+    if (s.selfRating > 0) { acc[s.role].selfSum += s.selfRating; acc[s.role].selfCount++; }
     if (s.supervisorRating > 0) { acc[s.role].supSum += s.supervisorRating; acc[s.role].supCount++; }
     return acc;
   }, {});
   Object.values(byRole).forEach((r) => {
-    r.avgSelf = r.count > 0 ? Math.round((r.selfSum / r.count) * 10) / 10 : 0;
+    r.avgSelf = r.selfCount > 0 ? Math.round((r.selfSum / r.selfCount) * 10) / 10 : 0;
   });
 
-  const avgSelf = filtered.length > 0 ? Math.round((filtered.reduce((a, s) => a + (s.selfRating || 0), 0) / filtered.length) * 10) / 10 : 0;
-  const avgSup = filtered.filter(s => s.supervisorRating > 0).length > 0
-    ? Math.round((filtered.filter(s => s.supervisorRating > 0).reduce((a, s) => a + s.supervisorRating, 0) / filtered.filter(s => s.supervisorRating > 0).length) * 10) / 10
+  // Only include rated staff in averages (exclude zero/unrated)
+  const ratedSelf = filtered.filter(s => s.selfRating > 0);
+  const ratedSup = filtered.filter(s => s.supervisorRating > 0);
+  const avgSelf = ratedSelf.length > 0
+    ? Math.round((ratedSelf.reduce((a, s) => a + s.selfRating, 0) / ratedSelf.length) * 10) / 10
+    : 0;
+  const avgSup = ratedSup.length > 0
+    ? Math.round((ratedSup.reduce((a, s) => a + s.supervisorRating, 0) / ratedSup.length) * 10) / 10
     : 0;
 
   const statusColor = (status: string) => {

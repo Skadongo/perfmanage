@@ -42,21 +42,26 @@ const ROLE_LABELS: Record<string, string> = {
 function computeBSCScores(reviews: Array<{ supervisor_rating: number | null; self_rating: number | null; review_status: string }>) {
   if (reviews.length === 0) return { finance: 0, customer: 0, process: 0, capacity: 0 };
 
-  const supRatings = reviews.filter(r => r.supervisor_rating).map(r => r.supervisor_rating as number);
-  const selfRatings = reviews.filter(r => r.self_rating).map(r => r.self_rating as number);
+  const supRatings = reviews.filter(r => r.supervisor_rating != null && r.supervisor_rating > 0).map(r => r.supervisor_rating as number);
+  const selfRatings = reviews.filter(r => r.self_rating != null && r.self_rating > 0).map(r => r.self_rating as number);
   const approvedCount = reviews.filter(r => r.review_status === 'approved').length;
   const submittedCount = reviews.filter(r => ['submitted', 'reviewed', 'approved'].includes(r.review_status)).length;
 
-  const avgSup = supRatings.length > 0 ? supRatings.reduce((a, b) => a + b, 0) / supRatings.length : 0;
-  const avgSelf = selfRatings.length > 0 ? selfRatings.reduce((a, b) => a + b, 0) / selfRatings.length : 0;
-  const submissionRate = reviews.length > 0 ? submittedCount / reviews.length : 0;
-  const approvalRate = reviews.length > 0 ? approvedCount / reviews.length : 0;
+  // Average ratings on 1–5 scale, then scale to 0–100 by × 20
+  const avgSup100 = supRatings.length > 0 ? (supRatings.reduce((a, b) => a + b, 0) / supRatings.length) * 20 : 0;
+  const avgSelf100 = selfRatings.length > 0 ? (selfRatings.reduce((a, b) => a + b, 0) / selfRatings.length) * 20 : 0;
+  const submissionRate100 = reviews.length > 0 ? (submittedCount / reviews.length) * 100 : 0;
+  const approvalRate100 = reviews.length > 0 ? (approvedCount / reviews.length) * 100 : 0;
 
-  // Scale 1-5 → 0-100
-  const finance = Math.round(avgSup * 20);
-  const customer = Math.round(((avgSup + avgSelf) / 2) * 20);
-  const process = Math.round(submissionRate * 100 * 0.5 + avgSelf * 20 * 0.5);
-  const capacity = Math.round(approvalRate * 100 * 0.4 + avgSup * 20 * 0.6);
+  // All perspectives on 0–100 scale
+  // Finance/Stewardship: supervisor rating is primary indicator
+  const finance = Math.min(100, Math.round(avgSup100));
+  // Customer/Stakeholder: average of supervisor and self ratings
+  const customer = Math.min(100, Math.round((avgSup100 + avgSelf100) / 2));
+  // Internal Business Processes: 50% submission rate + 50% self rating
+  const process = Math.min(100, Math.round(submissionRate100 * 0.5 + avgSelf100 * 0.5));
+  // Innovation/Capacity: 40% approval rate + 60% supervisor rating
+  const capacity = Math.min(100, Math.round(approvalRate100 * 0.4 + avgSup100 * 0.6));
 
   return { finance, customer, process, capacity };
 }
@@ -108,7 +113,10 @@ export default function BSCScorecardMatrix() {
           .filter(([role]) => role !== 'unknown')
           .map(([role, roleReviews]) => {
             const scores = computeBSCScores(roleReviews);
-            const overall = Math.round(((scores.finance + scores.customer + scores.process + scores.capacity) / 4) * 10) / 10;
+            // Weighted overall using ECSA-HC BSC framework weights: Finance 30%, Customer 30%, Process 25%, Capacity 15%
+            const overall = Math.round(
+              (scores.finance * 0.30 + scores.customer * 0.30 + scores.process * 0.25 + scores.capacity * 0.15) * 10
+            ) / 10;
             return {
               role: ROLE_LABELS[role] || role,
               finance: { score: scores.finance },
@@ -224,7 +232,11 @@ export default function BSCScorecardMatrix() {
                 ))}
                 <td className="px-4 py-3 text-center">
                   <span className="text-sm font-700 tabular-nums font-mono text-primary">
-                    {data.length > 0 ? (data.reduce((a, r) => a + r.overall, 0) / data.length).toFixed(1) : '—'}
+                    {data.length > 0
+                      ? (Math.round(
+                          (data.reduce((a, r) => a + r.overall, 0) / data.length) * 10
+                        ) / 10).toFixed(1)
+                      : '—'}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center text-xs text-muted-foreground tabular-nums">
