@@ -186,16 +186,16 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
         <div className={`border-t border-border p-3 ${collapsed && !mobileOpen ? 'lg:flex lg:justify-center' : ''}`}>
           {collapsed && !mobileOpen ? (
             <div className="hidden lg:flex w-8 h-8 rounded-full bg-primary/10 items-center justify-center">
-              <span className="text-primary text-xs font-700">{getInitials()}</span>
+              <span suppressHydrationWarning className="text-primary text-xs font-700">{getInitials()}</span>
             </div>
           ) : null}
           <div className={`flex items-center gap-2 ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <span className="text-primary text-xs font-700">{getInitials()}</span>
+              <span suppressHydrationWarning className="text-primary text-xs font-700">{getInitials()}</span>
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
-              <p className="text-[11px] text-muted-foreground truncate">{roleLabel}</p>
+              <p suppressHydrationWarning className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
+              <p suppressHydrationWarning className="text-[11px] text-muted-foreground truncate">{roleLabel}</p>
             </div>
             <button className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground transition-colors">
               <Icon name="EcsaSettingsIcon" size={15} />
