@@ -26,7 +26,6 @@ interface Props {
 }
 
 export default function AtRiskStaffTable({ supervisorId }: Props) {
-  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [staffList, setStaffList] = useState<AtRiskStaffRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -224,11 +223,9 @@ export default function AtRiskStaffTable({ supervisorId }: Props) {
               {staffList.map((staff, idx) => (
                 <tr
                   key={staff.id}
-                  className={`border-b border-border last:border-0 transition-colors cursor-pointer ${
-                    hoveredRow === staff.id ? 'bg-muted/50' : idx % 2 === 0 ? 'bg-white' : 'bg-muted/10'
+                  className={`group border-b border-border last:border-0 transition-colors cursor-pointer hover:bg-muted/50 ${
+                    idx % 2 === 0 ? 'bg-white' : 'bg-muted/10'
                   }`}
-                  onMouseEnter={() => setHoveredRow(staff.id)}
-                  onMouseLeave={() => setHoveredRow(null)}
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -265,11 +262,12 @@ export default function AtRiskStaffTable({ supervisorId }: Props) {
                   <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{staff.dueDate}</td>
                   <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{staff.supervisor}</td>
                   <td className="px-4 py-3">
-                    {hoveredRow === staff.id && (
-                      <button className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" aria-label="View details">
-                        <Icon name="ArrowTopRightOnSquareIcon" size={14} />
-                      </button>
-                    )}
+                    <button
+                      className="p-1.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity"
+                      aria-label="View details"
+                    >
+                      <Icon name="ArrowTopRightOnSquareIcon" size={14} />
+                    </button>
                   </td>
                 </tr>
               ))}
