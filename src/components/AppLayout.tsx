@@ -6,7 +6,7 @@ import Icon from '@/components/ui/AppIcon';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useServiceWorker } from '@/hooks/useServiceWorker';
 
 const NotificationCenter = dynamic(() => import('./NotificationCenter'), { ssr: false });
@@ -35,6 +35,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const menuRef = useRef<HTMLDivElement>(null);
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     setCurrentYear(new Date().getFullYear());
@@ -53,7 +54,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   // Close mobile menu on route change (navigation)
   useEffect(() => {
     setMobileOpen(false);
-  }, []);
+  }, [pathname]);
 
   useServiceWorker(); // Register SW and keep online/offline state in sync
 

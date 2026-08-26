@@ -70,9 +70,8 @@ export default function EvaluationReviewsPage() {
   });
   const [stageLoading, setStageLoading] = useState(true);
 
-  // Stable supabase client ref — prevents re-creation on every render
-  const supabaseRef = useRef(createClient());
-  const supabase = supabaseRef.current;
+  // Stable supabase client — singleton, no ref needed
+  const supabase = createClient();
 
   const fetchStageCounts = useCallback(async () => {
     setStageLoading(true);
@@ -111,13 +110,12 @@ export default function EvaluationReviewsPage() {
     }
   }, []);
 
-  useEffect(() => {
-    async function fetchSummary() {
-      setStatsLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('mid_year_reviews')
-          .select(`
+  const fetchSummary = useCallback(async () => {
+    setStatsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('mid_year_reviews')
+        .select(`
             id,
             review_status,
             review_period,
@@ -131,47 +129,49 @@ export default function EvaluationReviewsPage() {
             timeline:timeline_id (
               review_period
             )
-          `);
+          `)
+        .limit(200);
 
-        if (error) throw error;
+      if (error) throw error;
 
-        const mapped: ReviewSummary[] = (data ?? []).map((row: Record<string, unknown>) => {
-          const staffRow = row.staff as Record<string, unknown> | null;
-          const deptRow = staffRow?.departments as Record<string, unknown> | null;
-          const timelineRow = row.timeline as Record<string, unknown> | null;
+      const mapped: ReviewSummary[] = (data ?? []).map((row: Record<string, unknown>) => {
+        const staffRow = row.staff as Record<string, unknown> | null;
+        const deptRow = staffRow?.departments as Record<string, unknown> | null;
+        const timelineRow = row.timeline as Record<string, unknown> | null;
 
-          const selfRating = row.self_rating as number ?? 0;
-          const supervisorRating = row.supervisor_rating as number ?? 0;
-          const dbStatus = row.review_status as string ?? 'draft';
-          const uiStatus = mapStatus(dbStatus);
+        const selfRating = row.self_rating as number ?? 0;
+        const supervisorRating = row.supervisor_rating as number ?? 0;
+        const dbStatus = row.review_status as string ?? 'draft';
+        const uiStatus = mapStatus(dbStatus);
 
-          const reviewPeriod = timelineRow?.review_period as string ?? row.review_period as string ?? 'mid-year';
-          const reviewType = reviewPeriod === 'annual' ? 'Annual Review' : 'Mid-Year Review';
+        const reviewPeriod = timelineRow?.review_period as string ?? row.review_period as string ?? 'mid-year';
+        const reviewType = reviewPeriod === 'annual' ? 'Annual Review' : 'Mid-Year Review';
 
-          return {
-            id: row.id as string,
-            staffName: staffRow?.full_name as string ?? 'Unknown',
-            role: staffRow?.job_title as string ?? '—',
-            department: deptRow?.name as string ?? '—',
-            reviewType,
-            status: uiStatus,
-            selfScore: selfRating,
-            supervisorScore: supervisorRating,
-            overallProgress: computeProgress(uiStatus, selfRating, supervisorRating)
-          };
-        });
+        return {
+          id: row.id as string,
+          staffName: staffRow?.full_name as string ?? 'Unknown',
+          role: staffRow?.job_title as string ?? '—',
+          department: deptRow?.name as string ?? '—',
+          reviewType,
+          status: uiStatus,
+          selfScore: selfRating,
+          supervisorScore: supervisorRating,
+          overallProgress: computeProgress(uiStatus, selfRating, supervisorRating)
+        };
+      });
 
-        setReviewsSummary(mapped);
-      } catch (err) {
-        console.error('Failed to fetch review summary:', err);
-      } finally {
-        setStatsLoading(false);
-      }
+      setReviewsSummary(mapped);
+    } catch (err) {
+      console.error('Failed to fetch review summary:', err);
+    } finally {
+      setStatsLoading(false);
     }
+  }, []);
 
-    // Run both fetches in parallel — include fetchStageCounts in the dep array
+  useEffect(() => {
+    // Run both fetches in parallel
     Promise.all([fetchSummary(), fetchStageCounts()]);
-  }, [fetchStageCounts]);
+  }, [fetchSummary, fetchStageCounts]);
 
   const totalReviews = reviewsSummary.length;
   const submittedApproved = reviewsSummary.filter((r) => r.status === 'submitted' || r.status === 'approved').length;
@@ -181,7 +181,9 @@ export default function EvaluationReviewsPage() {
 
   function handleFormSubmit() {
     setActiveForm(null);
+    // Refetch both summary and stage counts after a form submission
     fetchStageCounts();
+    fetchSummary();
     toast?.success('Saved successfully and routed for processing.');
   }
 
