@@ -70,7 +70,7 @@ function AppLayoutInner({ children, pageTitle, pageSubtitle, actions }: AppLayou
   const roleLabel = getRoleLabel(profile?.systemRole);
 
   return (
-    <div className="min-h-screen bg-background flex overflow-x-hidden">
+    <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed(!collapsed)}
@@ -79,6 +79,7 @@ function AppLayoutInner({ children, pageTitle, pageSubtitle, actions }: AppLayou
       />
 
       <div
+        suppressHydrationWarning
         className={`flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-300 ease-in-out ml-0 ${
           collapsed ? 'lg:ml-16' : 'lg:ml-60'
         }`}
@@ -235,7 +236,7 @@ export default function AppLayout(props: AppLayoutProps) {
 
   if (!mounted) {
     return (
-      <div className="min-h-screen bg-background flex overflow-x-hidden">
+      <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
         <div className="w-60 flex-shrink-0 bg-white border-r border-border" />
         <div className="flex-1 flex flex-col min-h-screen">
           <div className="h-16 bg-white border-b border-border border-t-2 border-t-primary" />
