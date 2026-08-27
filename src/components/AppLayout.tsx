@@ -27,12 +27,12 @@ function getRoleLabel(systemRole: string | undefined): string {
     .join(' ');
 }
 
-// Inner layout — only rendered after client mount, so no SSR/client mismatch
-function AppLayoutInner({ children, pageTitle, pageSubtitle, actions }: AppLayoutProps) {
+export default function AppLayout({ children, pageTitle, pageSubtitle, actions }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
+  // Use 0 as SSR-safe initial value; updated on client via useEffect
+  const [currentYear, setCurrentYear] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
@@ -70,7 +70,7 @@ function AppLayoutInner({ children, pageTitle, pageSubtitle, actions }: AppLayou
   const roleLabel = getRoleLabel(profile?.systemRole);
 
   return (
-    <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
+    <div className="min-h-screen bg-background flex overflow-x-hidden">
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed(!collapsed)}
@@ -78,6 +78,7 @@ function AppLayoutInner({ children, pageTitle, pageSubtitle, actions }: AppLayou
         onMobileClose={() => setMobileOpen(false)}
       />
 
+      {/* suppressHydrationWarning here because collapsed state differs SSR vs client */}
       <div
         suppressHydrationWarning
         className={`flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-300 ease-in-out ml-0 ${
@@ -203,8 +204,9 @@ function AppLayoutInner({ children, pageTitle, pageSubtitle, actions }: AppLayou
                 <p className="text-[10px] text-muted-foreground">Performance Management System</p>
               </div>
             </div>
-            <p className="text-[11px] text-muted-foreground text-center">
-              © {currentYear} East, Central &amp; Southern Africa Health Community. All rights reserved.
+            {/* suppressHydrationWarning because currentYear is 0 on SSR, real value on client */}
+            <p suppressHydrationWarning className="text-[11px] text-muted-foreground text-center">
+              © {currentYear || ''} East, Central &amp; Southern Africa Health Community. All rights reserved.
             </p>
             <div className="hidden sm:flex items-center gap-4">
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -221,30 +223,4 @@ function AppLayoutInner({ children, pageTitle, pageSubtitle, actions }: AppLayou
       </div>
     </div>
   );
-}
-
-// SSR shell — a neutral, attribute-free placeholder rendered on the server.
-// It matches exactly on both server and client first-render, so React never
-// sees a hydration mismatch. AppLayoutInner (with all dynamic classes and
-// @dhiwise tagger attributes) only mounts after the client is ready.
-export default function AppLayout(props: AppLayoutProps) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
-    return (
-      <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
-        <div className="w-60 flex-shrink-0 bg-white border-r border-border" />
-        <div className="flex-1 flex flex-col min-h-screen">
-          <div className="h-16 bg-white border-b border-border border-t-2 border-t-primary" />
-          <div className="flex-1 p-6">{props.children}</div>
-        </div>
-      </div>
-    );
-  }
-
-  return <AppLayoutInner {...props} />;
 }
