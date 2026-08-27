@@ -54,12 +54,10 @@ export default function NotificationCenter() {
   const [unreadCount, setUnreadCount] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
   const hasFetched = useRef(false);
-  // Stable supabase client — singleton, no ref needed
+  // Stable supabase client — never recreated
   const supabaseRef = useRef(createClient());
   // Current user's staff_id — resolved once on mount
   const staffIdRef = useRef<string | null>(null);
-  // Current user's system role — used to gate org-wide badge
-  const systemRoleRef = useRef<string | null>(null);
 
   // Resolve current user's staff_id on mount
   useEffect(() => {
@@ -71,34 +69,29 @@ export default function NotificationCenter() {
 
       const { data: profile } = await supabase
         .from('user_profiles')
-        .select('staff_id, system_role')
+        .select('staff_id')
         .eq('id', user.id)
         .maybeSingle();
 
       staffIdRef.current = profile?.staff_id ?? null;
-      systemRoleRef.current = profile?.system_role ?? null;
 
       // Fetch unread count once staff_id is known
       if (staffIdRef.current) {
-        const { count } = await supabase
+        let query = supabase
           .from('notifications')
           .select('id', { count: 'exact', head: true })
           .eq('is_read', false)
           .eq('recipient_staff_id', staffIdRef.current);
+
+        const { count } = await query;
         if (count != null) setUnreadCount(count);
       } else {
-        // Only HR/Director roles get org-wide badge; others get 0
-        const isElevated = ['executive_director', 'deputy_director', 'hr_admin_officer', 'support_admin'].includes(
-          systemRoleRef.current ?? ''
-        );
-        if (isElevated) {
-          const { count } = await supabase
-            .from('notifications')
-            .select('id', { count: 'exact', head: true })
-            .eq('is_read', false);
-          if (count != null) setUnreadCount(count);
-        }
-        // else: leave unreadCount at 0
+        // Fallback: HR/Director — fetch all unread
+        const { count } = await supabase
+          .from('notifications')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_read', false);
+        if (count != null) setUnreadCount(count);
       }
     }
 
@@ -113,12 +106,7 @@ export default function NotificationCenter() {
         (payload) => {
           const newNotif = payload.new as Notification & { recipient_staff_id?: string };
           // Only increment badge if this notification is for the current user
-          const isForMe = staffIdRef.current
-            ? newNotif.recipient_staff_id === staffIdRef.current
-            : ['executive_director', 'deputy_director', 'hr_admin_officer', 'support_admin'].includes(
-                systemRoleRef.current ?? ''
-              );
-          if (isForMe) {
+          if (!staffIdRef.current || newNotif.recipient_staff_id === staffIdRef.current) {
             setUnreadCount(c => c + 1);
             setNotifications(prev => {
               if (prev.length === 0 && !hasFetched.current) return prev;

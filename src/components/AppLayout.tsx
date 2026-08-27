@@ -4,12 +4,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Icon from '@/components/ui/AppIcon';
 import Image from 'next/image';
-import dynamic from 'next/dynamic';
+import NotificationCenter from './NotificationCenter';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useServiceWorker } from '@/hooks/useServiceWorker';
-
-const NotificationCenter = dynamic(() => import('./NotificationCenter'), { ssr: false });
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -31,12 +29,10 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  // Use 0 as SSR-safe initial value; updated on client via useEffect
-  const [currentYear, setCurrentYear] = useState(0);
+  const [currentYear, setCurrentYear] = useState<number>(2026);
   const menuRef = useRef<HTMLDivElement>(null);
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
-  const pathname = usePathname();
 
   useEffect(() => {
     setCurrentYear(new Date().getFullYear());
@@ -52,11 +48,12 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Close mobile menu on route change (navigation)
   useEffect(() => {
     setMobileOpen(false);
-  }, [pathname]);
+  }, []);
 
-  useServiceWorker();
+  useServiceWorker(); // Register SW and keep online/offline state in sync
 
   const handleSignOut = async () => {
     try {
@@ -71,6 +68,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
 
   return (
     <div className="min-h-screen bg-background flex overflow-x-hidden">
+      {/* Sidebar — handles its own mobile overlay internally */}
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed(!collapsed)}
@@ -78,15 +76,15 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
         onMobileClose={() => setMobileOpen(false)}
       />
 
-      {/* suppressHydrationWarning here because collapsed state differs SSR vs client */}
+      {/* Main content — offset by sidebar width on desktop */}
       <div
-        suppressHydrationWarning
         className={`flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-300 ease-in-out ml-0 ${
           collapsed ? 'lg:ml-16' : 'lg:ml-60'
         }`}
       >
         {/* Topbar */}
         <header className="h-14 sm:h-16 bg-white border-b border-border border-t-2 border-t-primary flex items-center px-3 sm:px-4 lg:px-6 gap-2 sm:gap-4 sticky top-0 z-20">
+          {/* Mobile hamburger */}
           <button
             className="lg:hidden p-2 rounded-md hover:bg-muted text-muted-foreground flex-shrink-0"
             onClick={() => setMobileOpen(true)}
@@ -95,6 +93,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
             <Icon name="EcsaMenuIcon" size={20} />
           </button>
 
+          {/* ECSA-HC Logo + Contact */}
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
             <Image
               src="/assets/images/ecsahc_web_logo1-1-1774467575072.png"
@@ -129,6 +128,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
             {actions}
             <NotificationCenter />
 
+            {/* User avatar + dropdown */}
             <div className="relative" ref={menuRef}>
               <button
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
@@ -149,6 +149,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
 
               {userMenuOpen && (
                 <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-lg border border-border z-50 overflow-hidden">
+                  {/* User info header */}
                   <div className="px-4 py-3 border-b border-border bg-muted/30">
                     <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
                     <p className="text-xs text-muted-foreground truncate">{profile?.email || ''}</p>
@@ -156,6 +157,8 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                       {roleLabel}
                     </span>
                   </div>
+
+                  {/* Menu items */}
                   <div className="py-1">
                     <button
                       onClick={() => { setUserMenuOpen(false); router.push('/change-password'); }}
@@ -204,9 +207,8 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                 <p className="text-[10px] text-muted-foreground">Performance Management System</p>
               </div>
             </div>
-            {/* suppressHydrationWarning because currentYear is 0 on SSR, real value on client */}
-            <p suppressHydrationWarning className="text-[11px] text-muted-foreground text-center">
-              © {currentYear || ''} East, Central &amp; Southern Africa Health Community. All rights reserved.
+            <p className="text-[11px] text-muted-foreground text-center">
+              © {currentYear} East, Central &amp; Southern Africa Health Community. All rights reserved.
             </p>
             <div className="hidden sm:flex items-center gap-4">
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">

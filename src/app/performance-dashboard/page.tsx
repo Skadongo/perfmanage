@@ -113,7 +113,6 @@ function StaffUpdateBanner({ onDismiss }: { onDismiss: () => void }) {
 // ── Main page ───────────────────────────────────────────────────────────────
 export default function PerformanceDashboardPage() {
   const { profile } = useAuth();
-  // useServiceWorker is also called in AppLayout — the singleton hook ensures no double-registration
   const { isOnline, pendingApprovals, triggerSync } = useServiceWorker();
 
   const systemRole = profile?.systemRole ?? 'default';
@@ -261,7 +260,7 @@ export default function PerformanceDashboardPage() {
               staffId={scopedStaffId}
               supervisorId={supervisorStaffId}
               systemRole={systemRole}
-              refreshKey={refreshKey}
+              key={`metrics-${refreshKey}`}
             />
           </Suspense>
         </section>
@@ -279,12 +278,12 @@ export default function PerformanceDashboardPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {config.showKPITrendChart && (
                 <Suspense fallback={<ChartSkeleton height={240} />}>
-                  <KPITrendChart onPointClick={handleDrillDown} refreshKey={refreshKey} />
+                  <KPITrendChart onPointClick={handleDrillDown} key={`kpi-${refreshKey}`} />
                 </Suspense>
               )}
               {config.showBSCChart && (
                 <Suspense fallback={<ChartSkeleton height={240} />}>
-                  <BSCPerspectiveChart onBarClick={handleDrillDown} refreshKey={refreshKey} />
+                  <BSCPerspectiveChart onBarClick={handleDrillDown} key={`bsc-${refreshKey}`} />
                 </Suspense>
               )}
             </div>
@@ -315,7 +314,7 @@ export default function PerformanceDashboardPage() {
                   <Suspense fallback={<TableSkeleton rows={5} cols={5} />}>
                     <AtRiskStaffTable
                       supervisorId={supervisorStaffId}
-                      refreshKey={refreshKey}
+                      key={`risk-${refreshKey}`}
                     />
                   </Suspense>
                 </div>
@@ -326,7 +325,7 @@ export default function PerformanceDashboardPage() {
                     <ActivityFeed
                       staffId={scopedStaffId}
                       supervisorId={supervisorStaffId}
-                      refreshKey={refreshKey}
+                      key={`feed-${refreshKey}`}
                     />
                   </Suspense>
                 </div>

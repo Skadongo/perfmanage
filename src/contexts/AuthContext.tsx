@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 // Role hierarchy for access control
@@ -76,8 +76,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  // Stable singleton client — createClient() returns the same instance
-  const supabase = createClient();
+  // Use a ref so the supabase client is stable across renders
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
   // Track whether initial session load already fetched the profile
   const initialLoadDone = useRef(false);
 
@@ -241,62 +242,61 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return fetchProfile(user.id);
   };
 
-  // Role-based helpers — memoized to prevent re-renders in consumers
-  const isHROrDirector = useCallback((): boolean => {
+  // Role-based helpers
+  const isHROrDirector = (): boolean => {
     const role = profile?.systemRole || '';
     return ['executive_director', 'deputy_director', 'hr_admin_officer'].includes(role);
-  }, [profile?.systemRole]);
+  };
 
-  const isManagerOrAbove = useCallback((): boolean => {
-    const level = ROLE_HIERARCHY[profile?.systemRole || ''] ?? 0;
+  const isManagerOrAbove = (): boolean => {
+    const level = getRoleLevel();
     return level >= 70;
-  }, [profile?.systemRole]);
+  };
 
-  const canViewSensitiveData = useCallback((): boolean => {
-    const level = ROLE_HIERARCHY[profile?.systemRole || ''] ?? 0;
-    return level >= 80;
-  }, [profile?.systemRole]);
+  const canViewSensitiveData = (): boolean => {
+    const level = getRoleLevel();
+    return level >= 50;
+  };
 
-  const getRoleLevel = useCallback((): number => {
-    return ROLE_HIERARCHY[profile?.systemRole || ''] ?? 0;
-  }, [profile?.systemRole]);
+  const getRoleLevel = (): number => {
+    const role = profile?.systemRole || 'staff_member';
+    return ROLE_HIERARCHY[role] ?? 30;
+  };
 
-  const getDisplayName = useCallback((): string => {
-    if (!profile) return '';
-    return profile.fullName || profile.email?.split('@')[0] || '';
-  }, [profile]);
+  const getDisplayName = (): string => {
+    return profile?.fullName || user?.email?.split('@')[0] || 'User';
+  };
 
-  const getInitials = useCallback((): string => {
-    if (!profile) return '';
-    if (profile.avatarInitials) return profile.avatarInitials;
-    const name = profile.fullName || profile.email || '';
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  const getInitials = (): string => {
+    if (profile?.avatarInitials) return profile.avatarInitials;
+    const name = getDisplayName();
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2) return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
     return name.slice(0, 2).toUpperCase();
-  }, [profile]);
+  };
 
-  const value = useMemo(
-    () => ({
-      user,
-      session,
-      profile,
-      loading,
-      signUp,
-      signIn,
-      signOut,
-      getCurrentUser,
-      isEmailVerified,
-      getUserProfile,
-      isHROrDirector,
-      isManagerOrAbove,
-      canViewSensitiveData,
-      getRoleLevel,
-      getDisplayName,
-      getInitials,
-    }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user, session, profile, loading, isHROrDirector, isManagerOrAbove, canViewSensitiveData, getRoleLevel, getDisplayName, getInitials]
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        profile,
+        loading,
+        signUp,
+        signIn,
+        signOut,
+        getCurrentUser,
+        isEmailVerified,
+        getUserProfile,
+        isHROrDirector,
+        isManagerOrAbove,
+        canViewSensitiveData,
+        getRoleLevel,
+        getDisplayName,
+        getInitials,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
   );
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
