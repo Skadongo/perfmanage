@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import StatusBadge from '@/components/ui/StatusBadge';
 import ProgressBar from '@/components/ui/ProgressBar';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+import { cachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 
 interface AtRiskStaffRecord {
   id: string;
@@ -25,142 +26,140 @@ interface Props {
   supervisorId?: string | null;
 }
 
-export default function AtRiskStaffTable({ supervisorId }: Props) {
+export default React.memo(function AtRiskStaffTable({ supervisorId }: Props) {
   const [staffList, setStaffList] = useState<AtRiskStaffRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Stable client ref — never recreated across renders
+  const supabaseRef = useRef(createClient());
+  const isMounted = useRef(true);
+
+  const fetchAtRiskStaff = useCallback(async () => {
+    const supabase = supabaseRef.current;
+    const cacheKey = `at-risk-staff:${supervisorId ?? 'org'}`;
+
+    try {
+      const records = await cachedFetch<AtRiskStaffRecord[]>(
+        cacheKey,
+        async () => {
+          // Build reviews query — scope to direct reports if supervisorId provided
+          let reviewsQuery = supabase
+            .from('mid_year_reviews')
+            .select(`
+              id,
+              review_status,
+              self_rating,
+              submitted_at,
+              review_year,
+              staff:staff_id (
+                id,
+                full_name,
+                job_title,
+                supervisor_name,
+                departments:department_id ( name )
+              )
+            `)
+            .in('review_status', ['draft', 'submitted', 'rejected'])
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+          if (supervisorId) {
+            reviewsQuery = reviewsQuery.eq('supervisor_id', supervisorId);
+          }
+
+          // Build staff query — scope to direct reports if supervisorId provided
+          let staffQuery = supabase
+            .from('staff')
+            .select('id, full_name, job_title, supervisor_name, departments:department_id ( name )')
+            .eq('employment_status', 'active')
+            .limit(50);
+
+          if (supervisorId) {
+            staffQuery = staffQuery.eq('supervisor_id', supervisorId);
+          }
+
+          const [reviewsResult, allStaffResult] = await Promise.all([reviewsQuery, staffQuery]);
+
+          if (reviewsResult.error) throw new Error('Failed to load staff data');
+          if (allStaffResult.error) throw new Error('Failed to load staff data');
+
+          const reviews = reviewsResult.data || [];
+          const allStaff = allStaffResult.data || [];
+
+          const reviewedStaffIds = new Set(
+            reviews.map((r: any) => r.staff?.id).filter(Boolean)
+          );
+
+          const result: AtRiskStaffRecord[] = [];
+
+          for (const review of reviews as any[]) {
+            const staff = review.staff;
+            if (!staff) continue;
+
+            const deptName = staff.departments?.name || 'General';
+            const isOverdue = review.review_status === 'draft' || review.review_status === 'rejected';
+            const selfRating = review.self_rating;
+            const progress = selfRating != null && selfRating > 0
+              ? Math.min(100, Math.round((selfRating / 5) * 100))
+              : 0;
+
+            result.push({
+              id: review.id,
+              name: staff.full_name,
+              role: staff.job_title,
+              perspective: deptName,
+              kpi: isOverdue ? 'Mid-Year Review Submission' : 'Performance Review',
+              current: isOverdue ? 'Not submitted' : selfRating != null ? `Rating: ${selfRating}/5` : 'Pending rating',
+              target: 'Submitted & Approved',
+              progress: isOverdue ? 20 : progress,
+              status: isOverdue ? 'overdue' : 'at-risk',
+              dueDate: review.review_year ? `30 Jun ${review.review_year}` : '30 Jun 2026',
+              supervisor: staff.supervisor_name || 'Not assigned',
+            });
+          }
+
+          for (const staff of allStaff as any[]) {
+            if (reviewedStaffIds.has(staff.id)) continue;
+            const deptName = staff.departments?.name || 'General';
+            result.push({
+              id: `no-review-${staff.id}`,
+              name: staff.full_name,
+              role: staff.job_title,
+              perspective: deptName,
+              kpi: 'Mid-Year Review Submission',
+              current: 'No review started',
+              target: 'Submitted & Approved',
+              progress: 0,
+              status: 'overdue',
+              dueDate: '30 Jun 2026',
+              supervisor: staff.supervisor_name || 'Not assigned',
+            });
+          }
+
+          result.sort((a, b) => {
+            if (a.status === 'overdue' && b.status !== 'overdue') return -1;
+            if (a.status !== 'overdue' && b.status === 'overdue') return 1;
+            return a.progress - b.progress;
+          });
+
+          return result.slice(0, 10);
+        },
+        TTL_DASHBOARD_METRICS
+      );
+
+      if (isMounted.current) setStaffList(records);
+    } catch (err: any) {
+      if (isMounted.current) setError(err?.message || 'An unexpected error occurred');
+    } finally {
+      if (isMounted.current) setLoading(false);
+    }
+  }, [supervisorId]);
 
   useEffect(() => {
-    async function fetchAtRiskStaff() {
-      const supabase = createClient();
-      try {
-        // Build reviews query — scope to direct reports if supervisorId provided
-        let reviewsQuery = supabase
-          .from('mid_year_reviews')
-          .select(`
-            id,
-            review_status,
-            self_rating,
-            supervisor_rating,
-            submitted_at,
-            review_year,
-            staff:staff_id (
-              id,
-              full_name,
-              job_title,
-              supervisor_name,
-              departments:department_id (
-                name
-              )
-            )
-          `)
-          .in('review_status', ['draft', 'submitted', 'rejected'])
-          .order('created_at', { ascending: false });
-
-        if (supervisorId) {
-          reviewsQuery = reviewsQuery.eq('supervisor_id', supervisorId);
-        }
-
-        // Build staff query — scope to direct reports if supervisorId provided
-        let staffQuery = supabase
-          .from('staff')
-          .select(`
-            id,
-            full_name,
-            job_title,
-            supervisor_name,
-            departments:department_id (
-              name
-            )
-          `)
-          .eq('employment_status', 'active')
-          .limit(50);
-
-        if (supervisorId) {
-          staffQuery = staffQuery.eq('supervisor_id', supervisorId);
-        }
-
-        const [reviewsResult, allStaffResult] = await Promise.all([reviewsQuery, staffQuery]);
-
-        if (reviewsResult.error) {
-          setError('Failed to load staff data');
-          return;
-        }
-        if (allStaffResult.error) {
-          setError('Failed to load staff data');
-          return;
-        }
-
-        const reviews = reviewsResult.data || [];
-        const allStaff = allStaffResult.data || [];
-
-        const reviewedStaffIds = new Set(
-          reviews.map((r: any) => r.staff?.id).filter(Boolean)
-        );
-
-        const records: AtRiskStaffRecord[] = [];
-
-        reviews.forEach((review: any) => {
-          const staff = review.staff;
-          if (!staff) return;
-
-          const deptName = staff.departments?.name || 'General';
-          const isOverdue = review.review_status === 'draft' || review.review_status === 'rejected';
-          const selfRating = review.self_rating;
-          // Only compute progress from actual rating; null/missing = 0 progress
-          const progress = selfRating != null && selfRating > 0
-            ? Math.min(100, Math.round((selfRating / 5) * 100))
-            : 0;
-
-          records.push({
-            id: review.id,
-            name: staff.full_name,
-            role: staff.job_title,
-            perspective: deptName,
-            kpi: isOverdue ? 'Mid-Year Review Submission' : 'Performance Review',
-            current: isOverdue ? 'Not submitted' : selfRating != null ? `Rating: ${selfRating}/5` : 'Pending rating',
-            target: 'Submitted & Approved',
-            progress: isOverdue ? 20 : progress,
-            status: isOverdue ? 'overdue' : 'at-risk',
-            dueDate: review.review_year ? `30 Jun ${review.review_year}` : '30 Jun 2026',
-            supervisor: staff.supervisor_name || 'Not assigned',
-          });
-        });
-
-        allStaff.forEach((staff: any) => {
-          if (reviewedStaffIds.has(staff.id)) return;
-          const deptName = staff.departments?.name || 'General';
-          records.push({
-            id: `no-review-${staff.id}`,
-            name: staff.full_name,
-            role: staff.job_title,
-            perspective: deptName,
-            kpi: 'Mid-Year Review Submission',
-            current: 'No review started',
-            target: 'Submitted & Approved',
-            progress: 0,
-            status: 'overdue',
-            dueDate: '30 Jun 2026',
-            supervisor: staff.supervisor_name || 'Not assigned',
-          });
-        });
-
-        records.sort((a, b) => {
-          if (a.status === 'overdue' && b.status !== 'overdue') return -1;
-          if (a.status !== 'overdue' && b.status === 'overdue') return 1;
-          return a.progress - b.progress;
-        });
-
-        setStaffList(records.slice(0, 10));
-      } catch {
-        setError('An unexpected error occurred');
-      } finally {
-        setLoading(false);
-      }
-    }
-
+    isMounted.current = true;
     fetchAtRiskStaff();
-  }, [supervisorId]);
+    return () => { isMounted.current = false; };
+  }, [fetchAtRiskStaff]);
 
   const overdueCount = staffList.filter(s => s.status === 'overdue').length;
   const atRiskCount = staffList.filter(s => s.status === 'at-risk').length;
@@ -248,13 +247,14 @@ export default function AtRiskStaffTable({ supervisorId }: Props) {
                     <ProgressBar
                       value={staff.progress}
                       colorClass={staff.status === 'overdue' ? 'bg-red-400' : 'bg-amber-400'}
-                      height="h-1.5"
-                      showLabel
                     />
+                    <span className="text-[10px] text-muted-foreground tabular-nums">{staff.progress}%</span>
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <span className="text-xs font-700 text-foreground tabular-nums font-mono">{staff.current}</span>
-                    <span className="text-[10px] text-muted-foreground"> / {staff.target}</span>
+                  <td className="px-4 py-3">
+                    <div>
+                      <p className="text-xs text-foreground">{staff.current}</p>
+                      <p className="text-[10px] text-muted-foreground">{staff.target}</p>
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <StatusBadge status={staff.status} />
@@ -262,11 +262,8 @@ export default function AtRiskStaffTable({ supervisorId }: Props) {
                   <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{staff.dueDate}</td>
                   <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{staff.supervisor}</td>
                   <td className="px-4 py-3">
-                    <button
-                      className="p-1.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity"
-                      aria-label="View details"
-                    >
-                      <Icon name="ArrowTopRightOnSquareIcon" size={14} />
+                    <button className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted">
+                      <Icon name="ChevronRightIcon" size={14} className="text-muted-foreground" />
                     </button>
                   </td>
                 </tr>
@@ -277,4 +274,4 @@ export default function AtRiskStaffTable({ supervisorId }: Props) {
       )}
     </div>
   );
-}
+});

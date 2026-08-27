@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+
 import { ROLE_HIERARCHY } from '@/contexts/AuthContext';
 
 interface Department {
@@ -1230,33 +1231,44 @@ export default function StaffManagementPage() {
   const [accessTarget, setAccessTarget] = useState<StaffMember | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
 
+  // Stable supabase client ref — prevents re-creation on every render
+  const supabaseRef = useRef(createClient());
+  const isMounted = useRef(true);
+
   const showToast = useCallback((message: string, type: 'success' | 'error') => {
     setToast({ message, type });
   }, []);
 
   useEffect(() => {
+    isMounted.current = true;
+    const supabase = supabaseRef.current;
+
     async function fetchData() {
       try {
-        const supabase = createClient();
         const [deptRes, staffRes] = await Promise.all([
           supabase.from('departments').select('*').order('name'),
           supabase
             .from('staff')
-            .select(`*, departments(name), supervisor:supervisor_id(full_name, job_title)`)
+            // Limit columns to what the UI actually renders
+            .select('id, serial_number, full_name, job_title, department_id, supervisor_name, supervisor_id, employment_status, email, system_role, departments(name), supervisor:supervisor_id(full_name, job_title)')
             .order('serial_number', { ascending: true }),
         ]);
         if (deptRes.error) throw deptRes.error;
         if (staffRes.error) throw staffRes.error;
-        setDepartments(deptRes.data ?? []);
-        setStaff((staffRes.data as StaffMember[]) ?? []);
+        if (isMounted.current) {
+          setDepartments(deptRes.data ?? []);
+          setStaff((staffRes.data as StaffMember[]) ?? []);
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to load staff data';
-        setError(msg);
+        if (isMounted.current) setError(msg);
       } finally {
-        setLoading(false);
+        if (isMounted.current) setLoading(false);
       }
     }
     fetchData();
+
+    return () => { isMounted.current = false; };
   }, []);
 
   // ── CRUD handlers ──────────────────────────────────────────────────────────

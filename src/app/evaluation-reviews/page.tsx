@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import AppLayout from '@/components/AppLayout';
 import ReviewTable from './components/ReviewTable';
 import ReviewStatsDashboard from './components/ReviewStatsDashboard';
@@ -11,6 +11,7 @@ import WorkflowProgressPanel from './components/WorkflowProgressPanel';
 import { Toaster, toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+import { cachedFetch, TTL_WORKPLAN_LIST, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 
 interface ReviewSummary {
   id: string;
@@ -73,14 +74,23 @@ export default function EvaluationReviewsPage() {
   // Stable supabase client ref — prevents re-creation on every render
   const supabaseRef = useRef(createClient());
   const supabase = supabaseRef.current;
+  const isMounted = useRef(true);
 
-  const fetchStageCounts = useCallback(async () => {
+  const fetchStageCounts = useCallback(async (forceRefresh = false) => {
     setStageLoading(true);
     try {
-      const { data } = await supabase
-        .from('workplan_settings')
-        .select('workflow_stage')
-        .eq('status', 'signed');
+      const data = await cachedFetch<{ workflow_stage: string }[]>(
+        'eval-stage-counts',
+        async () => {
+          const { data: rows } = await supabase
+            .from('workplan_settings')
+            // Only fetch the column we need for counting
+            .select('workflow_stage')
+            .eq('status', 'signed');
+          return rows ?? [];
+        },
+        forceRefresh ? 0 : TTL_WORKPLAN_LIST
+      );
 
       const counts: WorkflowStageCounts = {
         workplanPending: 0,
@@ -89,99 +99,115 @@ export default function EvaluationReviewsPage() {
         midYearApproved: 0,
         endYearPending: 0,
         endYearApproved: 0,
-        total: (data ?? []).length
+        total: data.length
       };
 
-      (data ?? []).forEach((row: any) => {
+      for (const row of data) {
         switch (row.workflow_stage) {
-          case 'workplan_pending':counts.workplanPending++;break;
-          case 'workplan_approved':counts.workplanApproved++;break;
-          case 'mid_year_pending':counts.midYearPending++;break;
-          case 'mid_year_approved':counts.midYearApproved++;break;
-          case 'end_year_pending':counts.endYearPending++;break;
-          case 'end_year_approved':counts.endYearApproved++;break;
+          case 'workplan_pending': counts.workplanPending++; break;
+          case 'workplan_approved': counts.workplanApproved++; break;
+          case 'mid_year_pending': counts.midYearPending++; break;
+          case 'mid_year_approved': counts.midYearApproved++; break;
+          case 'end_year_pending': counts.endYearPending++; break;
+          case 'end_year_approved': counts.endYearApproved++; break;
         }
-      });
+      }
 
-      setStageCounts(counts);
+      if (isMounted.current) setStageCounts(counts);
     } catch (err) {
       console.error('Failed to fetch stage counts:', err);
     } finally {
-      setStageLoading(false);
+      if (isMounted.current) setStageLoading(false);
     }
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
+    isMounted.current = true;
+
     async function fetchSummary() {
       setStatsLoading(true);
       try {
-        const { data, error } = await supabase
-          .from('mid_year_reviews')
-          .select(`
-            id,
-            review_status,
-            review_period,
-            self_rating,
-            supervisor_rating,
-            staff:staff_id (
-              full_name,
-              job_title,
-              departments:department_id ( name )
-            ),
-            timeline:timeline_id (
-              review_period
-            )
-          `);
+        const mapped = await cachedFetch<ReviewSummary[]>(
+          'eval-reviews-summary',
+          async () => {
+            const { data, error } = await supabase
+              .from('mid_year_reviews')
+              // Limit columns — only what the summary display needs
+              .select(`
+                id,
+                review_status,
+                review_period,
+                self_rating,
+                supervisor_rating,
+                staff:staff_id (
+                  full_name,
+                  job_title,
+                  departments:department_id ( name )
+                ),
+                timeline:timeline_id (
+                  review_period
+                )
+              `);
 
-        if (error) throw error;
+            if (error) throw error;
 
-        const mapped: ReviewSummary[] = (data ?? []).map((row: Record<string, unknown>) => {
-          const staffRow = row.staff as Record<string, unknown> | null;
-          const deptRow = staffRow?.departments as Record<string, unknown> | null;
-          const timelineRow = row.timeline as Record<string, unknown> | null;
+            return (data ?? []).map((row: Record<string, unknown>) => {
+              const staffRow = row.staff as Record<string, unknown> | null;
+              const deptRow = staffRow?.departments as Record<string, unknown> | null;
+              const timelineRow = row.timeline as Record<string, unknown> | null;
 
-          const selfRating = row.self_rating as number ?? 0;
-          const supervisorRating = row.supervisor_rating as number ?? 0;
-          const dbStatus = row.review_status as string ?? 'draft';
-          const uiStatus = mapStatus(dbStatus);
+              const selfRating = row.self_rating as number ?? 0;
+              const supervisorRating = row.supervisor_rating as number ?? 0;
+              const dbStatus = row.review_status as string ?? 'draft';
+              const uiStatus = mapStatus(dbStatus);
 
-          const reviewPeriod = timelineRow?.review_period as string ?? row.review_period as string ?? 'mid-year';
-          const reviewType = reviewPeriod === 'annual' ? 'Annual Review' : 'Mid-Year Review';
+              const reviewPeriod = timelineRow?.review_period as string ?? row.review_period as string ?? 'mid-year';
+              const reviewType = reviewPeriod === 'annual' ? 'Annual Review' : 'Mid-Year Review';
 
-          return {
-            id: row.id as string,
-            staffName: staffRow?.full_name as string ?? 'Unknown',
-            role: staffRow?.job_title as string ?? '—',
-            department: deptRow?.name as string ?? '—',
-            reviewType,
-            status: uiStatus,
-            selfScore: selfRating,
-            supervisorScore: supervisorRating,
-            overallProgress: computeProgress(uiStatus, selfRating, supervisorRating)
-          };
-        });
+              return {
+                id: row.id as string,
+                staffName: staffRow?.full_name as string ?? 'Unknown',
+                role: staffRow?.job_title as string ?? '—',
+                department: deptRow?.name as string ?? '—',
+                reviewType,
+                status: uiStatus,
+                selfScore: selfRating,
+                supervisorScore: supervisorRating,
+                overallProgress: computeProgress(uiStatus, selfRating, supervisorRating)
+              };
+            });
+          },
+          TTL_DASHBOARD_METRICS
+        );
 
-        setReviewsSummary(mapped);
+        if (isMounted.current) setReviewsSummary(mapped);
       } catch (err) {
         console.error('Failed to fetch review summary:', err);
       } finally {
-        setStatsLoading(false);
+        if (isMounted.current) setStatsLoading(false);
       }
     }
 
     // Run both fetches in parallel
     Promise.all([fetchSummary(), fetchStageCounts()]);
-  }, [fetchStageCounts]);
 
-  const totalReviews = reviewsSummary.length;
-  const submittedApproved = reviewsSummary.filter((r) => r.status === 'submitted' || r.status === 'approved').length;
-  const inProgress = reviewsSummary.filter((r) => r.status === 'in-progress').length;
-  const overdue = reviewsSummary.filter((r) => r.status === 'overdue').length;
-  const submittedPct = totalReviews > 0 ? (submittedApproved / totalReviews * 100).toFixed(1) : '0';
+    return () => { isMounted.current = false; };
+  }, [fetchStageCounts, supabase]);
+
+  // Memoize derived stats to avoid recalculation on every render
+  const { totalReviews, submittedApproved, inProgress, overdue, submittedPct } = useMemo(() => {
+    const total = reviewsSummary.length;
+    const submitted = reviewsSummary.filter((r) => r.status === 'submitted' || r.status === 'approved').length;
+    const inProg = reviewsSummary.filter((r) => r.status === 'in-progress').length;
+    const ovd = reviewsSummary.filter((r) => r.status === 'overdue').length;
+    const pct = total > 0 ? (submitted / total * 100).toFixed(1) : '0';
+    return { totalReviews: total, submittedApproved: submitted, inProgress: inProg, overdue: ovd, submittedPct: pct };
+  }, [reviewsSummary]);
 
   function handleFormSubmit() {
     setActiveForm(null);
-    fetchStageCounts();
+    // Force-refresh stage counts after form submission
+    fetchStageCounts(true);
     toast?.success('Saved successfully and routed for processing.');
   }
 
