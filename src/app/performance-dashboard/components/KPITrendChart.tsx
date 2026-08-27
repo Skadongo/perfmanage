@@ -13,7 +13,6 @@ import {
 import type { DrillDownFilter } from './StaffDrillDownModal';
 import { createClient } from '@/lib/supabase/client';
 import Icon from '@/components/ui/AppIcon';
-import { cachedFetch } from '@/lib/cache';
 
 interface TrendPoint {
   month: string;
@@ -29,7 +28,6 @@ const SERIES = [
 ];
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const KPI_TREND_CACHE_TTL = 5 * 60_000; // 5 minutes — trend data changes slowly
 
 const CustomTooltip = ({
   active,
@@ -81,61 +79,60 @@ export default function KPITrendChart({ onPointClick }: Props) {
     async function fetchTrendData() {
       const supabase = createClient();
       try {
-        const points = await cachedFetch<TrendPoint[]>(
-          'kpi-trend-chart',
-          async () => {
-            const { data: reviews } = await supabase
-              .from('mid_year_reviews')
-              // Only fetch the columns we need — avoids transferring large JSONB fields
-              .select('review_status, supervisor_rating, created_at, review_year')
-              .order('created_at', { ascending: true });
+        const { data: reviews } = await supabase
+          .from('mid_year_reviews')
+          .select('review_status, supervisor_rating, created_at, review_year')
+          .order('created_at', { ascending: true });
 
-            const reviewList = reviews || [];
-            if (reviewList.length === 0) return [];
+        const reviewList = reviews || [];
 
-            // Group by month (YYYY-MM) in a single pass
-            const monthMap: Record<string, { onTrack: number; atRisk: number; overdue: number; total: number }> = {};
+        if (reviewList.length === 0) {
+          setData([]);
+          setLoading(false);
+          return;
+        }
 
-            for (const r of reviewList) {
-              const date = new Date(r.created_at);
-              const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-              if (!monthMap[key]) {
-                monthMap[key] = { onTrack: 0, atRisk: 0, overdue: 0, total: 0 };
-              }
-              monthMap[key].total += 1;
+        // Group by month (YYYY-MM)
+        const monthMap: Record<string, { onTrack: number; atRisk: number; overdue: number; total: number }> = {};
 
-              const status = r.review_status;
-              const rating = r.supervisor_rating as number | null;
+        reviewList.forEach((r) => {
+          const date = new Date(r.created_at);
+          const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          if (!monthMap[key]) {
+            monthMap[key] = { onTrack: 0, atRisk: 0, overdue: 0, total: 0 };
+          }
+          monthMap[key].total += 1;
 
-              if (status === 'approved' || (rating != null && rating >= 4)) {
-                monthMap[key].onTrack += 1;
-              } else if (status === 'submitted' || status === 'reviewed' || (rating != null && rating >= 3)) {
-                monthMap[key].atRisk += 1;
-              } else {
-                monthMap[key].overdue += 1;
-              }
-            }
+          const status = r.review_status;
+          const rating = r.supervisor_rating as number | null;
 
-            const sortedKeys = Object.keys(monthMap).sort();
-            return sortedKeys.map((key) => {
-              const [year, monthNum] = key.split('-');
-              const label = `${MONTH_LABELS[parseInt(monthNum) - 1]} ${year}`;
-              const entry = monthMap[key];
-              const total = entry.total || 1;
-              return {
-                month: label,
-                onTrack: Math.round((entry.onTrack / total) * 100),
-                atRisk: Math.round((entry.atRisk / total) * 100),
-                overdue: Math.round((entry.overdue / total) * 100),
-              };
-            });
-          },
-          KPI_TREND_CACHE_TTL
-        );
+          if (status === 'approved' || (rating != null && rating >= 4)) {
+            monthMap[key].onTrack += 1;
+          } else if (status === 'submitted' || status === 'reviewed' || (rating != null && rating >= 3)) {
+            monthMap[key].atRisk += 1;
+          } else {
+            monthMap[key].overdue += 1;
+          }
+        });
+
+        const sortedKeys = Object.keys(monthMap).sort();
+        const points: TrendPoint[] = sortedKeys.map((key) => {
+          const [year, monthNum] = key.split('-');
+          const label = `${MONTH_LABELS[parseInt(monthNum) - 1]} ${year}`;
+          const entry = monthMap[key];
+          const total = entry.total || 1;
+          return {
+            month: label,
+            onTrack: Math.round((entry.onTrack / total) * 100),
+            atRisk: Math.round((entry.atRisk / total) * 100),
+            overdue: Math.round((entry.overdue / total) * 100),
+          };
+        });
 
         if (points.length > 0) {
           setDateRange(`${points[0].month} – ${points[points.length - 1].month}`);
         }
+
         setData(points);
       } catch {
         setData([]);
@@ -214,33 +211,12 @@ export default function KPITrendChart({ onPointClick }: Props) {
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(215,15%,88%)" vertical={false} />
-            <XAxis
-              dataKey="month"
-              tick={{ fontSize: 10, fontFamily: 'DM Sans', fill: 'hsl(215,15%,48%)' }}
-              axisLine={false}
-              tickLine={false}
-              interval="preserveStartEnd"
-            />
-            <YAxis
-              domain={[0, 100]}
-              tick={{ fontSize: 10, fontFamily: 'DM Sans', fill: 'hsl(215,15%,48%)' }}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={(v) => `${v}%`}
-            />
+            <XAxis dataKey="month" tick={{ fontSize: 11, fontFamily: 'DM Sans', fill: 'hsl(215,15%,48%)' }} axisLine={false} tickLine={false} />
+            <YAxis domain={[0, 100]} tick={{ fontSize: 11, fontFamily: 'DM Sans', fill: 'hsl(215,15%,48%)' }} axisLine={false} tickLine={false} />
             <Tooltip content={<CustomTooltip onSeriesClick={handleSeriesClick} />} />
-            {SERIES.map((s) => (
-              <Area
-                key={s.key}
-                type="monotone"
-                dataKey={s.key}
-                stroke={s.color}
-                strokeWidth={2}
-                fill={`url(#grad${s.key.charAt(0).toUpperCase() + s.key.slice(1)})`}
-                dot={false}
-                activeDot={{ r: 4, strokeWidth: 0 }}
-              />
-            ))}
+            <Area type="monotone" dataKey="onTrack" stroke="#10b981" strokeWidth={2} fill="url(#gradOnTrack)" style={{ cursor: 'pointer' }} />
+            <Area type="monotone" dataKey="atRisk" stroke="#f59e0b" strokeWidth={2} fill="url(#gradAtRisk)" style={{ cursor: 'pointer' }} />
+            <Area type="monotone" dataKey="overdue" stroke="#ef4444" strokeWidth={2} fill="url(#gradOverdue)" style={{ cursor: 'pointer' }} />
           </AreaChart>
         </ResponsiveContainer>
       )}

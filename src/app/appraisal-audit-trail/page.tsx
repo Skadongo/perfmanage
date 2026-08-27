@@ -6,7 +6,6 @@ import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { exportAuditToPDF, exportAuditToExcel } from './AuditComplianceExport';
 import RoleGuard from '@/components/RoleGuard';
-import { getServerNow } from '@/lib/serverDate';
 
 interface AuditRecord {
   form_type: string;
@@ -149,7 +148,7 @@ export default function AppraisalAuditTrailPage() {
   const handleExportPDF = async () => {
     setExporting('pdf');
     try {
-      const dateStr = (await getServerNow()).slice(0, 10);
+      const dateStr = new Date().toISOString().slice(0, 10);
       await exportAuditToPDF(
         filtered,
         { type: filterType, status: filterStatus, year: filterYear },
@@ -163,7 +162,7 @@ export default function AppraisalAuditTrailPage() {
   const handleExportExcel = async () => {
     setExporting('excel');
     try {
-      const dateStr = (await getServerNow()).slice(0, 10);
+      const dateStr = new Date().toISOString().slice(0, 10);
       await exportAuditToExcel(
         filtered,
         { type: filterType, status: filterStatus, year: filterYear },

@@ -44,17 +44,6 @@ async function fetchMetrics(
     async () => {
       const supabase = createClient();
 
-      // When supervisorId is set, fetch direct report IDs once and reuse for all queries
-      let directReportIds: string[] | null = null;
-      if (supervisorId && !staffId) {
-        const { data: directReports } = await supabase
-          .from('staff')
-          .select('id')
-          .eq('supervisor_id', supervisorId)
-          .eq('employment_status', 'active');
-        directReportIds = (directReports || []).map((s: any) => s.id);
-      }
-
       let reviewsQuery = supabase
         .from('mid_year_reviews')
         .select('review_status, supervisor_rating, staff_id, supervisor_id');
@@ -69,17 +58,22 @@ async function fetchMetrics(
         .select('status, workflow_stage, staff_id');
       if (staffId) {
         workplansQuery = workplansQuery.eq('staff_id', staffId);
-      } else if (supervisorId && directReportIds) {
-        // Reuse already-fetched direct report IDs — no second round-trip
-        if (directReportIds.length > 0) {
-          workplansQuery = workplansQuery.in('staff_id', directReportIds);
+      } else if (supervisorId) {
+        // Get direct reports first
+        const { data: directReports } = await supabase
+          .from('staff')
+          .select('id')
+          .eq('supervisor_id', supervisorId)
+          .eq('employment_status', 'active');
+        const directIds = (directReports || []).map((s: any) => s.id);
+        if (directIds.length > 0) {
+          workplansQuery = workplansQuery.in('staff_id', directIds);
         }
       }
 
-      // Staff count: if we already have directReportIds, use length directly
-      const staffCountPromise = directReportIds !== null
-        ? Promise.resolve({ count: directReportIds.length, error: null })
-        : supervisorId
+      const [reviewsResult, staffCountResult, workplansResult] = await Promise.all([
+        reviewsQuery,
+        supervisorId
           ? supabase
               .from('staff')
               .select('id', { count: 'exact', head: true })
@@ -88,11 +82,7 @@ async function fetchMetrics(
           : supabase
               .from('staff')
               .select('id', { count: 'exact', head: true })
-              .eq('employment_status', 'active');
-
-      const [reviewsResult, staffCountResult, workplansResult] = await Promise.all([
-        reviewsQuery,
-        staffCountPromise,
+              .eq('employment_status', 'active'),
         workplansQuery,
       ]);
 

@@ -2,7 +2,6 @@ import { imageHosts } from './image-hosts.config.mjs';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: false,
   productionBrowserSourceMaps: false,
   distDir: process.env.DIST_DIR || '.next',
 
@@ -43,8 +42,7 @@ const nextConfig = {
   webpack(
     config,
     {
-      dev: dev,
-      isServer
+      dev: dev
     }
   ) {
     if (dev) {

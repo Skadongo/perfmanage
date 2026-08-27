@@ -5,7 +5,6 @@ import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { TableSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
-import { getServerNow } from '@/lib/serverDate';
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -721,7 +720,7 @@ export default function ManagerReviewPage() {
     action: 'review' | 'approve' | 'reject'
   ) {
     const supabase = supabaseRef.current;
-    const now = await getServerNow();
+    const now = new Date().toISOString();
     let updatePayload: Record<string, unknown> = { ...data, updated_at: now };
 
     if (action === 'review') {

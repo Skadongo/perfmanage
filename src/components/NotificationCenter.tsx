@@ -69,21 +69,16 @@ export default function NotificationCenter() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Fetch profile and unread count in parallel — single round-trip
-      const [profileResult, unreadResult] = await Promise.all([
-        supabase
-          .from('user_profiles')
-          .select('staff_id, system_role')
-          .eq('id', user.id)
-          .maybeSingle(),
-        // We'll resolve the correct count after we know staff_id/role
-        Promise.resolve(null),
-      ]);
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('staff_id, system_role')
+        .eq('id', user.id)
+        .maybeSingle();
 
-      staffIdRef.current = profileResult.data?.staff_id ?? null;
-      systemRoleRef.current = profileResult.data?.system_role ?? null;
+      staffIdRef.current = profile?.staff_id ?? null;
+      systemRoleRef.current = profile?.system_role ?? null;
 
-      // Now fetch unread count with the resolved staff_id/role
+      // Fetch unread count once staff_id is known
       if (staffIdRef.current) {
         const { count } = await supabase
           .from('notifications')
@@ -92,6 +87,7 @@ export default function NotificationCenter() {
           .eq('recipient_staff_id', staffIdRef.current);
         if (count != null) setUnreadCount(count);
       } else {
+        // Only HR/Director roles get org-wide badge; others get 0
         const isElevated = ['executive_director', 'deputy_director', 'hr_admin_officer', 'support_admin'].includes(
           systemRoleRef.current ?? ''
         );
@@ -102,6 +98,7 @@ export default function NotificationCenter() {
             .eq('is_read', false);
           if (count != null) setUnreadCount(count);
         }
+        // else: leave unreadCount at 0
       }
     }
 

@@ -3,7 +3,6 @@
 import React, { useEffect, useState } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
-import { cachedFetch } from '@/lib/cache';
 
 interface ActivityLog {
   id: string;
@@ -39,56 +38,53 @@ function timeAgo(dateStr: string): string {
   return `${diffDays}d ago`;
 }
 
-const ACTIVITY_CACHE_TTL = 60_000; // 1 minute
-
 export default function ActivityFeed({ staffId, supervisorId }: Props) {
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const cacheKey = `activity-feed:${staffId ?? supervisorId ?? 'org'}`;
-
     const fetchActivities = async () => {
       try {
         const supabase = createClient();
 
-        const data = await cachedFetch<ActivityLog[]>(
-          cacheKey,
-          async () => {
-            let query = supabase
-              .from('activity_logs')
-              // Select only the columns we actually render — avoids fetching large unused fields
-              .select('id, activity_type, actor_name, action_description, subject_name, subject_detail, icon_name, icon_bg, icon_color, created_at')
-              .order('created_at', { ascending: false })
-              .limit(10);
+        let query = supabase
+          .from('activity_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(10);
 
-            if (staffId) {
-              query = query.eq('subject_id', staffId);
-            } else if (supervisorId) {
-              query = query.eq('supervisor_id', supervisorId);
-            }
+        // Scope by staff member (self view)
+        if (staffId) {
+          query = query.eq('subject_id', staffId);
+        }
+        // Scope by supervisor — filter by actor_id matching supervisor's staff id
+        // so supervisors see actions taken by or about their direct reports
+        if (supervisorId && !staffId) {
+          query = query.eq('supervisor_id', supervisorId);
+        }
 
-            const { data: rows, error: fetchError } = await query;
-            if (fetchError) throw fetchError;
+        const { data, error: fetchError } = await query;
 
-            return (rows || []).map((row) => ({
-              id: row.id,
-              activityType: row.activity_type,
-              actorName: row.actor_name,
-              actionDescription: row.action_description,
-              subjectName: row.subject_name,
-              subjectDetail: row.subject_detail,
-              iconName: row.icon_name,
-              iconBg: row.icon_bg,
-              iconColor: row.icon_color,
-              createdAt: row.created_at,
-            }));
-          },
-          ACTIVITY_CACHE_TTL
-        );
+        if (fetchError) {
+          setError('Could not load activity logs.');
+          return;
+        }
 
-        setActivities(data);
+        const mapped: ActivityLog[] = (data || []).map((row) => ({
+          id: row.id,
+          activityType: row.activity_type,
+          actorName: row.actor_name,
+          actionDescription: row.action_description,
+          subjectName: row.subject_name,
+          subjectDetail: row.subject_detail,
+          iconName: row.icon_name,
+          iconBg: row.icon_bg,
+          iconColor: row.icon_color,
+          createdAt: row.created_at,
+        }));
+
+        setActivities(mapped);
       } catch {
         setError('Could not load activity logs.');
       } finally {

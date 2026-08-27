@@ -27,14 +27,20 @@ function getRoleLabel(systemRole: string | undefined): string {
     .join(' ');
 }
 
-export default function AppLayout({ children, pageTitle, pageSubtitle, actions }: AppLayoutProps) {
+// Inner layout — only rendered after client mount, so no SSR/client mismatch
+function AppLayoutInner({ children, pageTitle, pageSubtitle, actions }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
   const menuRef = useRef<HTMLDivElement>(null);
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+
+  useEffect(() => {
+    setCurrentYear(new Date().getFullYear());
+  }, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -64,7 +70,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const roleLabel = getRoleLabel(profile?.systemRole);
 
   return (
-    <div className="min-h-screen bg-background flex overflow-x-hidden">
+    <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed(!collapsed)}
@@ -73,6 +79,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
       />
 
       <div
+        suppressHydrationWarning
         className={`flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-300 ease-in-out ml-0 ${
           collapsed ? 'lg:ml-16' : 'lg:ml-60'
         }`}
@@ -112,9 +119,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
             {pageTitle && (
               <div>
                 <h1 className="text-sm sm:text-base font-700 text-foreground leading-tight truncate">{pageTitle}</h1>
-                {pageSubtitle && (
-                  <p className="text-[11px] sm:text-xs text-muted-foreground truncate hidden sm:block">{pageSubtitle}</p>
-                )}
+                {pageSubtitle && <p className="text-[11px] sm:text-xs text-muted-foreground truncate hidden sm:block">{pageSubtitle}</p>}
               </div>
             )}
           </div>
@@ -199,7 +204,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
               </div>
             </div>
             <p className="text-[11px] text-muted-foreground text-center">
-              © 2026 East, Central &amp; Southern Africa Health Community. All rights reserved.
+              © {currentYear} East, Central &amp; Southern Africa Health Community. All rights reserved.
             </p>
             <div className="hidden sm:flex items-center gap-4">
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -216,4 +221,30 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
       </div>
     </div>
   );
+}
+
+// SSR shell — a neutral, attribute-free placeholder rendered on the server.
+// It matches exactly on both server and client first-render, so React never
+// sees a hydration mismatch. AppLayoutInner (with all dynamic classes and
+// @dhiwise tagger attributes) only mounts after the client is ready.
+export default function AppLayout(props: AppLayoutProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
+        <div className="w-60 flex-shrink-0 bg-white border-r border-border" />
+        <div className="flex-1 flex flex-col min-h-screen">
+          <div className="h-16 bg-white border-b border-border border-t-2 border-t-primary" />
+          <div className="flex-1 p-6">{props.children}</div>
+        </div>
+      </div>
+    );
+  }
+
+  return <AppLayoutInner {...props} />;
 }

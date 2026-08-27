@@ -6,7 +6,6 @@ import Icon from '@/components/ui/AppIcon';
 import { CardListSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
 import { roleCachedFetch, TTL_STAFF_LIST } from '@/lib/cache';
-import { getServerNow } from '@/lib/serverDate';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -642,7 +641,7 @@ export default function MidYearReviewsPage() {
   const handleSave = useCallback(async (data: Partial<MidYearReview>, action: string) => {
     if (!selectedReview) return;
     try {
-      const now = await getServerNow();
+      const now = new Date().toISOString();
       let updates: Partial<MidYearReview> = { ...data, updated_at: now };
 
       if (action === 'submit') {

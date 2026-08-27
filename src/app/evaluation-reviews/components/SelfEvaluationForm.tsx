@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
-import { getServerNow } from '@/lib/serverDate';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -344,7 +343,7 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
         challenges_faced: form.overallChallenges || null,
         support_needed: form.developmentNeeds || null,
         self_rating: form.overallSelfRating,
-        submitted_at: await getServerNow(),
+        submitted_at: new Date().toISOString(),
       };
 
       const { data, error } = await supabaseRef.current.from('mid_year_reviews').insert(payload).select('id').single();
@@ -410,9 +409,9 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
         .update({
           review_status: 'approved',
           supervisor_comments: approvalComments || null,
-          supervisor_reviewed_at: await getServerNow(),
-          approved_at: await getServerNow(),
-          stage_approved_at: await getServerNow(),
+          supervisor_reviewed_at: new Date().toISOString(),
+          approved_at: new Date().toISOString(),
+          stage_approved_at: new Date().toISOString(),
           stage_approval_comments: approvalComments || null,
         })
         .eq('id', savedReviewId);
@@ -427,7 +426,7 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
         .from('workplan_settings')
         .update({
           workflow_stage: nextWorkflowStage,
-          supervisor_approved_at: await getServerNow(),
+          supervisor_approved_at: new Date().toISOString(),
         })
         .eq('id', form.workplanId);
 

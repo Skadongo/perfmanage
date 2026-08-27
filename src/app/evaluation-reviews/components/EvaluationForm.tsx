@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
-import { getServerNow, getServerYear } from '@/lib/serverDate';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 
@@ -629,7 +628,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
     setSaveError(null);
 
     try {
-      const reviewYear = activeTimeline?.review_year || await getServerYear();
+      const reviewYear = activeTimeline?.review_year || new Date().getFullYear();
 
       // ── Structured BSC ratings (stored as JSONB for reports) ──
       const bscPerspectiveRatings = form.bscRatings.map((b) => ({
@@ -753,13 +752,13 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
         staff_signature: form.staffSignature || null,
         supervisor_signature_eval: form.supervisorSignature || null,
         hr_signature: form.hrSignature || null,
-        staff_signed_at: form.staffSignature ? await getServerNow() : null,
-        supervisor_signed_eval_at: form.supervisorSignature ? await getServerNow() : null,
-        hr_signed_at: form.hrSignature ? await getServerNow() : null,
+        staff_signed_at: form.staffSignature ? new Date().toISOString() : null,
+        supervisor_signed_eval_at: form.supervisorSignature ? new Date().toISOString() : null,
+        hr_signed_at: form.hrSignature ? new Date().toISOString() : null,
 
         // ── Dates ──
         review_date: form.reviewDate || null,
-        submitted_at: await getServerNow(),
+        submitted_at: new Date().toISOString(),
       };
 
       if (form.supervisorId) {

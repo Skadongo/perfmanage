@@ -6,7 +6,6 @@ import { createClient } from '@/lib/supabase/client';
 import PrintAppraisalLayout from './PrintAppraisalLayout';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
 import { useAuth } from '@/contexts/AuthContext';
-import { getServerNow } from '@/lib/serverDate';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1043,12 +1042,12 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
         general_competencies: form.generalCompetencies,
         custom_kpis: form.customKpis,
         staff_signature: form.staffSignature,
-        staff_signed_at: await getServerNow(),
+        staff_signed_at: new Date().toISOString(),
         supervisor_signature: form.supervisorSignature,
-        supervisor_signed_at: await getServerNow(),
+        supervisor_signed_at: new Date().toISOString(),
         status: 'signed',
         workflow_stage: 'workplan_pending',
-        submitted_at: await getServerNow(),
+        submitted_at: new Date().toISOString(),
         review_type: 'annual',
       };
 
@@ -1091,7 +1090,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
         .from('workplan_settings')
         .update({
           workflow_stage: 'workplan_approved',
-          supervisor_approved_at: await getServerNow(),
+          supervisor_approved_at: new Date().toISOString(),
           supervisor_approval_comments: approvalComments || null,
         })
         .eq('id', savedWorkplanId);
