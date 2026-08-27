@@ -66,9 +66,9 @@ CREATE INDEX IF NOT EXISTS idx_staff_dept_status
 CREATE INDEX IF NOT EXISTS idx_user_profiles_system_role
   ON public.user_profiles (system_role);
 
--- ─── activity_logs (if used by audit trail) ──────────────────────────────────
+-- ─── activity_logs ───────────────────────────────────────────────────────────
+-- Note: activity_logs uses actor_name (TEXT) — there is no user_id column.
+-- The created_at index is already created in 20260325230000_activity_logs.sql;
+-- IF NOT EXISTS ensures this is a safe no-op if it already exists.
 CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at
   ON public.activity_logs (created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_activity_logs_user_id
-  ON public.activity_logs (user_id);
