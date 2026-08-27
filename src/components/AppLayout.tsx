@@ -27,25 +27,11 @@ function getRoleLabel(systemRole: string | undefined): string {
     .join(' ');
 }
 
-// SSR skeleton — rendered before client mount to avoid layout shift
-function LayoutSkeleton({ children }: { children: React.ReactNode }) {
-  return (
-    <>
-      <div className="w-60 flex-shrink-0 bg-white border-r border-border" />
-      <div className="flex-1 flex flex-col min-h-screen">
-        <div className="h-16 bg-white border-b border-border border-t-2 border-t-primary" />
-        <div className="flex-1 p-6">{children}</div>
-      </div>
-    </>
-  );
-}
-
-// Full layout — only rendered after client mount
-function LayoutFull({ children, pageTitle, pageSubtitle, actions }: AppLayoutProps) {
+export default function AppLayout({ children, pageTitle, pageSubtitle, actions }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
+  const [currentYear, setCurrentYear] = useState(2024);
   const menuRef = useRef<HTMLDivElement>(null);
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
@@ -83,7 +69,7 @@ function LayoutFull({ children, pageTitle, pageSubtitle, actions }: AppLayoutPro
   const roleLabel = getRoleLabel(profile?.systemRole);
 
   return (
-    <>
+    <div className="min-h-screen bg-background flex overflow-x-hidden">
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed(!collapsed)}
@@ -131,7 +117,9 @@ function LayoutFull({ children, pageTitle, pageSubtitle, actions }: AppLayoutPro
             {pageTitle && (
               <div>
                 <h1 className="text-sm sm:text-base font-700 text-foreground leading-tight truncate">{pageTitle}</h1>
-                {pageSubtitle && <p className="text-[11px] sm:text-xs text-muted-foreground truncate hidden sm:block">{pageSubtitle}</p>}
+                {pageSubtitle && (
+                  <p className="text-[11px] sm:text-xs text-muted-foreground truncate hidden sm:block">{pageSubtitle}</p>
+                )}
               </div>
             )}
           </div>
@@ -147,11 +135,11 @@ function LayoutFull({ children, pageTitle, pageSubtitle, actions }: AppLayoutPro
                 aria-label="User menu"
               >
                 <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-primary text-xs font-700">{getInitials()}</span>
+                  <span suppressHydrationWarning className="text-primary text-xs font-700">{getInitials()}</span>
                 </div>
                 <div className="hidden md:flex flex-col items-start leading-tight">
-                  <span className="text-xs font-600 text-foreground max-w-[120px] truncate">{getDisplayName()}</span>
-                  <span className="text-[10px] text-muted-foreground max-w-[120px] truncate">{roleLabel}</span>
+                  <span suppressHydrationWarning className="text-xs font-600 text-foreground max-w-[120px] truncate">{getDisplayName()}</span>
+                  <span suppressHydrationWarning className="text-[10px] text-muted-foreground max-w-[120px] truncate">{roleLabel}</span>
                 </div>
                 <svg className="w-3.5 h-3.5 text-muted-foreground hidden md:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -161,9 +149,9 @@ function LayoutFull({ children, pageTitle, pageSubtitle, actions }: AppLayoutPro
               {userMenuOpen && (
                 <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-lg border border-border z-50 overflow-hidden">
                   <div className="px-4 py-3 border-b border-border bg-muted/30">
-                    <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
-                    <p className="text-xs text-muted-foreground truncate">{profile?.email || ''}</p>
-                    <span className="inline-block mt-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-600">
+                    <p suppressHydrationWarning className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
+                    <p suppressHydrationWarning className="text-xs text-muted-foreground truncate">{profile?.email || ''}</p>
+                    <span suppressHydrationWarning className="inline-block mt-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-600">
                       {roleLabel}
                     </span>
                   </div>
@@ -215,7 +203,7 @@ function LayoutFull({ children, pageTitle, pageSubtitle, actions }: AppLayoutPro
                 <p className="text-[10px] text-muted-foreground">Performance Management System</p>
               </div>
             </div>
-            <p className="text-[11px] text-muted-foreground text-center">
+            <p suppressHydrationWarning className="text-[11px] text-muted-foreground text-center">
               © {currentYear} East, Central &amp; Southern Africa Health Community. All rights reserved.
             </p>
             <div className="hidden sm:flex items-center gap-4">
@@ -231,38 +219,6 @@ function LayoutFull({ children, pageTitle, pageSubtitle, actions }: AppLayoutPro
           </div>
         </footer>
       </div>
-    </>
-  );
-}
-
-/**
- * AppLayout — single stable root <div> on both SSR and client.
- *
- * The @dhiwise/component-tagger webpack loader injects data-component-id
- * attributes that include the JSX line number of the *return statement* it
- * tags. When the outer component returned a different element on SSR
- * (the skeleton at line ~239) vs on the client (AppLayoutInner at line ~70),
- * React saw mismatched data-component-id values and threw a hydration error.
- *
- * Fix: the exported component always returns the SAME root <div> at the SAME
- * line. The mount gate only swaps the *children* inside that div, so the
- * tagger always tags the same element at the same line number on both server
- * and client — zero mismatch.
- */
-export default function AppLayout(props: AppLayoutProps) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  return (
-    <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
-      {mounted ? (
-        <LayoutFull {...props} />
-      ) : (
-        <LayoutSkeleton>{props.children}</LayoutSkeleton>
-      )}
     </div>
   );
 }
