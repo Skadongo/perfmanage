@@ -28,7 +28,6 @@ const nextConfig = {
     removeConsole: process.env.NODE_ENV === 'production'
       ? { exclude: ['error'] }
       : false,
-    suppressHydrationWarning: true,
   },
 
   async redirects() {
@@ -59,10 +58,6 @@ const nextConfig = {
     }
 
     return config;
-  },
-
-  generateBuildId: async () => {
-    return `build-${Date.now()}`;
-  },
+  }
 };
 export default nextConfig;
