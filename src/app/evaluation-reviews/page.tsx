@@ -70,13 +70,13 @@ export default function EvaluationReviewsPage() {
   });
   const [stageLoading, setStageLoading] = useState(true);
 
-  // Stable supabase client — singleton, no ref needed
-  const supabase = createClient();
+  // Stable supabase client — singleton via ref, never recreated on re-render
+  const supabaseRef = useRef(createClient());
 
   const fetchStageCounts = useCallback(async () => {
     setStageLoading(true);
     try {
-      const { data } = await supabase
+      const { data } = await supabaseRef.current
         .from('workplan_settings')
         .select('workflow_stage')
         .eq('status', 'signed');
@@ -113,7 +113,7 @@ export default function EvaluationReviewsPage() {
   const fetchSummary = useCallback(async () => {
     setStatsLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseRef.current
         .from('mid_year_reviews')
         .select(`
             id,

@@ -55,15 +55,30 @@ export default function AnalyticsReportsPage() {
     async function fetchSummary() {
       try {
         const supabase = createClient();
-        const { data: reviews, error } = await supabase
-          .from('mid_year_reviews')
-          .select('review_status, supervisor_rating, self_rating, staff:staff_id(system_role)');
+        // Fetch reviews and staff system_roles in parallel to avoid a slow JOIN
+        const [reviewsResult, staffResult] = await Promise.all([
+          supabase
+            .from('mid_year_reviews')
+            .select('id, review_status, supervisor_rating, self_rating, staff_id'),
+          supabase
+            .from('staff')
+            .select('id, system_role'),
+        ]);
 
-        if (error) throw error;
+        const reviews = reviewsResult.data;
+        const staffList = staffResult.data;
+
+        if (reviewsResult.error) throw reviewsResult.error;
 
         if (!reviews || reviews.length === 0) {
           setSummary({ total: 0, approved: 0, submitted: 0, avgScore: 0, byRole: {} });
           return;
+        }
+
+        // Build a staff_id → system_role lookup map for O(1) access
+        const staffRoleMap: Record<string, string> = {};
+        for (const s of (staffList || [])) {
+          if (s.id && s.system_role) staffRoleMap[s.id] = s.system_role;
         }
 
         const total = reviews.length;
@@ -80,10 +95,11 @@ export default function AnalyticsReportsPage() {
         }> = {};
 
         for (const r of reviews as Array<{
+          id: string;
           review_status: string;
           supervisor_rating: number | null;
           self_rating: number | null;
-          staff: { system_role: string | null } | null;
+          staff_id: string | null;
         }>) {
           const isApproved = r.review_status === 'approved';
           const isSubmitted = ['submitted', 'reviewed', 'approved'].includes(r.review_status);
@@ -95,7 +111,7 @@ export default function AnalyticsReportsPage() {
             supRatingCount++;
           }
 
-          const role = r.staff?.system_role || 'unknown';
+          const role = (r.staff_id ? staffRoleMap[r.staff_id] : null) || 'unknown';
           if (role === 'unknown') continue;
 
           if (!roleMap[role]) {

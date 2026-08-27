@@ -83,18 +83,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const fetchProfile = async (userId: string, authUser?: any): Promise<UserProfile | null> => {
     try {
-      // If authUser not provided, fetch it — but prefer the passed-in value to avoid a round-trip
-      const [profileResult, userResult] = await Promise.all([
-        supabase
-          .from('user_profiles')
-          .select('id, email, full_name, role, system_role, department, job_title, avatar_initials, is_active, must_change_password, staff_id')
-          .eq('id', userId)
-          .maybeSingle(),
-        authUser ? Promise.resolve({ data: { user: authUser } }) : supabase.auth.getUser(),
-      ]);
+      // Fetch profile row — auth user is passed in from the session to avoid a redundant getUser() call
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('id, email, full_name, role, system_role, department, job_title, avatar_initials, is_active, must_change_password, staff_id')
+        .eq('id', userId)
+        .maybeSingle();
 
-      const data = profileResult.data;
-      const resolvedAuthUser = authUser ?? userResult.data?.user;
+      // Use the passed-in authUser; only call getUser() as a fallback when not provided
+      const resolvedAuthUser = authUser ?? (await supabase.auth.getUser()).data?.user;
 
       if (!data && !resolvedAuthUser) return null;
 

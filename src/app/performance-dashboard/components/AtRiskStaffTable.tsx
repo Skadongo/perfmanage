@@ -5,6 +5,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import ProgressBar from '@/components/ui/ProgressBar';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+import { cachedFetch } from '@/lib/cache';
 
 interface AtRiskStaffRecord {
   id: string;
@@ -25,135 +26,134 @@ interface Props {
   supervisorId?: string | null;
 }
 
+const AT_RISK_CACHE_TTL = 2 * 60_000; // 2 minutes
+
 export default function AtRiskStaffTable({ supervisorId }: Props) {
   const [staffList, setStaffList] = useState<AtRiskStaffRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const cacheKey = `at-risk-staff:${supervisorId ?? 'org'}`;
+
     async function fetchAtRiskStaff() {
       const supabase = createClient();
       try {
-        // Build reviews query — scope to direct reports if supervisorId provided
-        let reviewsQuery = supabase
-          .from('mid_year_reviews')
-          .select(`
-            id,
-            review_status,
-            self_rating,
-            supervisor_rating,
-            submitted_at,
-            review_year,
-            staff:staff_id (
-              id,
-              full_name,
-              job_title,
-              supervisor_name,
-              departments:department_id (
-                name
-              )
-            )
-          `)
-          .in('review_status', ['draft', 'submitted', 'rejected'])
-          .order('created_at', { ascending: false });
+        const records = await cachedFetch<AtRiskStaffRecord[]>(
+          cacheKey,
+          async () => {
+            // Run both queries in parallel — single round-trip
+            const [reviewsResult, allStaffResult] = await Promise.all([
+              (() => {
+                let q = supabase
+                  .from('mid_year_reviews')
+                  .select(`
+                    id,
+                    review_status,
+                    self_rating,
+                    supervisor_rating,
+                    submitted_at,
+                    review_year,
+                    staff:staff_id (
+                      id,
+                      full_name,
+                      job_title,
+                      supervisor_name,
+                      departments:department_id ( name )
+                    )
+                  `)
+                  .in('review_status', ['draft', 'submitted', 'rejected'])
+                  .order('created_at', { ascending: false });
+                if (supervisorId) q = q.eq('supervisor_id', supervisorId);
+                return q;
+              })(),
+              (() => {
+                let q = supabase
+                  .from('staff')
+                  .select(`
+                    id,
+                    full_name,
+                    job_title,
+                    supervisor_name,
+                    departments:department_id ( name )
+                  `)
+                  .eq('employment_status', 'active')
+                  .limit(50);
+                if (supervisorId) q = q.eq('supervisor_id', supervisorId);
+                return q;
+              })(),
+            ]);
 
-        if (supervisorId) {
-          reviewsQuery = reviewsQuery.eq('supervisor_id', supervisorId);
-        }
+            if (reviewsResult.error) throw new Error('Failed to load staff data');
+            if (allStaffResult.error) throw new Error('Failed to load staff data');
 
-        // Build staff query — scope to direct reports if supervisorId provided
-        let staffQuery = supabase
-          .from('staff')
-          .select(`
-            id,
-            full_name,
-            job_title,
-            supervisor_name,
-            departments:department_id (
-              name
-            )
-          `)
-          .eq('employment_status', 'active')
-          .limit(50);
+            const reviews = reviewsResult.data || [];
+            const allStaff = allStaffResult.data || [];
 
-        if (supervisorId) {
-          staffQuery = staffQuery.eq('supervisor_id', supervisorId);
-        }
+            const reviewedStaffIds = new Set(
+              reviews.map((r: any) => r.staff?.id).filter(Boolean)
+            );
 
-        const [reviewsResult, allStaffResult] = await Promise.all([reviewsQuery, staffQuery]);
+            const result: AtRiskStaffRecord[] = [];
 
-        if (reviewsResult.error) {
-          setError('Failed to load staff data');
-          return;
-        }
-        if (allStaffResult.error) {
-          setError('Failed to load staff data');
-          return;
-        }
+            reviews.forEach((review: any) => {
+              const staff = review.staff;
+              if (!staff) return;
 
-        const reviews = reviewsResult.data || [];
-        const allStaff = allStaffResult.data || [];
+              const deptName = staff.departments?.name || 'General';
+              const isOverdue = review.review_status === 'draft' || review.review_status === 'rejected';
+              const selfRating = review.self_rating;
+              const progress = selfRating != null && selfRating > 0
+                ? Math.min(100, Math.round((selfRating / 5) * 100))
+                : 0;
 
-        const reviewedStaffIds = new Set(
-          reviews.map((r: any) => r.staff?.id).filter(Boolean)
+              result.push({
+                id: review.id,
+                name: staff.full_name,
+                role: staff.job_title,
+                perspective: deptName,
+                kpi: isOverdue ? 'Mid-Year Review Submission' : 'Performance Review',
+                current: isOverdue ? 'Not submitted' : selfRating != null ? `Rating: ${selfRating}/5` : 'Pending rating',
+                target: 'Submitted & Approved',
+                progress: isOverdue ? 20 : progress,
+                status: isOverdue ? 'overdue' : 'at-risk',
+                dueDate: review.review_year ? `30 Jun ${review.review_year}` : '30 Jun 2026',
+                supervisor: staff.supervisor_name || 'Not assigned',
+              });
+            });
+
+            allStaff.forEach((staff: any) => {
+              if (reviewedStaffIds.has(staff.id)) return;
+              const deptName = staff.departments?.name || 'General';
+              result.push({
+                id: `no-review-${staff.id}`,
+                name: staff.full_name,
+                role: staff.job_title,
+                perspective: deptName,
+                kpi: 'Mid-Year Review Submission',
+                current: 'No review started',
+                target: 'Submitted & Approved',
+                progress: 0,
+                status: 'overdue',
+                dueDate: '30 Jun 2026',
+                supervisor: staff.supervisor_name || 'Not assigned',
+              });
+            });
+
+            result.sort((a, b) => {
+              if (a.status === 'overdue' && b.status !== 'overdue') return -1;
+              if (a.status !== 'overdue' && b.status === 'overdue') return 1;
+              return a.progress - b.progress;
+            });
+
+            return result.slice(0, 10);
+          },
+          AT_RISK_CACHE_TTL
         );
 
-        const records: AtRiskStaffRecord[] = [];
-
-        reviews.forEach((review: any) => {
-          const staff = review.staff;
-          if (!staff) return;
-
-          const deptName = staff.departments?.name || 'General';
-          const isOverdue = review.review_status === 'draft' || review.review_status === 'rejected';
-          const selfRating = review.self_rating;
-          // Only compute progress from actual rating; null/missing = 0 progress
-          const progress = selfRating != null && selfRating > 0
-            ? Math.min(100, Math.round((selfRating / 5) * 100))
-            : 0;
-
-          records.push({
-            id: review.id,
-            name: staff.full_name,
-            role: staff.job_title,
-            perspective: deptName,
-            kpi: isOverdue ? 'Mid-Year Review Submission' : 'Performance Review',
-            current: isOverdue ? 'Not submitted' : selfRating != null ? `Rating: ${selfRating}/5` : 'Pending rating',
-            target: 'Submitted & Approved',
-            progress: isOverdue ? 20 : progress,
-            status: isOverdue ? 'overdue' : 'at-risk',
-            dueDate: review.review_year ? `30 Jun ${review.review_year}` : '30 Jun 2026',
-            supervisor: staff.supervisor_name || 'Not assigned',
-          });
-        });
-
-        allStaff.forEach((staff: any) => {
-          if (reviewedStaffIds.has(staff.id)) return;
-          const deptName = staff.departments?.name || 'General';
-          records.push({
-            id: `no-review-${staff.id}`,
-            name: staff.full_name,
-            role: staff.job_title,
-            perspective: deptName,
-            kpi: 'Mid-Year Review Submission',
-            current: 'No review started',
-            target: 'Submitted & Approved',
-            progress: 0,
-            status: 'overdue',
-            dueDate: '30 Jun 2026',
-            supervisor: staff.supervisor_name || 'Not assigned',
-          });
-        });
-
-        records.sort((a, b) => {
-          if (a.status === 'overdue' && b.status !== 'overdue') return -1;
-          if (a.status !== 'overdue' && b.status === 'overdue') return 1;
-          return a.progress - b.progress;
-        });
-
-        setStaffList(records.slice(0, 10));
-      } catch {
-        setError('An unexpected error occurred');
+        setStaffList(records);
+      } catch (err: any) {
+        setError(err?.message || 'An unexpected error occurred');
       } finally {
         setLoading(false);
       }
@@ -198,76 +198,55 @@ export default function AtRiskStaffTable({ supervisorId }: Props) {
       )}
 
       {!loading && !error && staffList.length === 0 && (
-        <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">
-          {supervisorId ? 'All your direct reports are on track.' : 'No at-risk staff found.'}
+        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
+          <Icon name="CheckCircleIcon" size={32} className="text-emerald-400" />
+          <p className="text-sm font-600 text-emerald-700">All staff on track!</p>
+          <p className="text-xs text-muted-foreground">No at-risk or overdue KPIs found.</p>
         </div>
       )}
 
       {!loading && !error && staffList.length > 0 && (
-        <div className="overflow-x-auto scrollbar-thin">
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">Staff Member</th>
-                <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">Role</th>
-                <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">KPI</th>
-                <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">Progress</th>
-                <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">Current / Target</th>
-                <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">Status</th>
-                <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">Due Date</th>
-                <th className="text-left px-4 py-3 text-[11px] font-600 uppercase tracking-wider text-muted-foreground whitespace-nowrap">Supervisor</th>
-                <th className="px-4 py-3 w-10"></th>
+                <th className="text-left px-5 py-3 text-xs font-600 text-muted-foreground">Staff Member</th>
+                <th className="text-left px-4 py-3 text-xs font-600 text-muted-foreground hidden md:table-cell">KPI / Issue</th>
+                <th className="text-left px-4 py-3 text-xs font-600 text-muted-foreground hidden lg:table-cell">Current Status</th>
+                <th className="text-left px-4 py-3 text-xs font-600 text-muted-foreground hidden lg:table-cell">Progress</th>
+                <th className="text-left px-4 py-3 text-xs font-600 text-muted-foreground">Status</th>
+                <th className="text-left px-4 py-3 text-xs font-600 text-muted-foreground hidden xl:table-cell">Due Date</th>
               </tr>
             </thead>
-            <tbody>
-              {staffList.map((staff, idx) => (
-                <tr
-                  key={staff.id}
-                  className={`group border-b border-border last:border-0 transition-colors cursor-pointer hover:bg-muted/50 ${
-                    idx % 2 === 0 ? 'bg-white' : 'bg-muted/10'
-                  }`}
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <span className="text-primary text-[10px] font-700">
-                          {staff.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
-                        </span>
-                      </div>
-                      <span className="font-500 text-foreground whitespace-nowrap">{staff.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground whitespace-nowrap text-xs">{staff.role}</td>
-                  <td className="px-4 py-3">
+            <tbody className="divide-y divide-border">
+              {staffList.map((staff) => (
+                <tr key={staff.id} className="hover:bg-muted/20 transition-colors">
+                  <td className="px-5 py-3.5">
                     <div>
-                      <p className="text-xs font-600 text-foreground">{staff.kpi}</p>
-                      <p className="text-[10px] text-muted-foreground">{staff.perspective}</p>
+                      <p className="font-600 text-foreground text-sm">{staff.name}</p>
+                      <p className="text-xs text-muted-foreground truncate max-w-[160px]">{staff.role}</p>
+                      <p className="text-[11px] text-muted-foreground/70 truncate max-w-[160px]">{staff.perspective}</p>
                     </div>
                   </td>
-                  <td className="px-4 py-3 min-w-[120px]">
-                    <ProgressBar
-                      value={staff.progress}
-                      colorClass={staff.status === 'overdue' ? 'bg-red-400' : 'bg-amber-400'}
-                      height="h-1.5"
-                      showLabel
-                    />
+                  <td className="px-4 py-3.5 hidden md:table-cell">
+                    <p className="text-sm text-foreground">{staff.kpi}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Supervisor: {staff.supervisor}</p>
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <span className="text-xs font-700 text-foreground tabular-nums font-mono">{staff.current}</span>
-                    <span className="text-[10px] text-muted-foreground"> / {staff.target}</span>
+                  <td className="px-4 py-3.5 hidden lg:table-cell">
+                    <p className="text-sm text-foreground">{staff.current}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Target: {staff.target}</p>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3.5 hidden lg:table-cell">
+                    <div className="flex items-center gap-2">
+                      <ProgressBar value={staff.progress} max={100} size="sm" color={staff.status === 'overdue' ? 'danger' : 'warning'} className="w-20" />
+                      <span className="text-xs font-600 tabular-nums text-muted-foreground">{staff.progress}%</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3.5">
                     <StatusBadge status={staff.status} />
                   </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{staff.dueDate}</td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{staff.supervisor}</td>
-                  <td className="px-4 py-3">
-                    <button
-                      className="p-1.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity"
-                      aria-label="View details"
-                    >
-                      <Icon name="ArrowTopRightOnSquareIcon" size={14} />
-                    </button>
+                  <td className="px-4 py-3.5 hidden xl:table-cell">
+                    <p className="text-xs text-muted-foreground">{staff.dueDate}</p>
                   </td>
                 </tr>
               ))}
