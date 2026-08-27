@@ -158,15 +158,12 @@ function getPerformanceBand(score: number): { label: string; increment: string; 
   return { label: 'Unsatisfactory', increment: 'Mandatory Performance Improvement Plan (PIP)', color: 'text-red-700' };
 }
 
-let _goalCounter = 0;
-let _kpiCounter = 0;
-
 function makeGoal(): GoalRow {
-  return { id: `g-${++_goalCounter}`, goal: '', target: '', actual: '', selfRating: 3, supervisorRating: 3, weight: 25, comments: '' };
+  return { id: `g-${Date.now()}-${Math.random()}`, goal: '', target: '', actual: '', selfRating: 3, supervisorRating: 3, weight: 25, comments: '' };
 }
 
 function makeKPI(): KPIRow {
-  return { id: `k-${++_kpiCounter}`, kpiId: '', target: '', actual: '', status: 'On Track', selfRating: 3, supervisorRating: 3 };
+  return { id: `k-${Date.now()}-${Math.random()}`, kpiId: '', target: '', actual: '', status: 'On Track', selfRating: 3, supervisorRating: 3 };
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -320,7 +317,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
     reviewType: 'Mid-Year Review',
     supervisorId: '',
     supervisor: '',
-    reviewDate: '',
+    reviewDate: new Date().toISOString().split('T')[0],
     goals: [makeGoal(), makeGoal(), makeGoal()],
     kpis: [makeKPI(), makeKPI()],
     bscRatings: PERSPECTIVES.map((p) => ({
@@ -407,11 +404,10 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
 
   // ── Autosave hook ────────────────────────────────────────────────────────
   const autosaveEnabled = !!form.staffId && !isFormReadOnly;
-  // Pass null as workplanId — EvaluationForm drafts are not linked to a workplan
-  // (the fake 'eval-draft-...' string was being stored as a UUID FK and failing)
+  const autosaveDraftWorkplanId = form.staffId ? `eval-draft-${form.staffId}` : null;
   const { saveDraft, recoverDraft, clearDraft } = useAutosave({
     staffId: form.staffId || null,
-    workplanId: null,
+    workplanId: autosaveDraftWorkplanId,
     draftType: 'evaluation_form',
     reviewPeriod: form.reviewPeriod || 'mid-year',
     formData: {
@@ -451,8 +447,8 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   // Recover draft when staff member is selected
   useEffect(() => {
     if (!form.staffId) return;
-    // Pass null as workplanId — evaluation drafts are not linked to a workplan
-    recoverDraft(null, form.staffId, form.reviewPeriod || 'mid-year').then((data) => {
+    const draftWpId = `eval-draft-${form.staffId}`;
+    recoverDraft(draftWpId, form.staffId, form.reviewPeriod || 'mid-year').then((data) => {
       if (data?.form_data) {
         const fd = data.form_data as any;
         setForm((prev) => ({
@@ -783,8 +779,8 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
 
       // Clear draft after successful submission
       if (form.staffId) {
-        // Pass null as workplanId — evaluation drafts are not linked to a workplan
-        await clearDraft(null, form.staffId, form.reviewPeriod || 'mid-year');
+        const draftWpId = `eval-draft-${form.staffId}`;
+        await clearDraft(draftWpId, form.staffId, form.reviewPeriod || 'mid-year');
       }
 
       // ── Audit log: record who submitted and for whom ──────────────────────

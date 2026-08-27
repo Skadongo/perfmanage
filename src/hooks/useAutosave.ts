@@ -7,7 +7,6 @@ export type AutosaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 interface UseAutosaveOptions {
   staffId: string | null;
-  /** Pass a real workplan UUID, or null for drafts without a workplan yet */
   workplanId: string | null;
   draftType: string;
   reviewPeriod?: string;
@@ -16,12 +15,6 @@ interface UseAutosaveOptions {
   enabled: boolean;
   onStatusChange: (status: AutosaveStatus) => void;
   debounceMs?: number;
-}
-
-/** Returns true if the string looks like a real UUID (not a fake "eval-draft-..." key) */
-function isRealUUID(value: string | null): boolean {
-  if (!value) return false;
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 export function useAutosave({
@@ -38,9 +31,6 @@ export function useAutosave({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const supabaseRef = useRef(createClient());
 
-  // Normalise workplanId: only pass real UUIDs to the DB
-  const realWorkplanId = isRealUUID(workplanId) ? workplanId : null;
-
   const saveDraft = useCallback(
     async (silent = false) => {
       if (!enabled || !staffId) return;
@@ -48,13 +38,12 @@ export function useAutosave({
       try {
         const supabase = supabaseRef.current;
 
-        if (realWorkplanId) {
-          // Has a real workplan ID — upsert using the unique index
-          // idx_appraisal_drafts_upsert_key: (staff_id, workplan_id, draft_type, review_period)
+        if (workplanId) {
+          // Has a real workplan ID — upsert with workplan_id
           const { error } = await supabase.from('appraisal_drafts').upsert(
             {
               staff_id: staffId,
-              workplan_id: realWorkplanId,
+              workplan_id: workplanId,
               draft_type: draftType,
               review_period: reviewPeriod,
               form_data: formData,
@@ -71,11 +60,30 @@ export function useAutosave({
             onStatusChange('error');
           }
         } else {
-          // No real workplan ID — upsert using the partial unique index
-          // idx_appraisal_drafts_null_workplan_key: (staff_id, draft_type, review_period) WHERE workplan_id IS NULL
-          // Supabase upsert with ignoreDuplicates=false will UPDATE on conflict
-          const { error } = await supabase.from('appraisal_drafts').upsert(
-            {
+          // No real workplan ID yet (new workplan form) — use staff_id-only draft
+          // First try to update an existing draft row
+          const { data: existing } = await supabase
+            .from('appraisal_drafts')
+            .select('id')
+            .eq('staff_id', staffId)
+            .eq('draft_type', draftType)
+            .eq('review_period', reviewPeriod)
+            .is('workplan_id', null)
+            .maybeSingle();
+
+          let error: any = null;
+          if (existing?.id) {
+            const res = await supabase
+              .from('appraisal_drafts')
+              .update({
+                form_data: formData,
+                active_step: activeStep,
+                last_saved_at: new Date().toISOString(),
+              })
+              .eq('id', existing.id);
+            error = res.error;
+          } else {
+            const res = await supabase.from('appraisal_drafts').insert({
               staff_id: staffId,
               workplan_id: null,
               draft_type: draftType,
@@ -83,9 +91,10 @@ export function useAutosave({
               form_data: formData,
               active_step: activeStep,
               last_saved_at: new Date().toISOString(),
-            },
-            { onConflict: 'staff_id,draft_type,review_period', ignoreDuplicates: false }
-          );
+            });
+            error = res.error;
+          }
+
           if (!error) {
             onStatusChange('saved');
             setTimeout(() => onStatusChange('idle'), 3000);
@@ -100,7 +109,7 @@ export function useAutosave({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [enabled, staffId, realWorkplanId, draftType, reviewPeriod, activeStep, JSON.stringify(formData)]
+    [enabled, staffId, workplanId, draftType, reviewPeriod, activeStep, JSON.stringify(formData)]
   );
 
   // Debounced auto-save on form data change
@@ -112,25 +121,21 @@ export function useAutosave({
       if (timerRef.current) clearTimeout(timerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(formData), activeStep, enabled, staffId, realWorkplanId]);
+  }, [JSON.stringify(formData), activeStep, enabled, staffId, workplanId]);
 
   const recoverDraft = useCallback(
     async (wpId: string | null, sId: string, period: string) => {
       try {
         const supabase = supabaseRef.current;
-        const realWpId = isRealUUID(wpId) ? wpId : null;
-
         let query = supabase
           .from('appraisal_drafts')
           .select('*')
           .eq('staff_id', sId)
           .eq('draft_type', draftType)
-          .eq('review_period', period)
-          .order('last_saved_at', { ascending: false })
-          .limit(1);
+          .eq('review_period', period);
 
-        if (realWpId) {
-          query = query.eq('workplan_id', realWpId);
+        if (wpId) {
+          query = query.eq('workplan_id', wpId);
         } else {
           query = query.is('workplan_id', null);
         }
@@ -149,8 +154,6 @@ export function useAutosave({
     async (wpId: string | null, sId: string, period: string) => {
       try {
         const supabase = supabaseRef.current;
-        const realWpId = isRealUUID(wpId) ? wpId : null;
-
         let query = supabase
           .from('appraisal_drafts')
           .delete()
@@ -158,8 +161,8 @@ export function useAutosave({
           .eq('draft_type', draftType)
           .eq('review_period', period);
 
-        if (realWpId) {
-          query = query.eq('workplan_id', realWpId);
+        if (wpId) {
+          query = query.eq('workplan_id', wpId);
         } else {
           query = query.is('workplan_id', null);
         }

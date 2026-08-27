@@ -27,7 +27,6 @@ const TYPE_CONFIG: Record<string, { icon: string; color: string; bg: string }> =
 };
 
 function timeAgo(dateStr: string): string {
-  if (typeof window === 'undefined') return '';
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'just now';

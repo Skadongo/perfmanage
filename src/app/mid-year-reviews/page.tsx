@@ -90,30 +90,15 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
   );
 }
 
-function formatDate(dateStr: string, options: Intl.DateTimeFormatOptions): string {
-  if (typeof window === 'undefined') return dateStr;
-  try {
-    return new Date(dateStr).toLocaleDateString('en-GB', options);
-  } catch {
-    return dateStr;
-  }
-}
-
 // ─── Timeline Banner ──────────────────────────────────────────────────────────
 
 function TimelineBanner({ timeline }: { timeline: ReviewTimeline | null }) {
-  const [daysLeft, setDaysLeft] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!timeline) return;
-    const now = new Date();
-    const deadline = new Date(timeline.submission_deadline);
-    setDaysLeft(Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-  }, [timeline]);
-
   if (!timeline) return null;
-  const isOverdue = daysLeft !== null && daysLeft < 0;
-  const isUrgent = daysLeft !== null && daysLeft >= 0 && daysLeft <= 7;
+  const now = new Date();
+  const deadline = new Date(timeline.submission_deadline);
+  const daysLeft = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  const isOverdue = daysLeft < 0;
+  const isUrgent = daysLeft >= 0 && daysLeft <= 7;
 
   return (
     <div className={`rounded-xl border px-5 py-4 flex flex-wrap items-center gap-4 mb-6
@@ -126,8 +111,8 @@ function TimelineBanner({ timeline }: { timeline: ReviewTimeline | null }) {
           {timeline.review_year} Mid-Year Review Period
         </p>
         <p className={`text-xs mt-0.5 ${isOverdue ? 'text-rose-600' : isUrgent ? 'text-amber-600' : 'text-blue-600'}`}>
-          Submission deadline: {formatDate(timeline.submission_deadline, { day: 'numeric', month: 'long', year: 'numeric' })}
-          {daysLeft === null ? '' : isOverdue ? ' — Deadline passed' : ` — ${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining`}
+          Submission deadline: {new Date(timeline.submission_deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+          {isOverdue ? ' — Deadline passed' : ` — ${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining`}
         </p>
       </div>
       <div className="flex gap-6 text-xs">
@@ -138,7 +123,7 @@ function TimelineBanner({ timeline }: { timeline: ReviewTimeline | null }) {
         ].map(({ label, date }) => (
           <div key={label} className="text-center">
             <p className="text-muted-foreground">{label}</p>
-            <p className="font-600 text-foreground">{formatDate(date, { day: 'numeric', month: 'short' })}</p>
+            <p className="font-600 text-foreground">{new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
           </div>
         ))}
       </div>
@@ -254,7 +239,7 @@ function ReviewFormModal({ review, mode, onClose, onSave }: ReviewFormModalProps
               <StatusBadge status={review.review_status} />
               {review.submitted_at && (
                 <span className="text-xs text-muted-foreground">
-                  Submitted {formatDate(review.submitted_at, { day: 'numeric', month: 'short', year: 'numeric' })}
+                  Submitted {new Date(review.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </span>
               )}
               {review.supervisor && (
@@ -864,7 +849,7 @@ export default function MidYearReviewsPage() {
               {timeline && (
                 <div className="p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
                   <p className="font-600">Review Period: {timeline.review_year} {timeline.review_period}</p>
-                  <p className="mt-0.5">Deadline: {formatDate(timeline.submission_deadline, { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                  <p className="mt-0.5">Deadline: {new Date(timeline.submission_deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
                 </div>
               )}
             </div>

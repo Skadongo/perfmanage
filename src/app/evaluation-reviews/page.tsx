@@ -169,7 +169,7 @@ export default function EvaluationReviewsPage() {
       }
     }
 
-    // Run both fetches in parallel — include fetchStageCounts in the dep array
+    // Run both fetches in parallel
     Promise.all([fetchSummary(), fetchStageCounts()]);
   }, [fetchStageCounts]);
 
