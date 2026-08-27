@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
+import { roleCachedFetch, TTL_WORKPLAN_LIST } from '@/lib/cache';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -203,19 +204,26 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
       setWorkplansLoading(true);
       try {
         const allowedStages = STAGE_GATE[reviewPeriod];
-        const { data, error } = await supabaseRef.current
-          .from('workplan_settings')
-          .select(`
-            id, fiscal_year, review_year, status, workflow_stage,
-            perspectives_objectives,
-            staff:staff_id ( id, full_name ),
-            supervisor:supervisor_id ( id, full_name )
-          `)
-          .eq('status', 'signed')
-          .in('workflow_stage', allowedStages)
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
+        const data = await roleCachedFetch(
+          `workplan-signed-list-${reviewPeriod}`,
+          'all',
+          async () => {
+            const { data: rows, error } = await supabaseRef.current
+              .from('workplan_settings')
+              .select(`
+                id, fiscal_year, review_year, status, workflow_stage,
+                perspectives_objectives,
+                staff:staff_id ( id, full_name ),
+                supervisor:supervisor_id ( id, full_name )
+              `)
+              .eq('status', 'signed')
+              .in('workflow_stage', allowedStages)
+              .order('created_at', { ascending: false });
+            if (error) throw error;
+            return rows ?? [];
+          },
+          TTL_WORKPLAN_LIST
+        );
 
         const mapped: WorkplanOption[] = (data ?? []).map((row: any) => ({
           id: row.id,

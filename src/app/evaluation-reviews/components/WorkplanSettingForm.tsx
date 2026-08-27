@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import PrintAppraisalLayout from './PrintAppraisalLayout';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
 import { useAuth } from '@/contexts/AuthContext';
+import { roleCachedFetch, TTL_STAFF_LIST } from '@/lib/cache';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -796,11 +797,19 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     async function loadStaff() {
       setStaffLoading(true);
       try {
-        const { data } = await supabaseRef.current
-          .from('staff')
-          .select('id, full_name, job_title, supervisor_id, supervisor_name')
-          .eq('employment_status', 'active')
-          .order('full_name', { ascending: true });
+        const data = await roleCachedFetch(
+          'staff-active-list',
+          'all',
+          async () => {
+            const { data: rows } = await supabaseRef.current
+              .from('staff')
+              .select('id, full_name, job_title, supervisor_id, supervisor_name')
+              .eq('employment_status', 'active')
+              .order('full_name', { ascending: true });
+            return rows ?? [];
+          },
+          TTL_STAFF_LIST
+        );
         if (data) {
           setStaffList(data as StaffOption[]);
         }

@@ -5,6 +5,7 @@ import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { TableSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
+import { cachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -668,30 +669,36 @@ export default function ManagerReviewPage() {
     if (resetPage) setPage(0);
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('mid_year_reviews')
-        .select(`
-          id, staff_id, supervisor_id, workplan_id,
-          review_status, review_year, review_period,
-          kpi_achievements, challenges_faced, support_needed,
-          self_rating, supervisor_comments, supervisor_rating,
-          supervisor_reviewed_at, approval_comments, approved_at,
-          submitted_at, rejected_reason, stage_approval_comments, stage_approved_at,
-          staff:staff_id (
-            full_name, job_title,
-            departments:department_id ( name )
-          ),
-          supervisor:supervisor_id ( full_name ),
-          workplan:workplan_id (
-            fiscal_year, perspectives_objectives, general_competencies
-          )
-        `)
-        .in('review_status', ['submitted', 'reviewed', 'approved', 'rejected'])
-        .order('submitted_at', { ascending: false })
-        .range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1);
+      const rows = await cachedFetch<SelfAssessmentRecord[]>(
+        `manager-reviews-page-${currentPage}`,
+        async () => {
+          const { data, error } = await supabase
+            .from('mid_year_reviews')
+            .select(`
+              id, staff_id, supervisor_id, workplan_id,
+              review_status, review_year, review_period,
+              kpi_achievements, challenges_faced, support_needed,
+              self_rating, supervisor_comments, supervisor_rating,
+              supervisor_reviewed_at, approval_comments, approved_at,
+              submitted_at, rejected_reason, stage_approval_comments, stage_approved_at,
+              staff:staff_id (
+                full_name, job_title,
+                departments:department_id ( name )
+              ),
+              supervisor:supervisor_id ( full_name ),
+              workplan:workplan_id (
+                fiscal_year, perspectives_objectives, general_competencies
+              )
+            `)
+            .in('review_status', ['submitted', 'reviewed', 'approved', 'rejected'])
+            .order('submitted_at', { ascending: false })
+            .range(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE - 1);
 
-      if (error) throw error;
-      const rows = (data ?? []) as unknown as SelfAssessmentRecord[];
+          if (error) throw error;
+          return (data ?? []) as unknown as SelfAssessmentRecord[];
+        },
+        TTL_DASHBOARD_METRICS
+      );
       setReviews(rows);
       setHasMore(rows.length === PAGE_SIZE);
     } catch (err: unknown) {
