@@ -5,6 +5,7 @@ import Icon from '@/components/ui/AppIcon';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
+import { getServerNow } from '@/lib/serverDate';
 
 interface SubmittedReview {
   id: string;
@@ -157,9 +158,9 @@ export default function SupervisorReviewForm() {
         .update({
           supervisor_rating: form.supervisorRating,
           supervisor_comments: form.supervisorComments,
-          supervisor_reviewed_at: new Date().toISOString(),
+          supervisor_reviewed_at: await getServerNow(),
           review_status: 'reviewed',
-          updated_at: new Date().toISOString(),
+          updated_at: await getServerNow(),
         })
         .eq('id', reviewId);
 
@@ -200,10 +201,10 @@ export default function SupervisorReviewForm() {
           supervisor_rating: form.supervisorRating,
           supervisor_comments: form.supervisorComments,
           approval_comments: form.approvalComments,
-          supervisor_reviewed_at: new Date().toISOString(),
-          approved_at: new Date().toISOString(),
+          supervisor_reviewed_at: await getServerNow(),
+          approved_at: await getServerNow(),
           review_status: 'approved',
-          updated_at: new Date().toISOString(),
+          updated_at: await getServerNow(),
         })
         .eq('id', reviewId);
 
@@ -248,7 +249,7 @@ export default function SupervisorReviewForm() {
           rejected_reason: form.rejectedReason,
           supervisor_comments: form.supervisorComments,
           review_status: 'rejected',
-          updated_at: new Date().toISOString(),
+          updated_at: await getServerNow(),
         })
         .eq('id', reviewId);
 

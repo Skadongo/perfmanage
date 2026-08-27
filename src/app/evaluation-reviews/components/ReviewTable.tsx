@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import ReviewDetailModal from './ReviewDetailModal';
 import EvaluationComparisonModal from './EvaluationComparisonModal';
 import { exportToCSV, exportToPDF, exportAppraisalPDF } from './ExportUtils';
+import { getServerNow, getServerYear } from '@/lib/serverDate';
 import { createClient } from '@/lib/supabase/client';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -88,6 +89,11 @@ export default function ReviewTable() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null);
   const [exportingRowId, setExportingRowId] = useState<string | null>(null);
+  const [serverYear, setServerYear] = useState<number>(2026);
+
+  useEffect(() => {
+    getServerYear().then(setServerYear).catch(() => {});
+  }, []);
 
   useEffect(() => {
     async function fetchReviews() {
@@ -140,7 +146,7 @@ export default function ReviewTable() {
           const uiStatus = mapStatus(dbStatus);
 
           const reviewPeriod = (timelineRow?.review_period as string) ?? (row.review_period as string) ?? 'mid-year';
-          const reviewYear = (timelineRow?.review_year as number) ?? (row.review_year as number) ?? new Date().getFullYear();
+          const reviewYear = (timelineRow?.review_year as number) ?? (row.review_year as number) ?? serverYear;
           const reviewType = reviewPeriod === 'annual' ? 'Annual Review' : 'Mid-Year Review';
 
           const deadlineRaw = timelineRow?.submission_deadline as string | null;
@@ -209,7 +215,7 @@ export default function ReviewTable() {
       const supabase = createClient();
       const { error: updateError } = await supabase
         .from('mid_year_reviews')
-        .update({ review_status: 'approved', approved_at: new Date().toISOString() })
+        .update({ review_status: 'approved', approved_at: await getServerNow() })
         .eq('id', id);
       if (updateError) throw updateError;
       setReviews(prev => prev.map(r => r.id === id ? { ...r, status: 'approved' as ReviewStatus, overallProgress: 100 } : r));

@@ -6,6 +6,7 @@ import Icon from '@/components/ui/AppIcon';
 import { CardListSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
 import { roleCachedFetch, TTL_WORKPLAN_LIST } from '@/lib/cache';
+import { getServerNow } from '@/lib/serverDate';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -301,7 +302,7 @@ export default function SelfAssessmentPage() {
           review_period: reviewPeriod,
           form_data: formData,
           active_step: activeStep,
-          last_saved_at: new Date().toISOString(),
+          last_saved_at: await getServerNow(),
         },
         { onConflict: 'staff_id,workplan_id,draft_type,review_period' }
       );
@@ -469,7 +470,7 @@ export default function SelfAssessmentPage() {
         challenges_faced: overallChallenges || null,
         support_needed: developmentNeeds || null,
         self_rating: overallSelfRating,
-        submitted_at: new Date().toISOString(),
+        submitted_at: await getServerNow(),
       };
 
       const { error } = await supabaseRef.current.from('mid_year_reviews').insert(payload);
