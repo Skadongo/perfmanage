@@ -69,7 +69,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const roleLabel = getRoleLabel(profile?.systemRole);
 
   return (
-    <div className="min-h-screen bg-background flex overflow-x-hidden">
+    <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed(!collapsed)}
