@@ -27,6 +27,7 @@ const TYPE_CONFIG: Record<string, { icon: string; color: string; bg: string }> =
 };
 
 function timeAgo(dateStr: string): string {
+  if (typeof window === 'undefined') return '';
   const diff = Date.now() - new Date(dateStr).getTime();
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return 'just now';
@@ -35,15 +36,6 @@ function timeAgo(dateStr: string): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   return `${days}d ago`;
-}
-
-// Client-only time display to avoid SSR/client hydration mismatch
-function TimeAgo({ dateStr }: { dateStr: string }) {
-  const [label, setLabel] = useState('');
-  useEffect(() => {
-    setLabel(timeAgo(dateStr));
-  }, [dateStr]);
-  return <>{label}</>;
 }
 
 export default function NotificationCenter() {
@@ -283,9 +275,7 @@ export default function NotificationCenter() {
                           )}
                         </div>
                         <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed line-clamp-2">{n.message}</p>
-                        <p className="text-[10px] text-muted-foreground/70 mt-1">
-                          <TimeAgo dateStr={n.created_at} />
-                        </p>
+                        <p className="text-[10px] text-muted-foreground/70 mt-1">{timeAgo(n.created_at)}</p>
                       </div>
                     </button>
                   );

@@ -19,11 +19,6 @@ function ChangePasswordContent() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [currentYear, setCurrentYear] = useState(2026);
-
-  useEffect(() => {
-    setCurrentYear(new Date().getFullYear());
-  }, []);
 
   // Determine if this is a forced first-login change or a voluntary change
   const isForced = profile?.mustChangePassword === true;
@@ -324,7 +319,7 @@ function ChangePasswordContent() {
 
           <div className="px-8 py-4 bg-muted/30 border-t border-border text-center">
             <p className="text-[11px] text-muted-foreground">
-              © {currentYear} East, Central &amp; Southern Africa Health Community
+              © {new Date().getFullYear()} East, Central &amp; Southern Africa Health Community
             </p>
           </div>
         </div>
