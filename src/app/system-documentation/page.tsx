@@ -155,10 +155,93 @@ function CodeBlock({ children, label }: { children: string; label?: string }) {
 // ── Main Page ──────────────────────────────────────────────────────────────
 export default function SystemDocumentationPage() {
   const [activeToc, setActiveToc] = useState<string>('executive-summary');
+  const [isExporting, setIsExporting] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const handlePrint = () => {
-    window.print();
+  const handleExportPDF = async () => {
+    if (!contentRef.current) return;
+    setIsExporting(true);
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+
+      const element = contentRef.current;
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        windowWidth: 1200,
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 10;
+      const contentWidth = pageWidth - margin * 2;
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const ratio = contentWidth / imgWidth;
+      const scaledHeight = imgHeight * ratio;
+
+      // Add cover page
+      pdf.setFillColor(255, 255, 255);
+      pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+      pdf.setFontSize(10);
+      pdf.setTextColor(100, 100, 100);
+      pdf.text('East, Central & Southern Africa Health Community', pageWidth / 2, 60, { align: 'center' });
+      pdf.setFontSize(22);
+      pdf.setTextColor(30, 30, 30);
+      pdf.text('Performance Management System', pageWidth / 2, 80, { align: 'center' });
+      pdf.setFontSize(14);
+      pdf.setTextColor(80, 80, 80);
+      pdf.text('System Documentation', pageWidth / 2, 92, { align: 'center' });
+      pdf.setDrawColor(59, 130, 246);
+      pdf.setLineWidth(1);
+      pdf.line(pageWidth / 2 - 20, 100, pageWidth / 2 + 20, 100);
+      pdf.setFontSize(9);
+      pdf.setTextColor(120, 120, 120);
+      pdf.text('Consultancy Reference Document', pageWidth / 2, 110, { align: 'center' });
+      pdf.text(`Version 2.0 · ${new Date().getFullYear()}`, pageWidth / 2, 118, { align: 'center' });
+      pdf.setFontSize(8);
+      pdf.text('ECSA-HC Secretariat · P.O. Box 1009, Arusha, Tanzania', pageWidth / 2, pageHeight - 20, { align: 'center' });
+      pdf.text('+255-27-2973677/8 · regsec@ecsahc.org · www.ecsahc.org', pageWidth / 2, pageHeight - 14, { align: 'center' });
+
+      // Add content pages
+      let yOffset = 0;
+      const usableHeight = pageHeight - margin * 2;
+
+      while (yOffset < scaledHeight) {
+        pdf.addPage();
+        const sourceY = yOffset / ratio;
+        const sourceHeight = Math.min(usableHeight / ratio, imgHeight - sourceY);
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = imgWidth;
+        sliceCanvas.height = sourceHeight;
+        const ctx = sliceCanvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(canvas, 0, sourceY, imgWidth, sourceHeight, 0, 0, imgWidth, sourceHeight);
+          const sliceData = sliceCanvas.toDataURL('image/png');
+          const sliceScaledHeight = sourceHeight * ratio;
+          pdf.addImage(sliceData, 'PNG', margin, margin, contentWidth, sliceScaledHeight);
+        }
+        yOffset += usableHeight;
+      }
+
+      pdf.save('ECSA-HC-PMS-System-Documentation.pdf');
+    } catch (err) {
+      console.error('PDF export failed:', err);
+      // Fallback to print dialog
+      window.print();
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const scrollTo = (id: string) => {
@@ -173,13 +256,26 @@ export default function SystemDocumentationPage() {
       pageSubtitle="ECSA-HC Performance Management System — Consultancy Reference"
       actions={
         <button
-          onClick={handlePrint}
-          className="btn-brand gap-1.5 print:hidden"
+          onClick={handleExportPDF}
+          disabled={isExporting}
+          className="btn-brand gap-1.5 print:hidden disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-          </svg>
-          Print / Export PDF
+          {isExporting ? (
+            <>
+              <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Generating PDF…
+            </>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Download PDF
+            </>
+          )}
         </button>
       }
     >
