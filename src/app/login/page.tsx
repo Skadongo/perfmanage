@@ -23,8 +23,13 @@ function LoginForm() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
+  const [currentYear, setCurrentYear] = useState(2026);
 
   const nextPath = searchParams.get('next') || '/performance-dashboard';
+
+  useEffect(() => {
+    setCurrentYear(new Date().getFullYear());
+  }, []);
 
   useEffect(() => {
     if (!loading && user) {
@@ -227,7 +232,7 @@ function LoginForm() {
           {/* Footer */}
           <div className="px-8 py-4 bg-muted/30 border-t border-border text-center">
             <p className="text-[11px] text-muted-foreground">
-              © {new Date().getFullYear()} East, Central &amp; Southern Africa Health Community
+              © {currentYear} East, Central &amp; Southern Africa Health Community
             </p>
           </div>
         </div>

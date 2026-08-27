@@ -38,6 +38,15 @@ function timeAgo(dateStr: string): string {
   return `${diffDays}d ago`;
 }
 
+// Client-only time display to avoid SSR/client hydration mismatch
+function TimeAgo({ dateStr }: { dateStr: string }) {
+  const [label, setLabel] = React.useState('');
+  React.useEffect(() => {
+    setLabel(timeAgo(dateStr));
+  }, [dateStr]);
+  return <>{label}</>;
+}
+
 export default function ActivityFeed({ staffId, supervisorId }: Props) {
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -148,7 +157,7 @@ export default function ActivityFeed({ staffId, supervisorId }: Props) {
                 )}
               </div>
               <span className="text-[10px] text-muted-foreground whitespace-nowrap flex-shrink-0">
-                {timeAgo(activity.createdAt)}
+                <TimeAgo dateStr={activity.createdAt} />
               </span>
             </div>
           ))}
