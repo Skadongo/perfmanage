@@ -183,7 +183,7 @@ function SectionHeader({ number, title, subtitle, icon }: { number: string; titl
   );
 }
 
-function RatingSelector({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) {
+function RatingSelector({ value, onChange, label, disabled }: { value: number; onChange: (v: number) => void; label: string; disabled?: boolean }) {
   return (
     <div>
       {label && <label className="block text-[11px] font-600 text-muted-foreground mb-1.5 uppercase tracking-wide">{label}</label>}
@@ -192,11 +192,12 @@ function RatingSelector({ value, onChange, label }: { value: number; onChange: (
           <button
             key={r}
             type="button"
+            disabled={disabled}
             onClick={() => onChange(r)}
             className={`w-8 h-8 rounded-md text-xs font-700 border transition-all ${
               value === r
                 ? RATING_LABELS[r].color + ' shadow-sm scale-105'
-                : 'bg-muted/40 border-border text-muted-foreground hover:bg-muted'
+                : 'bg-muted/40 border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed'
             }`}
             title={RATING_LABELS[r]?.label}
           >
@@ -1143,8 +1144,8 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                       </FormField>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <RatingSelector value={goal.selfRating} onChange={(v) => updateGoal(idx, 'selfRating', v)} label="Self Rating" />
-                      <RatingSelector value={goal.supervisorRating} onChange={(v) => updateGoal(idx, 'supervisorRating', v)} label="Supervisor Rating" />
+                      <RatingSelector value={goal.selfRating} onChange={(v) => updateGoal(idx, 'selfRating', v)} label="Self Rating" disabled={isFormReadOnly} />
+                      <RatingSelector value={goal.supervisorRating} onChange={(v) => updateGoal(idx, 'supervisorRating', v)} label="Supervisor Rating" disabled={isFormReadOnly} />
                     </div>
                     <FormField label="Comments / Evidence">
                       <textarea
@@ -1228,8 +1229,8 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                         </FormField>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <RatingSelector value={kpi.selfRating} onChange={(v) => updateKPI(idx, 'selfRating', v)} label="Self Rating (1–5)" />
-                        <RatingSelector value={kpi.supervisorRating} onChange={(v) => updateKPI(idx, 'supervisorRating', v)} label="Supervisor Rating (1–5)" />
+                        <RatingSelector value={kpi.selfRating} onChange={(v) => updateKPI(idx, 'selfRating', v)} label="Self Rating (1–5)" disabled={isFormReadOnly} />
+                        <RatingSelector value={kpi.supervisorRating} onChange={(v) => updateKPI(idx, 'supervisorRating', v)} label="Supervisor Rating (1–5)" disabled={isFormReadOnly} />
                       </div>
                     </div>
                   </div>
@@ -1354,8 +1355,8 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <RatingSelector value={bsc.selfRating} onChange={(v) => updateBSC(idx, 'selfRating', v)} label="Self Rating (1–5)" />
-                      <RatingSelector value={bsc.supervisorRating} onChange={(v) => updateBSC(idx, 'supervisorRating', v)} label="Supervisor Rating (1–5)" />
+                      <RatingSelector value={bsc.selfRating} onChange={(v) => updateBSC(idx, 'selfRating', v)} label="Self Rating (1–5)" disabled={isFormReadOnly} />
+                      <RatingSelector value={bsc.supervisorRating} onChange={(v) => updateBSC(idx, 'supervisorRating', v)} label="Supervisor Rating (1–5)" disabled={isFormReadOnly} />
                     </div>
                     <FormField label="Comments">
                       <textarea
@@ -1477,8 +1478,8 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <RatingSelector value={comp.selfRating} onChange={(v) => updateCompetency(idx, 'selfRating', v)} label="Self Rating (1–5)" />
-                      <RatingSelector value={comp.supervisorRating} onChange={(v) => updateCompetency(idx, 'supervisorRating', v)} label="Supervisor Rating (1–5)" />
+                      <RatingSelector value={comp.selfRating} onChange={(v) => updateCompetency(idx, 'selfRating', v)} label="Self Rating (1–5)" disabled={isFormReadOnly} />
+                      <RatingSelector value={comp.supervisorRating} onChange={(v) => updateCompetency(idx, 'supervisorRating', v)} label="Supervisor Rating (1–5)" disabled={isFormReadOnly} />
                     </div>
                     <FormField label="Behavioural Evidence / Comments">
                       <textarea
@@ -1577,7 +1578,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
 
             <div className="border border-border rounded-xl p-4 space-y-3">
               <p className="text-xs font-700 text-foreground">Overall Self-Rating</p>
-              <RatingSelector value={form.selfOverallRating} onChange={(v) => setField('selfOverallRating', v)} label="" />
+              <RatingSelector value={form.selfOverallRating} onChange={(v) => setField('selfOverallRating', v)} label="" disabled={isFormReadOnly} />
               <FormField label="Overall Self-Assessment Comments">
                 <textarea
                   className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
@@ -1636,7 +1637,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
 
             <div className="border border-border rounded-xl p-4 space-y-4">
               <p className="text-xs font-700 text-foreground">Supervisor's Overall Assessment</p>
-              <RatingSelector value={form.supervisorOverallRating} onChange={(v) => setField('supervisorOverallRating', v)} label="Overall Rating" />
+              <RatingSelector value={form.supervisorOverallRating} onChange={(v) => setField('supervisorOverallRating', v)} label="Overall Rating" disabled={isFormReadOnly} />
               <FormField label="Overall Supervisor Comments">
                 <textarea
                   className={`${textareaCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
