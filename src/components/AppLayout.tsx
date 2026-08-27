@@ -27,8 +27,21 @@ function getRoleLabel(systemRole: string | undefined): string {
     .join(' ');
 }
 
-// Inner layout — only rendered after client mount, so no SSR/client mismatch
-function AppLayoutInner({ children, pageTitle, pageSubtitle, actions }: AppLayoutProps) {
+// SSR skeleton — rendered before client mount to avoid layout shift
+function LayoutSkeleton({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <div className="w-60 flex-shrink-0 bg-white border-r border-border" />
+      <div className="flex-1 flex flex-col min-h-screen">
+        <div className="h-16 bg-white border-b border-border border-t-2 border-t-primary" />
+        <div className="flex-1 p-6">{children}</div>
+      </div>
+    </>
+  );
+}
+
+// Full layout — only rendered after client mount
+function LayoutFull({ children, pageTitle, pageSubtitle, actions }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -70,7 +83,7 @@ function AppLayoutInner({ children, pageTitle, pageSubtitle, actions }: AppLayou
   const roleLabel = getRoleLabel(profile?.systemRole);
 
   return (
-    <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
+    <>
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed(!collapsed)}
@@ -79,7 +92,6 @@ function AppLayoutInner({ children, pageTitle, pageSubtitle, actions }: AppLayou
       />
 
       <div
-        suppressHydrationWarning
         className={`flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-300 ease-in-out ml-0 ${
           collapsed ? 'lg:ml-16' : 'lg:ml-60'
         }`}
@@ -219,14 +231,24 @@ function AppLayoutInner({ children, pageTitle, pageSubtitle, actions }: AppLayou
           </div>
         </footer>
       </div>
-    </div>
+    </>
   );
 }
 
-// SSR shell — a neutral, attribute-free placeholder rendered on the server.
-// It matches exactly on both server and client first-render, so React never
-// sees a hydration mismatch. AppLayoutInner (with all dynamic classes and
-// @dhiwise tagger attributes) only mounts after the client is ready.
+/**
+ * AppLayout — single stable root <div> on both SSR and client.
+ *
+ * The @dhiwise/component-tagger webpack loader injects data-component-id
+ * attributes that include the JSX line number of the *return statement* it
+ * tags. When the outer component returned a different element on SSR
+ * (the skeleton at line ~239) vs on the client (AppLayoutInner at line ~70),
+ * React saw mismatched data-component-id values and threw a hydration error.
+ *
+ * Fix: the exported component always returns the SAME root <div> at the SAME
+ * line. The mount gate only swaps the *children* inside that div, so the
+ * tagger always tags the same element at the same line number on both server
+ * and client — zero mismatch.
+ */
 export default function AppLayout(props: AppLayoutProps) {
   const [mounted, setMounted] = useState(false);
 
@@ -234,17 +256,13 @@ export default function AppLayout(props: AppLayoutProps) {
     setMounted(true);
   }, []);
 
-  if (!mounted) {
-    return (
-      <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
-        <div className="w-60 flex-shrink-0 bg-white border-r border-border" />
-        <div className="flex-1 flex flex-col min-h-screen">
-          <div className="h-16 bg-white border-b border-border border-t-2 border-t-primary" />
-          <div className="flex-1 p-6">{props.children}</div>
-        </div>
-      </div>
-    );
-  }
-
-  return <AppLayoutInner {...props} />;
+  return (
+    <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
+      {mounted ? (
+        <LayoutFull {...props} />
+      ) : (
+        <LayoutSkeleton>{props.children}</LayoutSkeleton>
+      )}
+    </div>
+  );
 }
