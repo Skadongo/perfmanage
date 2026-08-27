@@ -31,15 +31,10 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [currentYear, setCurrentYear] = useState(2024);
   const menuRef = useRef<HTMLDivElement>(null);
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-
-  useEffect(() => {
-    setCurrentYear(new Date().getFullYear());
-  }, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -69,7 +64,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const roleLabel = getRoleLabel(profile?.systemRole);
 
   return (
-    <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
+    <div className="min-h-screen bg-background flex overflow-x-hidden">
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed(!collapsed)}
@@ -135,11 +130,11 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                 aria-label="User menu"
               >
                 <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span suppressHydrationWarning className="text-primary text-xs font-700">{getInitials()}</span>
+                  <span className="text-primary text-xs font-700">{getInitials()}</span>
                 </div>
                 <div className="hidden md:flex flex-col items-start leading-tight">
-                  <span suppressHydrationWarning className="text-xs font-600 text-foreground max-w-[120px] truncate">{getDisplayName()}</span>
-                  <span suppressHydrationWarning className="text-[10px] text-muted-foreground max-w-[120px] truncate">{roleLabel}</span>
+                  <span className="text-xs font-600 text-foreground max-w-[120px] truncate">{getDisplayName()}</span>
+                  <span className="text-[10px] text-muted-foreground max-w-[120px] truncate">{roleLabel}</span>
                 </div>
                 <svg className="w-3.5 h-3.5 text-muted-foreground hidden md:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -149,9 +144,9 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
               {userMenuOpen && (
                 <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-lg border border-border z-50 overflow-hidden">
                   <div className="px-4 py-3 border-b border-border bg-muted/30">
-                    <p suppressHydrationWarning className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
-                    <p suppressHydrationWarning className="text-xs text-muted-foreground truncate">{profile?.email || ''}</p>
-                    <span suppressHydrationWarning className="inline-block mt-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-600">
+                    <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
+                    <p className="text-xs text-muted-foreground truncate">{profile?.email || ''}</p>
+                    <span className="inline-block mt-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-600">
                       {roleLabel}
                     </span>
                   </div>
@@ -203,8 +198,8 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                 <p className="text-[10px] text-muted-foreground">Performance Management System</p>
               </div>
             </div>
-            <p suppressHydrationWarning className="text-[11px] text-muted-foreground text-center">
-              © {currentYear} East, Central &amp; Southern Africa Health Community. All rights reserved.
+            <p className="text-[11px] text-muted-foreground text-center">
+              © 2026 East, Central &amp; Southern Africa Health Community. All rights reserved.
             </p>
             <div className="hidden sm:flex items-center gap-4">
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
