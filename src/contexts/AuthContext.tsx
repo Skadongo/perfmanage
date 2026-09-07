@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 
 // Role hierarchy for access control
 export const ROLE_HIERARCHY: Record<string, number> = {
+  superuser: 120,
   support_admin: 110,
   executive_director: 100,
   deputy_director: 90,
