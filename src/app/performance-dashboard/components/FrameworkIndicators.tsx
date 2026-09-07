@@ -1,5 +1,3 @@
-'use client';
-
 import React from 'react';
 import ProgressBar from '@/components/ui/ProgressBar';
 import Icon from '@/components/ui/AppIcon';

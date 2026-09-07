@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { cacheGet, cacheSet, cacheGetStale } from '@/lib/cache';
+import { cacheGet, cacheSet } from '@/lib/cache';
 
 export interface LiveStats {
   totalReviews: number;
@@ -29,7 +29,7 @@ interface UseRealtimeDashboardReturn {
   refetch: () => void;
 }
 
-const CACHE_TTL = 3 * 60_000; // 3 min — increased from 30 s
+const CACHE_TTL = 30_000; // 30 s — short enough to feel live, long enough to avoid hammering DB
 
 export function useRealtimeDashboard({
   staffId,
@@ -37,22 +37,20 @@ export function useRealtimeDashboard({
   onRoleChange,
   onPerformanceChange,
 }: UseRealtimeDashboardOptions = {}): UseRealtimeDashboardReturn {
-  const cacheKey = `live-stats:${staffId ?? 'org'}`;
-
-  // Initialise from stale cache immediately — avoids blank state on first render
-  const [liveStats, setLiveStats] = useState<LiveStats | null>(
-    () => cacheGetStale<LiveStats>(cacheKey)
-  );
+  const [liveStats, setLiveStats] = useState<LiveStats | null>(null);
   const [realtimeActive, setRealtimeActive] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const isMounted = useRef(true);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Stable client ref — never recreated
   const supabaseRef = useRef(createClient());
+
+  const cacheKey = `live-stats:${staffId ?? 'org'}`;
 
   const fetchLiveStats = useCallback(async (forceRefresh = false) => {
     const supabase = supabaseRef.current;
 
-    // Return fresh cached value immediately if available and not forcing refresh
+    // Return cached value immediately if available and not forcing refresh
     if (!forceRefresh) {
       const cached = cacheGet<LiveStats>(cacheKey);
       if (cached) {
@@ -62,7 +60,7 @@ export function useRealtimeDashboard({
     }
 
     try {
-      // Run both queries in parallel — select only needed columns
+      // Run both queries in parallel, select only needed columns
       const [reviewsResult, staffResult] = await Promise.all([
         staffId
           ? supabase
@@ -98,7 +96,11 @@ export function useRealtimeDashboard({
           : 0;
 
       const now = new Date();
-      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      const timeStr = now.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
 
       const stats: LiveStats = {
         totalReviews: total,
@@ -111,19 +113,19 @@ export function useRealtimeDashboard({
       };
 
       cacheSet(cacheKey, stats, CACHE_TTL);
-      if (isMounted.current) setLiveStats(stats);
+      setLiveStats(stats);
     } catch {
       // silently fail — keep previous stats
     }
   }, [staffId, cacheKey]);
 
-  // Debounced version to prevent rapid re-fetches on burst DB changes (800 ms window)
+  // Debounced version to prevent rapid re-fetches on burst DB changes (500 ms window)
   const debouncedFetch = useCallback(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
-      fetchLiveStats(true);
+      fetchLiveStats(true); // force refresh on realtime event
       setRefreshKey(k => k + 1);
-    }, 800);
+    }, 500);
   }, [fetchLiveStats]);
 
   const refetch = useCallback(() => {
@@ -137,6 +139,7 @@ export function useRealtimeDashboard({
 
     const supabase = supabaseRef.current;
 
+    // Single merged channel for all dashboard tables — reduces Supabase connections
     const dashboardChannel = supabase
       .channel('rt-dashboard')
       .on(
@@ -174,6 +177,7 @@ export function useRealtimeDashboard({
     return () => {
       isMounted.current = false;
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
+      // Unsubscribe and remove channel on unmount
       supabase.removeChannel(dashboardChannel);
     };
   }, [fetchLiveStats, debouncedFetch, onStaffChange, onRoleChange, onPerformanceChange]);

@@ -1,7 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, Suspense } from 'react';
-import dynamic from 'next/dynamic';
+import React, { useState, useCallback, lazy, Suspense } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { ChartSkeleton, MetricCardSkeleton, TableSkeleton } from '@/components/ui/SkeletonLoader';
@@ -15,15 +14,15 @@ import {
 } from './config/roleDashboardConfig';
 import type { DrillDownFilter } from './components/StaffDrillDownModal';
 
-// ── Lazy-load heavy dashboard widgets via next/dynamic ──────────────────────
-const DashboardMetricCards  = dynamic(() => import('./components/DashboardMetricCards'), { ssr: false });
-const BSCPerspectiveChart   = dynamic(() => import('./components/BSCPerspectiveChart'), { ssr: false });
-const KPITrendChart         = dynamic(() => import('./components/KPITrendChart'), { ssr: false });
-const FrameworkIndicators   = dynamic(() => import('./components/FrameworkIndicators'), { ssr: false });
-const AtRiskStaffTable      = dynamic(() => import('./components/AtRiskStaffTable'), { ssr: false });
-const ActivityFeed          = dynamic(() => import('./components/ActivityFeed'), { ssr: false });
-const StaffDrillDownModal   = dynamic(() => import('./components/StaffDrillDownModal'), { ssr: false });
-const StrategicPlanSection  = dynamic(() => import('./components/StrategicPlanSection'), { ssr: false });
+// ── Lazy-load heavy dashboard widgets ──────────────────────────────────────
+const DashboardMetricCards  = lazy(() => import('./components/DashboardMetricCards'));
+const BSCPerspectiveChart   = lazy(() => import('./components/BSCPerspectiveChart'));
+const KPITrendChart         = lazy(() => import('./components/KPITrendChart'));
+const FrameworkIndicators   = lazy(() => import('./components/FrameworkIndicators'));
+const AtRiskStaffTable      = lazy(() => import('./components/AtRiskStaffTable'));
+const ActivityFeed          = lazy(() => import('./components/ActivityFeed'));
+const StaffDrillDownModal   = lazy(() => import('./components/StaffDrillDownModal'));
+const StrategicPlanSection  = lazy(() => import('./components/StrategicPlanSection'));
 
 // ── Live strip metric definitions ──────────────────────────────────────────
 interface StripItem {
