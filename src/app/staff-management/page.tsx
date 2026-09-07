@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
-import { cachedFetch, TTL_STAFF_LIST, cacheDelete } from '@/lib/cache';
+import { TTL_STAFF_LIST, cacheDelete, staleWhileRevalidate } from '@/lib/cache';
 
 import { ROLE_HIERARCHY } from '@/contexts/AuthContext';
 
@@ -1223,6 +1223,9 @@ function StaffDetailModal({ staff, allStaff, onClose, onEdit, onRemoveDept, onMa
   );
 }
 
+// ─── Pagination constant ──────────────────────────────────────────────────────
+const PAGE_SIZE = 25;
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 type ModalMode = 'create' | 'edit' | 'remove_dept' | 'manage_access' | null;
@@ -1246,6 +1249,8 @@ export default function StaffManagementPage() {
   const [removeDeptTarget, setRemoveDeptTarget] = useState<StaffMember | null>(null);
   const [accessTarget, setAccessTarget] = useState<StaffMember | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  // Pagination state for grid view
+  const [gridPage, setGridPage] = useState(1);
 
   // Stable supabase client ref — prevents re-creation on every render
   const supabaseRef = useRef(createClient());
@@ -1262,16 +1267,17 @@ export default function StaffManagementPage() {
     async function fetchData() {
       try {
         const [deptData, staffData] = await Promise.all([
-          cachedFetch(
+          staleWhileRevalidate(
             'staff-mgmt:departments',
             async () => {
-              const { data, error } = await supabase.from('departments').select('*').order('name');
+              const { data, error } = await supabase.from('departments').select('id, name, description').order('name');
               if (error) throw error;
               return data ?? [];
             },
-            TTL_STAFF_LIST
+            TTL_STAFF_LIST,
+            (fresh) => { if (isMounted.current) setDepartments(fresh as Department[]); }
           ),
-          cachedFetch(
+          staleWhileRevalidate(
             'staff-mgmt:staff-list',
             async () => {
               const { data, error } = await supabase
@@ -1281,7 +1287,8 @@ export default function StaffManagementPage() {
               if (error) throw error;
               return (data as StaffMember[]) ?? [];
             },
-            TTL_STAFF_LIST
+            TTL_STAFF_LIST,
+            (fresh) => { if (isMounted.current) setStaff(fresh as StaffMember[]); }
           ),
         ]);
         if (isMounted.current) {
@@ -1350,8 +1357,8 @@ export default function StaffManagementPage() {
   // ── Derived data ───────────────────────────────────────────────────────────
 
   const filteredStaff = useMemo(() => {
+    // Reset to page 1 when filters change
     return staff.filter((s) => {
-      // Superuser accounts are never shown in the staff list
       if (isSuperuser(s)) return false;
       const matchesSearch =
         !search ||
@@ -1363,6 +1370,17 @@ export default function StaffManagementPage() {
       return matchesSearch && matchesDept;
     });
   }, [staff, search, selectedDept]);
+
+  // Reset page when filters change
+  useEffect(() => { setGridPage(1); }, [search, selectedDept, viewMode]);
+
+  // Paginated slice for grid view
+  const paginatedStaff = useMemo(() => {
+    const start = (gridPage - 1) * PAGE_SIZE;
+    return filteredStaff.slice(start, start + PAGE_SIZE);
+  }, [filteredStaff, gridPage]);
+
+  const totalPages = Math.ceil(filteredStaff.length / PAGE_SIZE);
 
   const staffByDepartment = useMemo(() => {
     const map: Record<string, { dept: Department; members: StaffMember[] }> = {};
@@ -1493,18 +1511,46 @@ export default function StaffManagementPage() {
           <p className="text-xs text-muted-foreground/70 mt-1">Try adjusting your search or filter</p>
         </div>
       ) : viewMode === 'grid' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredStaff.map((s) => (
-            <StaffCard
-              key={s.id}
-              staff={s}
-              onClick={setSelectedStaff}
-              onEdit={openEdit}
-              onRemoveDept={openRemoveDept}
-              onManageAccess={openManageAccess}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {paginatedStaff.map((s) => (
+              <StaffCard
+                key={s.id}
+                staff={s}
+                onClick={setSelectedStaff}
+                onEdit={openEdit}
+                onRemoveDept={openRemoveDept}
+                onManageAccess={openManageAccess}
+              />
+            ))}
+          </div>
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-6 pt-4 border-t border-border">
+              <p className="text-xs text-muted-foreground">
+                Showing {((gridPage - 1) * PAGE_SIZE) + 1}–{Math.min(gridPage * PAGE_SIZE, filteredStaff.length)} of {filteredStaff.length} staff
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setGridPage(p => Math.max(1, p - 1))}
+                  disabled={gridPage === 1}
+                  className="px-3 py-1.5 text-xs font-600 border border-border rounded-lg hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-muted-foreground px-2">
+                  Page {gridPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setGridPage(p => Math.min(totalPages, p + 1))}
+                  disabled={gridPage === totalPages}
+                  className="px-3 py-1.5 text-xs font-600 border border-border rounded-lg hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <div className="space-y-6">
           {staffByDepartment.map(({ dept, members }) => {

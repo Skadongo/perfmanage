@@ -11,7 +11,7 @@ import WorkflowProgressPanel from './components/WorkflowProgressPanel';
 import { Toaster, toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
-import { cachedFetch, TTL_WORKPLAN_LIST, TTL_DASHBOARD_METRICS } from '@/lib/cache';
+import { staleWhileRevalidate, TTL_WORKPLAN_LIST, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 
 interface ReviewSummary {
   id: string;
@@ -79,17 +79,36 @@ export default function EvaluationReviewsPage() {
   const fetchStageCounts = useCallback(async (forceRefresh = false) => {
     setStageLoading(true);
     try {
-      const data = await cachedFetch<{ workflow_stage: string }[]>(
+      const data = await staleWhileRevalidate<{ workflow_stage: string }[]>(
         'eval-stage-counts',
         async () => {
           const { data: rows } = await supabase
             .from('workplan_settings')
-            // Only fetch the column we need for counting
             .select('workflow_stage')
             .eq('status', 'signed');
           return rows ?? [];
         },
-        forceRefresh ? 0 : TTL_WORKPLAN_LIST
+        forceRefresh ? 0 : TTL_WORKPLAN_LIST,
+        (fresh) => {
+          if (!isMounted.current) return;
+          const counts: WorkflowStageCounts = {
+            workplanPending: 0, workplanApproved: 0,
+            midYearPending: 0, midYearApproved: 0,
+            endYearPending: 0, endYearApproved: 0,
+            total: fresh.length
+          };
+          for (const row of fresh) {
+            switch (row.workflow_stage) {
+              case 'workplan_pending': counts.workplanPending++; break;
+              case 'workplan_approved': counts.workplanApproved++; break;
+              case 'mid_year_pending': counts.midYearPending++; break;
+              case 'mid_year_approved': counts.midYearApproved++; break;
+              case 'end_year_pending': counts.endYearPending++; break;
+              case 'end_year_approved': counts.endYearApproved++; break;
+            }
+          }
+          setStageCounts(counts);
+        }
       );
 
       const counts: WorkflowStageCounts = {
@@ -127,12 +146,11 @@ export default function EvaluationReviewsPage() {
     async function fetchSummary() {
       setStatsLoading(true);
       try {
-        const mapped = await cachedFetch<ReviewSummary[]>(
+        const mapped = await staleWhileRevalidate<ReviewSummary[]>(
           'eval-reviews-summary',
           async () => {
             const { data, error } = await supabase
               .from('mid_year_reviews')
-              // Limit columns — only what the summary display needs
               .select(`
                 id,
                 review_status,
@@ -177,7 +195,8 @@ export default function EvaluationReviewsPage() {
               };
             });
           },
-          TTL_DASHBOARD_METRICS
+          TTL_DASHBOARD_METRICS,
+          (fresh) => { if (isMounted.current) setReviewsSummary(fresh); }
         );
 
         if (isMounted.current) setReviewsSummary(mapped);

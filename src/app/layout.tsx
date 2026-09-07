@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import '../styles/tailwind.css';
 import { AuthProvider } from '@/contexts/AuthContext';
 import SWRProvider from '@/components/SWRProvider';
+import { ReferenceDataProvider } from '@/contexts/ReferenceDataContext';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -26,7 +27,9 @@ export default function RootLayout({
       <body>
         <AuthProvider>
           <SWRProvider>
-            {children}
+            <ReferenceDataProvider>
+              {children}
+            </ReferenceDataProvider>
           </SWRProvider>
         </AuthProvider>
 
