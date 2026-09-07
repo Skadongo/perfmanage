@@ -7,6 +7,8 @@
  * - Increased TTLs for rarely-changing data
  */
 
+'use client';
+
 interface CacheEntry<T> {
   data: T;
   expiresAt: number;
