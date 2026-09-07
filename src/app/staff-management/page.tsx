@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+import { cachedFetch, TTL_STAFF_LIST, cacheDelete } from '@/lib/cache';
 
 import { ROLE_HIERARCHY } from '@/contexts/AuthContext';
 
@@ -1245,19 +1246,32 @@ export default function StaffManagementPage() {
 
     async function fetchData() {
       try {
-        const [deptRes, staffRes] = await Promise.all([
-          supabase.from('departments').select('*').order('name'),
-          supabase
-            .from('staff')
-            // Limit columns to what the UI actually renders
-            .select('id, serial_number, full_name, job_title, department_id, supervisor_name, supervisor_id, employment_status, email, system_role, departments(name), supervisor:supervisor_id(full_name, job_title)')
-            .order('serial_number', { ascending: true }),
+        const [deptData, staffData] = await Promise.all([
+          cachedFetch(
+            'staff-mgmt:departments',
+            async () => {
+              const { data, error } = await supabase.from('departments').select('*').order('name');
+              if (error) throw error;
+              return data ?? [];
+            },
+            TTL_STAFF_LIST
+          ),
+          cachedFetch(
+            'staff-mgmt:staff-list',
+            async () => {
+              const { data, error } = await supabase
+                .from('staff')
+                .select('id, serial_number, full_name, job_title, department_id, supervisor_name, supervisor_id, employment_status, email, system_role, departments(name), supervisor:supervisor_id(full_name, job_title)')
+                .order('serial_number', { ascending: true });
+              if (error) throw error;
+              return (data as StaffMember[]) ?? [];
+            },
+            TTL_STAFF_LIST
+          ),
         ]);
-        if (deptRes.error) throw deptRes.error;
-        if (staffRes.error) throw staffRes.error;
         if (isMounted.current) {
-          setDepartments(deptRes.data ?? []);
-          setStaff((staffRes.data as StaffMember[]) ?? []);
+          setDepartments(deptData as Department[]);
+          setStaff(staffData as StaffMember[]);
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to load staff data';
@@ -1274,12 +1288,14 @@ export default function StaffManagementPage() {
   // ── CRUD handlers ──────────────────────────────────────────────────────────
 
   function handleCreated(newStaff: StaffMember) {
+    cacheDelete('staff-mgmt:staff-list');
     setStaff((prev) => [...prev, newStaff].sort((a, b) => (a.serial_number ?? 999) - (b.serial_number ?? 999)));
     setModalMode(null);
     showToast(`${newStaff.full_name} added successfully.`, 'success');
   }
 
   function handleUpdated(updated: StaffMember) {
+    cacheDelete('staff-mgmt:staff-list');
     setStaff((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
     setModalMode(null);
     setEditTarget(null);
@@ -1287,6 +1303,7 @@ export default function StaffManagementPage() {
   }
 
   function handleRemovedFromDept(updated: StaffMember) {
+    cacheDelete('staff-mgmt:staff-list');
     setStaff((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
     setModalMode(null);
     setRemoveDeptTarget(null);
