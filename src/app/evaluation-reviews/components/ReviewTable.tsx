@@ -7,6 +7,7 @@ import Icon from '@/components/ui/AppIcon';
 import { toast } from 'sonner';
 import ReviewDetailModal from './ReviewDetailModal';
 import EvaluationComparisonModal from './EvaluationComparisonModal';
+import ApprovalModal, { ApprovalAction } from './ApprovalModal';
 import { exportToCSV, exportToPDF, exportAppraisalPDF } from './ExportUtils';
 import { createClient } from '@/lib/supabase/client';
 
@@ -88,6 +89,8 @@ export default function ReviewTable() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null);
   const [exportingRowId, setExportingRowId] = useState<string | null>(null);
+  const [approvalTarget, setApprovalTarget] = useState<Review | null>(null);
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false);
 
   useEffect(() => {
     async function fetchReviews() {
@@ -218,6 +221,27 @@ export default function ReviewTable() {
       toast.error('Failed to approve review. Please try again.');
     }
   };
+
+  function openApprovalModal(review: Review) {
+    setApprovalTarget(review);
+    setApprovalModalOpen(true);
+  }
+
+  function handleApprovalActionComplete(id: string, action: ApprovalAction) {
+    setReviews((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const newStatus: ReviewStatus =
+          action === 'approve' ? 'approved' :
+          action === 'reject'? 'overdue' : 'in-progress';
+        return {
+          ...r,
+          status: newStatus,
+          overallProgress: computeProgress(newStatus, r.selfScore, r.supervisorScore),
+        };
+      })
+    );
+  }
 
   function openComparisonModal(reviewId: string) {
     setComparisonReviewId(reviewId);
@@ -607,12 +631,12 @@ export default function ReviewTable() {
                         )}
                         {review.status === 'submitted' && (
                           <button
-                            onClick={() => handleApprove(review.id)}
+                            onClick={() => openApprovalModal(review)}
                             className="p-1.5 rounded-md hover:bg-emerald-50 text-muted-foreground hover:text-emerald-600 transition-colors"
-                            title="Approve review"
-                            aria-label="Approve review"
+                            title="Open approval decision"
+                            aria-label="Open approval decision"
                           >
-                            <Icon name="CheckIcon" size={14} />
+                            <Icon name="ClipboardDocumentCheckIcon" size={14} />
                           </button>
                         )}
                         {(review.status === 'pending' || review.status === 'in-progress') && (
@@ -651,7 +675,13 @@ export default function ReviewTable() {
         review={selectedReview}
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        onApprove={handleApprove}
+        onApprove={(id) => {
+          const target = reviews.find((r) => r.id === id) ?? null;
+          if (target) {
+            setModalOpen(false);
+            openApprovalModal(target);
+          }
+        }}
       />
 
       {comparisonReviewId && (
@@ -662,6 +692,13 @@ export default function ReviewTable() {
           onActionComplete={handleComparisonActionComplete}
         />
       )}
+
+      <ApprovalModal
+        open={approvalModalOpen}
+        onClose={() => { setApprovalModalOpen(false); setApprovalTarget(null); }}
+        review={approvalTarget}
+        onActionComplete={handleApprovalActionComplete}
+      />
     </>
   );
 }
