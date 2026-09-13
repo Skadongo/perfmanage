@@ -39,18 +39,16 @@ const setCookie = (name: string, value: string, options?: any) => {
   if (options?.expires) s += `; Expires=${new Date(options.expires).toUTCString()}`;
   document.cookie = s;
 };
+
 const deleteCookie = (name: string) => {
   if (typeof document === 'undefined') return;
-
   const host = typeof window !== 'undefined' ? window.location.hostname : '';
   const domains = ['', host, host ? `.${host}` : ''].filter(Boolean);
-
   const variants = [
     'Path=/; SameSite=Lax',
     'Path=/; SameSite=None; Secure',
     'Path=/; SameSite=None; Secure; Partitioned',
   ];
-
   variants.forEach((attrs) => {
     document.cookie = `${name}=; Max-Age=0; ${attrs}`;
     domains.forEach((domain) => {
@@ -82,41 +80,46 @@ if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
 let browserClientInstance: ReturnType<typeof createBrowserClient> | null = null;
 
 /**
- * Custom lock implementation that replaces the Web Locks API used by GoTrue.
- * Uses a queue-based mutex so concurrent callers wait their turn rather than
- * competing via the Web Locks API (which causes AbortError "steal" crashes).
+ * Promise-chain mutex — the only pattern that is provably race-free in JS.
+ *
+ * Each lock name has a single "tail" promise. Every new acquirer appends to
+ * the tail: it waits for the previous tail to settle, then runs its work,
+ * then resolves its own promise so the next acquirer can proceed.
+ *
+ * This completely avoids the Web Locks API (which throws AbortError when
+ * another tab/request uses the "steal" option).
  */
 function buildCustomLock() {
-  // Per-name queue: each entry is a resolve fn that unblocks the next waiter
-  const queues: Record<string, Array<() => void>> = {};
+  // tail: the promise that the *next* acquirer must wait for
+  const tails: Record<string, Promise<void>> = {};
 
-  return async function acquireLock<T>(
+  return function acquireLock<T>(
     name: string,
     _acquireTimeout: number,
     fn: () => Promise<T>
   ): Promise<T> {
-    // If no queue exists for this name, create one and run immediately
-    if (!queues[name]) {
-      queues[name] = [];
-    } else {
-      // Otherwise, wait until the current holder releases
-      await new Promise<void>((resolve) => {
-        queues[name].push(resolve);
-      });
-    }
+    // Grab the current tail (or a resolved promise if no one holds the lock)
+    const prev = tails[name] ?? Promise.resolve();
 
-    try {
-      return await fn();
-    } finally {
-      const next = queues[name]?.shift();
-      if (next) {
-        // Wake up the next waiter
-        next();
-      } else {
-        // No more waiters — clean up
-        delete queues[name];
+    // Build a new tail: wait for prev, then run fn
+    let releaseLock!: () => void;
+    const next = new Promise<void>((resolve) => { releaseLock = resolve; });
+
+    // The new tail is: wait for prev to finish, then wait for fn to finish
+    tails[name] = prev.then(() => next);
+
+    // Return the actual work promise to the caller
+    return prev.then(async () => {
+      try {
+        return await fn();
+      } finally {
+        releaseLock();
+        // Clean up if nothing else is waiting
+        if (tails[name] === next || tails[name] === prev.then(() => next)) {
+          delete tails[name];
+        }
       }
-    }
+    });
   };
 }
 
