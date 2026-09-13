@@ -39,16 +39,18 @@ const setCookie = (name: string, value: string, options?: any) => {
   if (options?.expires) s += `; Expires=${new Date(options.expires).toUTCString()}`;
   document.cookie = s;
 };
-
 const deleteCookie = (name: string) => {
   if (typeof document === 'undefined') return;
+
   const host = typeof window !== 'undefined' ? window.location.hostname : '';
   const domains = ['', host, host ? `.${host}` : ''].filter(Boolean);
+
   const variants = [
     'Path=/; SameSite=Lax',
     'Path=/; SameSite=None; Secure',
     'Path=/; SameSite=None; Secure; Partitioned',
   ];
+
   variants.forEach((attrs) => {
     document.cookie = `${name}=; Max-Age=0; ${attrs}`;
     domains.forEach((domain) => {
@@ -80,46 +82,45 @@ if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
 let browserClientInstance: ReturnType<typeof createBrowserClient> | null = null;
 
 /**
- * Promise-chain mutex — the only pattern that is provably race-free in JS.
- *
- * Each lock name has a single "tail" promise. Every new acquirer appends to
- * the tail: it waits for the previous tail to settle, then runs its work,
- * then resolves its own promise so the next acquirer can proceed.
- *
- * This completely avoids the Web Locks API (which throws AbortError when
- * another tab/request uses the "steal" option).
+ * Custom lock implementation that replaces the Web Locks API used by GoTrue.
+ * The Web Locks API can cause AbortError("Lock broken by another request with the 'steal' option")
+ * when locks are orphaned by React Strict Mode double-mounts or rapid navigation.
+ * This simple promise-based mutex avoids that issue entirely.
  */
 function buildCustomLock() {
-  // tail: the promise that the *next* acquirer must wait for
-  const tails: Record<string, Promise<void>> = {};
+  const locks: Record<string, Promise<void>> = {};
 
-  return function acquireLock<T>(
+  return async function acquireLock<T>(
     name: string,
-    _acquireTimeout: number,
+    acquireTimeout: number,
     fn: () => Promise<T>
   ): Promise<T> {
-    // Grab the current tail (or a resolved promise if no one holds the lock)
-    const prev = tails[name] ?? Promise.resolve();
-
-    // Build a new tail: wait for prev, then run fn
-    let releaseLock!: () => void;
-    const next = new Promise<void>((resolve) => { releaseLock = resolve; });
-
-    // The new tail is: wait for prev to finish, then wait for fn to finish
-    tails[name] = prev.then(() => next);
-
-    // Return the actual work promise to the caller
-    return prev.then(async () => {
+    // Wait for any existing lock on this name to release, with a timeout
+    if (locks[name]) {
+      const timeout = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error(`Lock "${name}" timed out after ${acquireTimeout}ms`)), acquireTimeout)
+      );
       try {
-        return await fn();
-      } finally {
-        releaseLock();
-        // Clean up if nothing else is waiting
-        if (tails[name] === next || tails[name] === prev.then(() => next)) {
-          delete tails[name];
-        }
+        await Promise.race([locks[name], timeout]);
+      } catch {
+        // Timeout or error — proceed anyway to avoid deadlock
       }
+    }
+
+    let releaseLock!: () => void;
+    locks[name] = new Promise<void>((resolve) => {
+      releaseLock = resolve;
     });
+
+    try {
+      return await fn();
+    } finally {
+      releaseLock();
+      // Clean up the lock entry if it's the one we set
+      if (locks[name]) {
+        delete locks[name];
+      }
+    }
   };
 }
 

@@ -18,7 +18,6 @@ export function useServiceWorker(): ServiceWorkerState {
   const [isOnline, setIsOnline] = useState(true);
   const [swReady, setSwReady] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
-  const [mounted, setMounted] = useState(false);
 
   const refreshPending = useCallback(async () => {
     const count = await getPendingCount();
@@ -35,9 +34,7 @@ export function useServiceWorker(): ServiceWorkerState {
   }, []);
 
   useEffect(() => {
-    setMounted(true);
-
-    // Online/offline detection — only runs client-side after mount
+    // Online/offline detection
     setIsOnline(navigator.onLine);
     const handleOnline = () => {
       setIsOnline(true);
@@ -78,11 +75,6 @@ export function useServiceWorker(): ServiceWorkerState {
       unsubscribe();
     };
   }, [refreshPending, triggerSync]);
-
-  // Return stable SSR-safe values until mounted
-  if (!mounted) {
-    return { isOnline: true, swReady: false, pendingApprovals: 0, triggerSync };
-  }
 
   return { isOnline, swReady, pendingApprovals, triggerSync };
 }
