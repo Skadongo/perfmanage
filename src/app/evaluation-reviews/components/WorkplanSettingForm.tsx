@@ -7,6 +7,7 @@ import PrintAppraisalLayout from './PrintAppraisalLayout';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
 import { useAuth } from '@/contexts/AuthContext';
 import { roleCachedFetch, TTL_STAFF_LIST } from '@/lib/cache';
+import { toast } from 'sonner';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1051,15 +1052,20 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     setStep2Errors(e2);
 
     if (hasStep0Errors(e0)) {
-      setSaveError('Step 1 (Staff & Supervisor) has missing required fields. Please go back and complete them.');
+      const msg = 'Step 1 (Staff & Supervisor) has missing required fields. Please go back and complete them.';
+      setSaveError(msg);
+      toast.error(msg);
       return;
     }
     if (hasStep1Errors(e1)) {
-      setSaveError('Step 2 (Perspectives & KPIs) has incomplete objectives or incorrect total weight. Please go back and fix them.');
+      const msg = 'Step 2 (Perspectives & KPIs) has incomplete objectives or incorrect total weight. Please go back and fix them.';
+      setSaveError(msg);
+      toast.error(msg);
       return;
     }
     if (hasStep2Errors(e2)) {
       // Show inline errors on step 2 fields — no generic banner needed
+      toast.error('Please provide both signatures before submitting.');
       return;
     }
 
@@ -1067,109 +1073,210 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     // Verify the staff_id being submitted matches the logged-in user's own staff record.
     // Managers/HR are exempt and may submit on behalf of any staff member.
     if (!isManagerOrAbove && profile?.staffId && form.staffId !== profile.staffId) {
-      setSaveError('You can only set a workplan for your own account. Please refresh and try again.');
+      const msg = 'You can only set a workplan for your own account. Please refresh and try again.';
+      setSaveError(msg);
+      toast.error(msg);
       return;
     }
 
     // Ensure unauthenticated users cannot submit (Measure 4 — belt-and-suspenders)
     const { data: { user: currentUser } } = await supabaseRef.current.auth.getUser();
     if (!currentUser) {
-      setSaveError('Your session has expired. Please log in again.');
+      const msg = 'Your session has expired. Please log in again.';
+      setSaveError(msg);
+      toast.error(msg);
       return;
     }
 
     setSaving(true);
     setSaveError(null);
 
-    try {
-      const normalizedObjectives = normalizeBscWeights(form.perspectivesObjectives);
+    const MAX_RETRIES = 2;
+    let attempt = 0;
 
-      const payload = {
-        staff_id: form.staffId,
-        supervisor_id: form.supervisorId || null,
-        fiscal_year: form.fiscalYear,
-        review_year: form.reviewYear,
-        perspectives_objectives: normalizedObjectives,
-        general_competencies: form.generalCompetencies,
-        custom_kpis: form.customKpis,
-        staff_signature: form.staffSignature,
-        staff_signed_at: new Date().toISOString(),
-        supervisor_signature: form.supervisorSignature,
-        supervisor_signed_at: new Date().toISOString(),
-        status: 'signed',
-        workflow_stage: 'workplan_pending',
-        submitted_at: new Date().toISOString(),
-        review_type: 'annual',
-      };
+    while (attempt <= MAX_RETRIES) {
+      try {
+        const normalizedObjectives = normalizeBscWeights(form.perspectivesObjectives);
 
-      const { data, error } = await supabaseRef.current.from('workplan_settings').insert(payload).select('id').single();
-      if (error) {
-        setSaveError(error.message || 'Failed to save workplan. Please try again.');
+        const payload = {
+          staff_id: form.staffId,
+          supervisor_id: form.supervisorId || null,
+          fiscal_year: form.fiscalYear,
+          review_year: form.reviewYear,
+          perspectives_objectives: normalizedObjectives,
+          general_competencies: form.generalCompetencies,
+          custom_kpis: form.customKpis,
+          staff_signature: form.staffSignature,
+          staff_signed_at: new Date().toISOString(),
+          supervisor_signature: form.supervisorSignature,
+          supervisor_signed_at: new Date().toISOString(),
+          status: 'signed',
+          workflow_stage: 'workplan_pending',
+          submitted_at: new Date().toISOString(),
+          review_type: 'annual',
+        };
+
+        const { data, error } = await supabaseRef.current.from('workplan_settings').insert(payload).select('id').single();
+
+        if (error) {
+          const isNetworkError =
+            error.message?.toLowerCase().includes('network') ||
+            error.message?.toLowerCase().includes('fetch') ||
+            error.message?.toLowerCase().includes('timeout') ||
+            error.code === 'PGRST301';
+
+          if (isNetworkError && attempt < MAX_RETRIES) {
+            attempt++;
+            toast.loading(`Connection issue — retrying (${attempt}/${MAX_RETRIES})…`, { id: 'workplan-retry' });
+            await new Promise((r) => setTimeout(r, 1500 * attempt));
+            continue;
+          }
+
+          toast.dismiss('workplan-retry');
+
+          let errorMsg: string;
+          if (error.code === '42501' || error.message?.includes('policy')) {
+            errorMsg = 'You are not authorised to create a workplan for this staff member.';
+          } else if (error.code === '23505') {
+            errorMsg = 'A workplan for this staff member already exists for this fiscal year.';
+          } else {
+            errorMsg = error.message || 'Failed to save workplan. Please try again.';
+          }
+          setSaveError(errorMsg);
+          toast.error(errorMsg);
+          setSaving(false);
+          return;
+        }
+
+        toast.dismiss('workplan-retry');
+
+        // ── Measure 5: Audit trail — log workplan creation ────────────────────
+        await supabaseRef.current.from('activity_logs').insert({
+          activity_type: 'workplan_created',
+          actor_name: profile?.fullName || form.staffName || 'Staff Member',
+          action_description: `set workplan for ${form.fiscalYear}`,
+          subject_name: form.staffName,
+          subject_detail: `Workplan ID: ${data?.id} | Fiscal Year: ${form.fiscalYear} | Submitted by auth user: ${currentUser.id}`,
+          icon_name: 'ClipboardDocumentCheckIcon',
+          icon_bg: 'bg-sky-50',
+          icon_color: 'text-sky-600',
+        });
+
+        // Clear draft after successful submission
+        await clearDraft(null, form.staffId, form.fiscalYear || 'annual');
+
+        toast.success(`Workplan for ${form.staffName} saved successfully!`);
+        setSavedWorkplanId(data?.id ?? null);
+        setSaving(false);
+        setSubmitted(true);
+        return;
+      } catch (err: any) {
+        const isNetworkError =
+          err?.message?.toLowerCase().includes('network') ||
+          err?.message?.toLowerCase().includes('fetch') ||
+          err?.name === 'TypeError';
+
+        if (isNetworkError && attempt < MAX_RETRIES) {
+          attempt++;
+          toast.loading(`Connection issue — retrying (${attempt}/${MAX_RETRIES})…`, { id: 'workplan-retry' });
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+          continue;
+        }
+
+        toast.dismiss('workplan-retry');
+        const msg = 'An unexpected error occurred. Please try again.';
+        setSaveError(msg);
+        toast.error(msg);
+        setSaving(false);
         return;
       }
-
-      // ── Measure 5: Audit trail — log workplan creation ────────────────────
-      await supabaseRef.current.from('activity_logs').insert({
-        activity_type: 'workplan_created',
-        actor_name: profile?.fullName || form.staffName || 'Staff Member',
-        action_description: `set workplan for ${form.fiscalYear}`,
-        subject_name: form.staffName,
-        subject_detail: `Workplan ID: ${data?.id} | Fiscal Year: ${form.fiscalYear} | Submitted by auth user: ${currentUser.id}`,
-        icon_name: 'ClipboardDocumentCheckIcon',
-        icon_bg: 'bg-sky-50',
-        icon_color: 'text-sky-600',
-      });
-
-      // Clear draft after successful submission
-      await clearDraft(null, form.staffId, form.fiscalYear || 'annual');
-
-      setSavedWorkplanId(data?.id ?? null);
-      setSubmitted(true);
-    } catch (err: any) {
-      setSaveError('An unexpected error occurred. Please try again.');
-    } finally {
-      setSaving(false);
     }
+
+    setSaving(false);
   }
 
   async function handleSupervisorApprove() {
     if (!savedWorkplanId) return;
     setApproving(true);
     setApprovalError(null);
-    try {
-      const { error } = await supabaseRef.current
-        .from('workplan_settings')
-        .update({
-          workflow_stage: 'workplan_approved',
-          supervisor_approved_at: new Date().toISOString(),
-          supervisor_approval_comments: approvalComments || null,
-        })
-        .eq('id', savedWorkplanId);
 
-      if (error) {
-        setApprovalError(error.message || 'Failed to approve workplan.');
+    const MAX_RETRIES = 2;
+    let attempt = 0;
+
+    while (attempt <= MAX_RETRIES) {
+      try {
+        const { error } = await supabaseRef.current
+          .from('workplan_settings')
+          .update({
+            workflow_stage: 'workplan_approved',
+            supervisor_approved_at: new Date().toISOString(),
+            supervisor_approval_comments: approvalComments || null,
+          })
+          .eq('id', savedWorkplanId);
+
+        if (error) {
+          const isNetworkError =
+            error.message?.toLowerCase().includes('network') ||
+            error.message?.toLowerCase().includes('fetch') ||
+            error.code === 'PGRST301';
+
+          if (isNetworkError && attempt < MAX_RETRIES) {
+            attempt++;
+            toast.loading(`Connection issue — retrying (${attempt}/${MAX_RETRIES})…`, { id: 'approve-retry' });
+            await new Promise((r) => setTimeout(r, 1500 * attempt));
+            continue;
+          }
+
+          toast.dismiss('approve-retry');
+          const msg = error.message || 'Failed to approve workplan.';
+          setApprovalError(msg);
+          toast.error(msg);
+          setApproving(false);
+          return;
+        }
+
+        toast.dismiss('approve-retry');
+
+        // Log activity
+        await supabaseRef.current.from('activity_logs').insert({
+          activity_type: 'workplan_approved',
+          actor_name: profile?.fullName || form.supervisorName || 'Supervisor',
+          action_description: 'approved workplan — Mid-Year evaluation now unlocked',
+          subject_name: form.staffName,
+          subject_detail: `Workplan ID: ${savedWorkplanId} | Fiscal Year: ${form.fiscalYear} | Approved by: ${profile?.fullName || form.supervisorName}`,
+          icon_name: 'CheckBadgeIcon',
+          icon_bg: 'bg-emerald-50',
+          icon_color: 'text-emerald-600',
+        }).then(() => {});
+
+        toast.success(`Workplan approved — Mid-Year evaluation unlocked for ${form.staffName}!`);
+        setApproving(false);
+        setStageAdvanced(true);
+        onSubmit?.();
+        return;
+      } catch (err: any) {
+        const isNetworkError =
+          err?.message?.toLowerCase().includes('network') ||
+          err?.message?.toLowerCase().includes('fetch') ||
+          err?.name === 'TypeError';
+
+        if (isNetworkError && attempt < MAX_RETRIES) {
+          attempt++;
+          toast.loading(`Connection issue — retrying (${attempt}/${MAX_RETRIES})…`, { id: 'approve-retry' });
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+          continue;
+        }
+
+        toast.dismiss('approve-retry');
+        const msg = 'An unexpected error occurred.';
+        setApprovalError(msg);
+        toast.error(msg);
+        setApproving(false);
         return;
       }
-
-      // Log activity
-      await supabaseRef.current.from('activity_logs').insert({
-        activity_type: 'workplan_approved',
-        actor_name: profile?.fullName || form.supervisorName || 'Supervisor',
-        action_description: 'approved workplan — Mid-Year evaluation now unlocked',
-        subject_name: form.staffName,
-        subject_detail: `Workplan ID: ${savedWorkplanId} | Fiscal Year: ${form.fiscalYear} | Approved by: ${profile?.fullName || form.supervisorName}`,
-        icon_name: 'CheckBadgeIcon',
-        icon_bg: 'bg-emerald-50',
-        icon_color: 'text-emerald-600',
-      }).then(() => {});
-
-      setStageAdvanced(true);
-      onSubmit?.();
-    } catch (err: any) {
-      setApprovalError('An unexpected error occurred.');
-    } finally {
-      setApproving(false);
     }
+
+    setApproving(false);
   }
 
   // ── Stage advanced confirmation ──────────────────────────────────────────

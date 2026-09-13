@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,31 @@ interface FormData {
   staffSignature: string;
   supervisorSignature: string;
   hrSignature: string;
+}
+
+// ─── Validation ───────────────────────────────────────────────────────────────
+
+interface EvalFormErrors {
+  staffId?: string;
+  jobTitle?: string;
+  department?: string;
+  supervisorId?: string;
+  reviewDate?: string;
+  staffSignature?: string;
+  goals?: string;
+}
+
+function validateEvaluationForm(form: FormData): EvalFormErrors {
+  const errors: EvalFormErrors = {};
+  if (!form.staffId) errors.staffId = 'Please select a staff member.';
+  if (!form.jobTitle?.trim()) errors.jobTitle = 'Job title is required.';
+  if (!form.department?.trim()) errors.department = 'Department is required.';
+  if (!form.supervisorId) errors.supervisorId = 'Please select a supervisor.';
+  if (!form.reviewDate) errors.reviewDate = 'Review date is required.';
+  if (!form.staffSignature?.trim()) errors.staffSignature = 'Staff signature is required to submit.';
+  const validGoals = form.goals.filter((g) => g.goal.trim());
+  if (validGoals.length === 0) errors.goals = 'At least one goal with a description is required.';
+  return errors;
 }
 
 // ─── Data ────────────────────────────────────────────────────────────────────
@@ -247,6 +273,8 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   const [staffLoading, setStaffLoading] = useState(true);
   const [activeTimeline, setActiveTimeline] = useState<{ id: string; review_year: number } | null>(null);
   const [selectedPerspective, setSelectedPerspective] = useState('');
+  const [formErrors, setFormErrors] = useState<EvalFormErrors>({});
+  const [retryCount, setRetryCount] = useState(0);
 
   // Autosave state
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutosaveStatus>('idle');
@@ -605,209 +633,285 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
   async function handleSubmit() {
     if (!form.staffId) {
       setSaveError('Please select a staff member before submitting.');
+      toast.error('Please select a staff member before submitting.');
+      return;
+    }
+
+    // ── Client-side validation ────────────────────────────────────────────
+    const errors = validateEvaluationForm(form);
+    setFormErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      const firstError = Object.values(errors)[0];
+      setSaveError(firstError || 'Please fix the highlighted errors before submitting.');
+      toast.error('Please fix the highlighted errors before submitting.');
+      // Navigate to section 0 if staff/supervisor/date errors exist
+      if (errors.staffId || errors.jobTitle || errors.department || errors.supervisorId || errors.reviewDate) {
+        setActiveSection(0);
+      } else if (errors.goals) {
+        setActiveSection(1);
+      } else if (errors.staffSignature) {
+        setActiveSection(sections.length - 1);
+      }
       return;
     }
 
     // ── Security: Server-side ownership verification ──────────────────────
     // Verify the current user is allowed to submit for this staff member
     if (!isSupervisorOrAbove && profile?.staffId !== form.staffId) {
-      setSaveError('You are not authorised to submit an evaluation for this staff member.');
+      const msg = 'You are not authorised to submit an evaluation for this staff member.';
+      setSaveError(msg);
+      toast.error(msg);
       return;
     }
 
     // ── Security: Block re-submission if already submitted ────────────────
     if (isFormReadOnly) {
-      setSaveError('This evaluation has already been submitted and cannot be modified.');
+      const msg = 'This evaluation has already been submitted and cannot be modified.';
+      setSaveError(msg);
+      toast.error(msg);
       return;
     }
 
     setSaving(true);
     setSaveError(null);
 
-    try {
-      const reviewYear = activeTimeline?.review_year || new Date().getFullYear();
+    // ── Retry wrapper (up to 2 attempts on network errors) ───────────────
+    const MAX_RETRIES = 2;
+    let attempt = 0;
 
-      // ── Structured BSC ratings (stored as JSONB for reports) ──
-      const bscPerspectiveRatings = form.bscRatings.map((b) => ({
-        perspective: b.perspective,
-        selfRating: b.selfRating,
-        supervisorRating: b.supervisorRating,
-        weight: b.weight,
-        comments: b.comments,
-      }));
+    while (attempt <= MAX_RETRIES) {
+      try {
+        const reviewYear = activeTimeline?.review_year || new Date().getFullYear();
 
-      // ── Structured competency ratings (stored as JSONB) ──
-      const competencyRatingsDetail = form.competencyRatings.map((c) => ({
-        id: c.id,
-        label: c.label,
-        description: c.description,
-        selfRating: c.selfRating,
-        supervisorRating: c.supervisorRating,
-        behavioralEvidence: c.behavioralEvidence,
-        weight: c.weight,
-      }));
-
-      // ── Goals detail (stored as JSONB) ──
-      const goalsDetail = form.goals
-        .filter((g) => g.goal.trim())
-        .map((g) => ({
-          id: g.id,
-          goal: g.goal,
-          target: g.target,
-          actual: g.actual,
-          selfRating: g.selfRating,
-          supervisorRating: g.supervisorRating,
-          weight: g.weight,
-          comments: g.comments,
+        // ── Structured BSC ratings (stored as JSONB for reports) ──
+        const bscPerspectiveRatings = form.bscRatings.map((b) => ({
+          perspective: b.perspective,
+          selfRating: b.selfRating,
+          supervisorRating: b.supervisorRating,
+          weight: b.weight,
+          comments: b.comments,
         }));
 
-      // ── KPIs detail (stored as JSONB) ──
-      const kpisDetail = form.kpis
-        .filter((k) => k.kpiId)
-        .map((k) => ({
-          id: k.id,
-          kpiId: k.kpiId,
-          target: k.target,
-          actual: k.actual,
-          status: k.status,
-          selfRating: k.selfRating,
-          supervisorRating: k.supervisorRating,
+        // ── Structured competency ratings (stored as JSONB) ──
+        const competencyRatingsDetail = form.competencyRatings.map((c) => ({
+          id: c.id,
+          label: c.label,
+          description: c.description,
+          selfRating: c.selfRating,
+          supervisorRating: c.supervisorRating,
+          behavioralEvidence: c.behavioralEvidence,
+          weight: c.weight,
         }));
 
-      // ── Legacy text fields (kept for backward compat) ──
-      const kpiAchievementsText = kpisDetail
-        .map((k) => {
-          const kpiOption = KPI_OPTIONS.find((o) => o.id === k.kpiId);
-          return `${kpiOption?.label || k.kpiId}: Target=${k.target}, Actual=${k.actual}, Status=${k.status}`;
-        })
-        .join('\n');
+        // ── Goals detail (stored as JSONB) ──
+        const goalsDetail = form.goals
+          .filter((g) => g.goal.trim())
+          .map((g) => ({
+            id: g.id,
+            goal: g.goal,
+            target: g.target,
+            actual: g.actual,
+            selfRating: g.selfRating,
+            supervisorRating: g.supervisorRating,
+            weight: g.weight,
+            comments: g.comments,
+          }));
 
-      const competencyText = competencyRatingsDetail
-        .map((c) => `${c.label}: Self=${c.selfRating}/5, Supervisor=${c.supervisorRating}/5${c.behavioralEvidence ? ` | Evidence: ${c.behavioralEvidence}` : ''}`)
-        .join('\n');
+        // ── KPIs detail (stored as JSONB) ──
+        const kpisDetail = form.kpis
+          .filter((k) => k.kpiId)
+          .map((k) => ({
+            id: k.id,
+            kpiId: k.kpiId,
+            target: k.target,
+            actual: k.actual,
+            status: k.status,
+            selfRating: k.selfRating,
+            supervisorRating: k.supervisorRating,
+          }));
 
-      const selfAssessmentText = [
-        form.selfStrengths ? `Strengths: ${form.selfStrengths}` : '',
-        form.selfChallenges ? `Challenges: ${form.selfChallenges}` : '',
-        form.selfDevelopmentNeeds ? `Development Needs: ${form.selfDevelopmentNeeds}` : '',
-        form.selfOverallComments ? `Overall Comments: ${form.selfOverallComments}` : '',
-        competencyText ? `\nGeneral Competencies (Part 2):\n${competencyText}` : '',
-      ]
-        .filter(Boolean)
-        .join('\n');
+        // ── Legacy text fields (kept for backward compat) ──
+        const kpiAchievementsText = kpisDetail
+          .map((k) => {
+            const kpiOption = KPI_OPTIONS.find((o) => o.id === k.kpiId);
+            return `${kpiOption?.label || k.kpiId}: Target=${k.target}, Actual=${k.actual}, Status=${k.status}`;
+          })
+          .join('\n');
 
-      const supervisorCommentsText = [
-        form.supervisorStrengths ? `Strengths: ${form.supervisorStrengths}` : '',
-        form.supervisorAreasForImprovement ? `Areas for Improvement: ${form.supervisorAreasForImprovement}` : '',
-        form.supervisorDevelopmentPlan ? `Development Plan: ${form.supervisorDevelopmentPlan}` : '',
-        form.supervisorOverallComments ? `Overall Comments: ${form.supervisorOverallComments}` : '',
-        `Recommendation: ${form.supervisorRecommendation}`,
-      ]
-        .filter(Boolean)
-        .join('\n');
+        const competencyText = competencyRatingsDetail
+          .map((c) => `${c.label}: Self=${c.selfRating}/5, Supervisor=${c.supervisorRating}/5${c.behavioralEvidence ? ` | Evidence: ${c.behavioralEvidence}` : ''}`)
+          .join('\n');
 
-      const payload: Record<string, any> = {
-        staff_id: form.staffId,
-        review_year: reviewYear,
-        review_period: 'mid-year',
-        review_type: form.reviewType,
-        review_period_label: form.reviewPeriod,
-        review_status: 'submitted',
+        const selfAssessmentText = [
+          form.selfStrengths ? `Strengths: ${form.selfStrengths}` : '',
+          form.selfChallenges ? `Challenges: ${form.selfChallenges}` : '',
+          form.selfDevelopmentNeeds ? `Development Needs: ${form.selfDevelopmentNeeds}` : '',
+          form.selfOverallComments ? `Overall Comments: ${form.selfOverallComments}` : '',
+          competencyText ? `\nGeneral Competencies (Part 2):\n${competencyText}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n');
 
-        // ── Structured JSONB data (new — for reports & audit) ──
-        bsc_perspective_ratings: bscPerspectiveRatings,
-        competency_ratings_detail: competencyRatingsDetail,
-        goals_detail: goalsDetail,
-        kpis_detail: kpisDetail,
+        const supervisorCommentsText = [
+          form.supervisorStrengths ? `Strengths: ${form.supervisorStrengths}` : '',
+          form.supervisorAreasForImprovement ? `Areas for Improvement: ${form.supervisorAreasForImprovement}` : '',
+          form.supervisorDevelopmentPlan ? `Development Plan: ${form.supervisorDevelopmentPlan}` : '',
+          form.supervisorOverallComments ? `Overall Comments: ${form.supervisorOverallComments}` : '',
+          `Recommendation: ${form.supervisorRecommendation}`,
+        ]
+          .filter(Boolean)
+          .join('\n');
 
-        // ── Computed scores (stored for reporting, BSC on 0–100, competency on 0–20, overall on 0–120)
-        bsc_self_score: parseFloat(bscSelfScore100.toFixed(4)),
-        bsc_supervisor_score: parseFloat(bscSupervisorScore100.toFixed(4)),
-        competency_self_score: parseFloat(competencySelfScore.toFixed(4)),
-        competency_supervisor_score: parseFloat(competencySupervisorScore.toFixed(4)),
-        overall_self_score: parseFloat(overallSelfScore.toFixed(4)),
-        overall_supervisor_score: parseFloat(overallSupervisorScore.toFixed(4)),
+        const payload: Record<string, any> = {
+          staff_id: form.staffId,
+          review_year: reviewYear,
+          review_period: 'mid-year',
+          review_type: form.reviewType,
+          review_period_label: form.reviewPeriod,
+          review_status: 'submitted',
 
-        // ── Narrative fields ──
-        self_strengths: form.selfStrengths || null,
-        challenges_faced: form.selfChallenges || null,
-        support_needed: form.selfDevelopmentNeeds || null,
-        self_development_needs: form.selfDevelopmentNeeds || null,
-        supervisor_areas_for_improvement: form.supervisorAreasForImprovement || null,
-        supervisor_development_plan: form.supervisorDevelopmentPlan || null,
-        supervisor_recommendation: form.supervisorRecommendation || null,
+          // ── Structured JSONB data (new — for reports & audit) ──
+          bsc_perspective_ratings: bscPerspectiveRatings,
+          competency_ratings_detail: competencyRatingsDetail,
+          goals_detail: goalsDetail,
+          kpis_detail: kpisDetail,
 
-        // ── Ratings ──
-        self_rating: form.selfOverallRating,
-        supervisor_rating: form.supervisorOverallRating,
+          // ── Computed scores (stored for reporting, BSC on 0–100, competency on 0–20, overall on 0–120)
+          bsc_self_score: parseFloat(bscSelfScore100.toFixed(4)),
+          bsc_supervisor_score: parseFloat(bscSupervisorScore100.toFixed(4)),
+          competency_self_score: parseFloat(competencySelfScore.toFixed(4)),
+          competency_supervisor_score: parseFloat(competencySupervisorScore.toFixed(4)),
+          overall_self_score: parseFloat(overallSelfScore.toFixed(4)),
+          overall_supervisor_score: parseFloat(overallSupervisorScore.toFixed(4)),
 
-        // ── Legacy text fields (backward compat) ──
-        kpi_achievements: kpiAchievementsText || selfAssessmentText || null,
-        supervisor_comments: supervisorCommentsText || null,
+          // ── Narrative fields ──
+          self_strengths: form.selfStrengths || null,
+          challenges_faced: form.selfChallenges || null,
+          support_needed: form.selfDevelopmentNeeds || null,
+          self_development_needs: form.selfDevelopmentNeeds || null,
+          supervisor_areas_for_improvement: form.supervisorAreasForImprovement || null,
+          supervisor_development_plan: form.supervisorDevelopmentPlan || null,
+          supervisor_recommendation: form.supervisorRecommendation || null,
 
-        // ── Signatures ──
-        staff_signature: form.staffSignature || null,
-        supervisor_signature_eval: form.supervisorSignature || null,
-        hr_signature: form.hrSignature || null,
-        staff_signed_at: form.staffSignature ? new Date().toISOString() : null,
-        supervisor_signed_eval_at: form.supervisorSignature ? new Date().toISOString() : null,
-        hr_signed_at: form.hrSignature ? new Date().toISOString() : null,
+          // ── Ratings ──
+          self_rating: form.selfOverallRating,
+          supervisor_rating: form.supervisorOverallRating,
 
-        // ── Dates ──
-        review_date: form.reviewDate || null,
-        submitted_at: new Date().toISOString(),
-      };
+          // ── Legacy text fields (backward compat) ──
+          kpi_achievements: kpiAchievementsText || selfAssessmentText || null,
+          supervisor_comments: supervisorCommentsText || null,
 
-      if (form.supervisorId) {
-        payload.supervisor_id = form.supervisorId;
-      }
+          // ── Signatures ──
+          staff_signature: form.staffSignature || null,
+          supervisor_signature_eval: form.supervisorSignature || null,
+          hr_signature: form.hrSignature || null,
+          staff_signed_at: form.staffSignature ? new Date().toISOString() : null,
+          supervisor_signed_eval_at: form.supervisorSignature ? new Date().toISOString() : null,
+          hr_signed_at: form.hrSignature ? new Date().toISOString() : null,
 
-      if (activeTimeline?.id) {
-        payload.timeline_id = activeTimeline.id;
-      }
+          // ── Dates ──
+          review_date: form.reviewDate || null,
+          submitted_at: new Date().toISOString(),
+        };
 
-      const { error } = await supabaseRef.current.from('mid_year_reviews').insert(payload);
-
-      if (error) {
-        // Handle RLS violation gracefully
-        if (error.code === '42501' || error.message?.includes('policy')) {
-          setSaveError('You are not authorised to submit an evaluation for this staff member. Please contact your HR administrator.');
-        } else {
-          setSaveError(error.message || 'Failed to save evaluation. Please try again.');
+        if (form.supervisorId) {
+          payload.supervisor_id = form.supervisorId;
         }
+
+        if (activeTimeline?.id) {
+          payload.timeline_id = activeTimeline.id;
+        }
+
+        const { error } = await supabaseRef.current.from('mid_year_reviews').insert(payload);
+
+        if (error) {
+          // Detect network/transient errors for retry
+          const isNetworkError =
+            error.message?.toLowerCase().includes('network') ||
+            error.message?.toLowerCase().includes('fetch') ||
+            error.message?.toLowerCase().includes('timeout') ||
+            error.code === 'PGRST301';
+
+          if (isNetworkError && attempt < MAX_RETRIES) {
+            attempt++;
+            setRetryCount(attempt);
+            toast.loading(`Connection issue — retrying (${attempt}/${MAX_RETRIES})…`, { id: 'eval-retry' });
+            await new Promise((r) => setTimeout(r, 1500 * attempt));
+            continue;
+          }
+
+          toast.dismiss('eval-retry');
+
+          // Handle RLS violation gracefully
+          let errorMsg: string;
+          if (error.code === '42501' || error.message?.includes('policy')) {
+            errorMsg = 'You are not authorised to submit an evaluation for this staff member. Please contact your HR administrator.';
+          } else if (error.code === '23505') {
+            errorMsg = 'An evaluation for this staff member already exists for this review period.';
+          } else {
+            errorMsg = error.message || 'Failed to save evaluation. Please try again.';
+          }
+          setSaveError(errorMsg);
+          toast.error(errorMsg);
+          return;
+        }
+
+        toast.dismiss('eval-retry');
+
+        // Clear draft after successful submission
+        if (form.staffId) {
+          const draftWpId = `eval-draft-${form.staffId}`;
+          await clearDraft(draftWpId, form.staffId, form.reviewPeriod || 'mid-year');
+        }
+
+        // ── Audit log: record who submitted and for whom ──────────────────────
+        const actorName = profile?.fullName || user?.email || 'Unknown';
+        const isOnBehalf = isSupervisorOrAbove && profile?.staffId !== form.staffId;
+        await supabaseRef.current.from('activity_logs').insert({
+          activity_type: 'evaluation_submitted',
+          actor_name: actorName,
+          action_description: isOnBehalf
+            ? `${actorName} (${profile?.systemRole || 'supervisor'}) submitted ${form.reviewType} evaluation on behalf of ${form.staffName}`
+            : `submitted ${form.reviewType} evaluation`,
+          subject_name: form.staffName,
+          subject_detail: form.reviewPeriod,
+          icon_name: 'ClipboardDocumentCheckIcon',
+          icon_bg: 'bg-sky-50',
+          icon_color: 'text-sky-600',
+        }).then(() => {});
+
+        toast.success(`Evaluation for ${form.staffName} submitted successfully!`);
+        setRetryCount(0);
+        setSubmitted(true);
+        onSubmit?.();
         return;
+      } catch (err: any) {
+        const isNetworkError =
+          err?.message?.toLowerCase().includes('network') ||
+          err?.message?.toLowerCase().includes('fetch') ||
+          err?.name === 'TypeError';
+
+        if (isNetworkError && attempt < MAX_RETRIES) {
+          attempt++;
+          setRetryCount(attempt);
+          toast.loading(`Connection issue — retrying (${attempt}/${MAX_RETRIES})…`, { id: 'eval-retry' });
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+          continue;
+        }
+
+        toast.dismiss('eval-retry');
+        const msg = 'An unexpected error occurred. Please try again.';
+        setSaveError(msg);
+        toast.error(msg);
+        return;
+      } finally {
+        if (attempt === 0 || attempt > MAX_RETRIES) {
+          setSaving(false);
+        }
       }
-
-      // Clear draft after successful submission
-      if (form.staffId) {
-        const draftWpId = `eval-draft-${form.staffId}`;
-        await clearDraft(draftWpId, form.staffId, form.reviewPeriod || 'mid-year');
-      }
-
-      // ── Audit log: record who submitted and for whom ──────────────────────
-      const actorName = profile?.fullName || user?.email || 'Unknown';
-      const isOnBehalf = isSupervisorOrAbove && profile?.staffId !== form.staffId;
-      await supabaseRef.current.from('activity_logs').insert({
-        activity_type: 'evaluation_submitted',
-        actor_name: actorName,
-        action_description: isOnBehalf
-          ? `${actorName} (${profile?.systemRole || 'supervisor'}) submitted ${form.reviewType} evaluation on behalf of ${form.staffName}`
-          : `submitted ${form.reviewType} evaluation`,
-        subject_name: form.staffName,
-        subject_detail: form.reviewPeriod,
-        icon_name: 'ClipboardDocumentCheckIcon',
-        icon_bg: 'bg-sky-50',
-        icon_color: 'text-sky-600',
-      }).then(() => {});
-
-      setSubmitted(true);
-      onSubmit?.();
-    } catch (err: any) {
-      console.log('Unexpected error saving evaluation:', err);
-      setSaveError('An unexpected error occurred. Please try again.');
-    } finally {
-      setSaving(false);
     }
+
+    setSaving(false);
   }
 
   // ── Show loading while auth resolves ─────────────────────────────────────
@@ -992,7 +1096,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                     </div>
                   ) : (
                     <select
-                      className={`${selectCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
+                      className={`${selectCls} ${formErrors.staffId ? 'border-red-400 focus:ring-red-300' : ''} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                       value={form.staffId}
                       disabled={isFormReadOnly}
                       onChange={(e) => {
@@ -1016,22 +1120,53 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                       ))}
                     </select>
                   )}
+                  {formErrors.staffId && (
+                    <p className="flex items-center gap-1 mt-1 text-[11px] text-red-600">
+                      <Icon name="ExclamationCircleIcon" size={11} className="flex-shrink-0" />
+                      {formErrors.staffId}
+                    </p>
+                  )}
                 </FormField>
                 <FormField label="Job Title / Designation" required>
-                  <input className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={form.jobTitle} onChange={(e) => setField('jobTitle', e.target.value)} placeholder="Auto-filled from staff selection" readOnly={isFormReadOnly} />
+                  <input
+                    className={`${inputCls} ${formErrors.jobTitle ? 'border-red-400 focus:ring-red-300' : ''} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
+                    value={form.jobTitle}
+                    onChange={(e) => { setField('jobTitle', e.target.value); setFormErrors((p) => { const n = { ...p }; delete n.jobTitle; return n; }); }}
+                    placeholder="Auto-filled from staff selection"
+                    readOnly={isFormReadOnly}
+                  />
+                  {formErrors.jobTitle && (
+                    <p className="flex items-center gap-1 mt-1 text-[11px] text-red-600">
+                      <Icon name="ExclamationCircleIcon" size={11} className="flex-shrink-0" />
+                      {formErrors.jobTitle}
+                    </p>
+                  )}
                 </FormField>
                 <FormField label="Department / Unit" required>
-                  <input className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={form.department} onChange={(e) => setField('department', e.target.value)} placeholder="e.g. Finance & Admin, Programmes…" readOnly={isFormReadOnly} />
+                  <input
+                    className={`${inputCls} ${formErrors.department ? 'border-red-400 focus:ring-red-300' : ''} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
+                    value={form.department}
+                    onChange={(e) => { setField('department', e.target.value); setFormErrors((p) => { const n = { ...p }; delete n.department; return n; }); }}
+                    placeholder="e.g. Finance & Admin, Programmes…"
+                    readOnly={isFormReadOnly}
+                  />
+                  {formErrors.department && (
+                    <p className="flex items-center gap-1 mt-1 text-[11px] text-red-600">
+                      <Icon name="ExclamationCircleIcon" size={11} className="flex-shrink-0" />
+                      {formErrors.department}
+                    </p>
+                  )}
                 </FormField>
                 <FormField label="Supervisor / Line Manager" required>
                   <select
-                    className={`${selectCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
+                    className={`${selectCls} ${formErrors.supervisorId ? 'border-red-400 focus:ring-red-300' : ''} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
                     value={form.supervisorId}
                     disabled={isFormReadOnly}
                     onChange={(e) => {
                       const supervisor = staffList.find((s) => s.id === e.target.value);
                       setField('supervisorId', e.target.value);
                       setField('supervisor', supervisor?.full_name || '');
+                      setFormErrors((p) => { const n = { ...p }; delete n.supervisorId; return n; });
                     }}
                   >
                     <option value="">Select supervisor…</option>
@@ -1039,6 +1174,12 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                       <option key={s.id} value={s.id}>{s.full_name} — {s.job_title}</option>
                     ))}
                   </select>
+                  {formErrors.supervisorId && (
+                    <p className="flex items-center gap-1 mt-1 text-[11px] text-red-600">
+                      <Icon name="ExclamationCircleIcon" size={11} className="flex-shrink-0" />
+                      {formErrors.supervisorId}
+                    </p>
+                  )}
                 </FormField>
                 <FormField label="Review Type" required>
                   <select className={`${selectCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={form.reviewType} disabled={isFormReadOnly} onChange={(e) => setField('reviewType', e.target.value)}>
@@ -1052,7 +1193,19 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                   <input className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={form.reviewPeriod} onChange={(e) => setField('reviewPeriod', e.target.value)} placeholder="e.g. FY 2026–2027 Mid-Year" readOnly={isFormReadOnly} />
                 </FormField>
                 <FormField label="Review Date" required>
-                  <input type="date" className={`${inputCls} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`} value={form.reviewDate} onChange={(e) => setField('reviewDate', e.target.value)} readOnly={isFormReadOnly} />
+                  <input
+                    type="date"
+                    className={`${inputCls} ${formErrors.reviewDate ? 'border-red-400 focus:ring-red-300' : ''} ${isFormReadOnly ? 'bg-muted/40 cursor-not-allowed' : ''}`}
+                    value={form.reviewDate}
+                    onChange={(e) => { setField('reviewDate', e.target.value); setFormErrors((p) => { const n = { ...p }; delete n.reviewDate; return n; }); }}
+                    readOnly={isFormReadOnly}
+                  />
+                  {formErrors.reviewDate && (
+                    <p className="flex items-center gap-1 mt-1 text-[11px] text-red-600">
+                      <Icon name="ExclamationCircleIcon" size={11} className="flex-shrink-0" />
+                      {formErrors.reviewDate}
+                    </p>
+                  )}
                 </FormField>
                 {activeTimeline && (
                   <div className="sm:col-span-2">
