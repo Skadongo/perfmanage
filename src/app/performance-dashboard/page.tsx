@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useCallback, lazy, Suspense, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import Link from 'next/link';
@@ -115,6 +115,11 @@ function StaffUpdateBanner({ onDismiss }: { onDismiss: () => void }) {
 export default function PerformanceDashboardPage() {
   const { profile } = useAuth();
   const { isOnline, pendingApprovals, triggerSync } = useServiceWorker();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const systemRole = profile?.systemRole ?? 'default';
   const roleBucket = resolveRoleBucket(systemRole);
@@ -161,7 +166,7 @@ export default function PerformanceDashboardPage() {
       actions={
         <div className="flex items-center gap-2">
           {/* Offline indicator */}
-          {!isOnline && (
+          {mounted && !isOnline && (
             <span className="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-amber-700 bg-amber-50 border-amber-200">
               <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
               Offline
@@ -172,7 +177,7 @@ export default function PerformanceDashboardPage() {
               )}
             </span>
           )}
-          {isOnline && pendingApprovals > 0 && (
+          {mounted && isOnline && pendingApprovals > 0 && (
             <button
               onClick={triggerSync}
               className="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100 transition-colors"
@@ -186,11 +191,11 @@ export default function PerformanceDashboardPage() {
             {profile?.fullName ? profile.fullName.split(' ')[0] : config.roleLabel}
           </span>
           <span className={`hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-            realtimeActive
+            mounted && realtimeActive
               ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :'text-muted-foreground bg-muted border-border'
           }`}>
-            <span className={`w-2 h-2 rounded-full inline-block ${realtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} />
-            {realtimeActive ? 'Live' : 'Connecting…'}
+            <span className={`w-2 h-2 rounded-full inline-block ${mounted && realtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} />
+            {mounted && realtimeActive ? 'Live' : 'Connecting…'}
           </span>
           <button className="btn-brand">
             <Icon name="EcsaExportIcon" size={14} className="text-white" />
