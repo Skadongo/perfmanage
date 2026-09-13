@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useCallback, lazy, Suspense, useEffect } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import Link from 'next/link';
@@ -127,8 +127,14 @@ export default function PerformanceDashboardPage() {
   const scopedStaffId = config.dataScope === 'self' ? (profile?.staffId ?? null) : null;
   const supervisorStaffId = config.dataScope === 'direct' ? (profile?.staffId ?? null) : null;
 
+  const [mounted, setMounted] = useState(false);
   const [showRoleBanner, setShowRoleBanner] = useState(false);
   const [showStaffBanner, setShowStaffBanner] = useState(false);
+
+  // Prevent hydration mismatch — only show client-only dynamic values after mount
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleRoleChange = useCallback(() => {
     setShowRoleBanner(true);
@@ -186,11 +192,11 @@ export default function PerformanceDashboardPage() {
             {profile?.fullName ? profile.fullName.split(' ')[0] : config.roleLabel}
           </span>
           <span className={`hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-            realtimeActive
+            mounted && realtimeActive
               ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :'text-muted-foreground bg-muted border-border'
           }`}>
-            <span className={`w-2 h-2 rounded-full inline-block ${realtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} />
-            {realtimeActive ? 'Live' : 'Connecting…'}
+            <span className={`w-2 h-2 rounded-full inline-block ${mounted && realtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} />
+            {mounted ? (realtimeActive ? 'Live' : 'Connecting…') : 'Connecting…'}
           </span>
           <button className="btn-brand">
             <Icon name="EcsaExportIcon" size={14} className="text-white" />
