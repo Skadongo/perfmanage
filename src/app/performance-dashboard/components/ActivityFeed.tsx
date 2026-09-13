@@ -1,9 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useRef, useCallback, memo } from 'react';
+import React, { useEffect, useState } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
-import { cachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 
 interface ActivityLog {
   id: string;
@@ -39,91 +38,62 @@ function timeAgo(dateStr: string): string {
   return `${diffDays}d ago`;
 }
 
-// Memoized individual activity row — prevents re-render of unchanged rows
-const ActivityRow = memo(function ActivityRow({ activity }: { activity: ActivityLog }) {
-  return (
-    <div className="flex items-start gap-3">
-      <div className={`w-8 h-8 rounded-full ${activity.iconBg || 'bg-muted'} flex items-center justify-center flex-shrink-0 mt-0.5`}>
-        <Icon
-          name={(activity.iconName as Parameters<typeof Icon>[0]['name']) || 'BellIcon'}
-          size={14}
-          className={activity.iconColor || 'text-muted-foreground'}
-        />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-600 text-foreground truncate">{activity.actorName}</p>
-        <p className="text-[11px] text-muted-foreground truncate">{activity.actionDescription}</p>
-        {activity.subjectName && (
-          <p className="text-[10px] text-muted-foreground/70 truncate">{activity.subjectName}</p>
-        )}
-      </div>
-      <span className="text-[10px] text-muted-foreground whitespace-nowrap flex-shrink-0">
-        {timeAgo(activity.createdAt)}
-      </span>
-    </div>
-  );
-});
-
-export default memo(function ActivityFeed({ staffId, supervisorId }: Props) {
+export default function ActivityFeed({ staffId, supervisorId }: Props) {
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const isMounted = useRef(true);
-  const supabaseRef = useRef(createClient());
-
-  const fetchActivities = useCallback(async () => {
-    const supabase = supabaseRef.current;
-    const cacheKey = `activity-feed:${staffId ?? supervisorId ?? 'org'}`;
-
-    try {
-      const mapped = await cachedFetch<ActivityLog[]>(
-        cacheKey,
-        async () => {
-          // Select only needed columns — avoid SELECT *
-          let query = supabase
-            .from('activity_logs')
-            .select('id, activity_type, actor_name, action_description, subject_name, subject_detail, icon_name, icon_bg, icon_color, created_at')
-            .order('created_at', { ascending: false })
-            .limit(10);
-
-          if (staffId) {
-            query = query.eq('subject_id', staffId);
-          } else if (supervisorId) {
-            query = query.eq('supervisor_id', supervisorId);
-          }
-
-          const { data, error: fetchError } = await query;
-          if (fetchError) throw new Error('Could not load activity logs.');
-
-          return (data || []).map((row) => ({
-            id: row.id,
-            activityType: row.activity_type,
-            actorName: row.actor_name,
-            actionDescription: row.action_description,
-            subjectName: row.subject_name,
-            subjectDetail: row.subject_detail,
-            iconName: row.icon_name,
-            iconBg: row.icon_bg,
-            iconColor: row.icon_color,
-            createdAt: row.created_at,
-          }));
-        },
-        TTL_DASHBOARD_METRICS
-      );
-
-      if (isMounted.current) setActivities(mapped);
-    } catch {
-      if (isMounted.current) setError('Could not load activity logs.');
-    } finally {
-      if (isMounted.current) setLoading(false);
-    }
-  }, [staffId, supervisorId]);
 
   useEffect(() => {
-    isMounted.current = true;
+    const fetchActivities = async () => {
+      try {
+        const supabase = createClient();
+
+        let query = supabase
+          .from('activity_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        // Scope by staff member (self view)
+        if (staffId) {
+          query = query.eq('subject_id', staffId);
+        }
+        // Scope by supervisor — filter by actor_id matching supervisor's staff id
+        // so supervisors see actions taken by or about their direct reports
+        if (supervisorId && !staffId) {
+          query = query.eq('supervisor_id', supervisorId);
+        }
+
+        const { data, error: fetchError } = await query;
+
+        if (fetchError) {
+          setError('Could not load activity logs.');
+          return;
+        }
+
+        const mapped: ActivityLog[] = (data || []).map((row) => ({
+          id: row.id,
+          activityType: row.activity_type,
+          actorName: row.actor_name,
+          actionDescription: row.action_description,
+          subjectName: row.subject_name,
+          subjectDetail: row.subject_detail,
+          iconName: row.icon_name,
+          iconBg: row.icon_bg,
+          iconColor: row.icon_color,
+          createdAt: row.created_at,
+        }));
+
+        setActivities(mapped);
+      } catch {
+        setError('Could not load activity logs.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchActivities();
-    return () => { isMounted.current = false; };
-  }, [fetchActivities]);
+  }, [staffId, supervisorId]);
 
   return (
     <div className="bg-white rounded-xl border border-border shadow-card p-5 h-full">
@@ -162,10 +132,28 @@ export default memo(function ActivityFeed({ staffId, supervisorId }: Props) {
       {!loading && !error && activities.length > 0 && (
         <div className="space-y-3">
           {activities.map((activity) => (
-            <ActivityRow key={activity.id} activity={activity} />
+            <div key={activity.id} className="flex items-start gap-3">
+              <div className={`w-8 h-8 rounded-full ${activity.iconBg || 'bg-muted'} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                <Icon
+                  name={(activity.iconName as Parameters<typeof Icon>[0]['name']) || 'BellIcon'}
+                  size={14}
+                  className={activity.iconColor || 'text-muted-foreground'}
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-600 text-foreground truncate">{activity.actorName}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{activity.actionDescription}</p>
+                {activity.subjectName && (
+                  <p className="text-[10px] text-muted-foreground/70 truncate">{activity.subjectName}</p>
+                )}
+              </div>
+              <span className="text-[10px] text-muted-foreground whitespace-nowrap flex-shrink-0">
+                {timeAgo(activity.createdAt)}
+              </span>
+            </div>
           ))}
         </div>
       )}
     </div>
   );
-});
+}

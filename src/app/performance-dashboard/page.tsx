@@ -3,7 +3,6 @@
 import React, { useState, useCallback, lazy, Suspense } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-import Link from 'next/link';
 import { ChartSkeleton, MetricCardSkeleton, TableSkeleton } from '@/components/ui/SkeletonLoader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRealtimeDashboard, type LiveStats } from '@/hooks/useRealtimeDashboard';
@@ -199,13 +198,6 @@ export default function PerformanceDashboardPage() {
         </div>
       }
     >
-      {/* Prefetch likely next routes — invisible links that trigger Next.js prefetch */}
-      <div className="sr-only" aria-hidden="true">
-        <Link href="/evaluation-reviews" prefetch={true}>evaluation</Link>
-        <Link href="/analytics-reports" prefetch={true}>analytics</Link>
-        <Link href="/self-assessment" prefetch={true}>self-assessment</Link>
-      </div>
-
       <div className="space-y-5">
         {/* Offline banner */}
         {!isOnline && (
