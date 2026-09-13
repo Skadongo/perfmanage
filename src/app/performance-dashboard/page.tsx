@@ -164,37 +164,40 @@ export default function PerformanceDashboardPage() {
       pageTitle={config.roleLabel}
       pageSubtitle={config.dashboardSubtitle}
       actions={
-        <div className="flex items-center gap-2">
-          {/* Offline indicator */}
-          {mounted && !isOnline && (
-            <span className="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-amber-700 bg-amber-50 border-amber-200">
-              <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
-              Offline
-              {pendingApprovals > 0 && (
-                <span className="ml-1 bg-amber-200 text-amber-800 rounded-full px-1.5 py-0.5 text-[10px] font-700">
-                  {pendingApprovals} queued
-                </span>
-              )}
-            </span>
-          )}
-          {mounted && isOnline && pendingApprovals > 0 && (
-            <button
-              onClick={triggerSync}
-              className="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100 transition-colors"
-            >
-              <Icon name="ArrowPathIcon" size={12} />
-              Sync {pendingApprovals} approval{pendingApprovals !== 1 ? 's' : ''}
-            </button>
-          )}
+        <div className="flex items-center gap-2" suppressHydrationWarning>
+          {/* Offline indicator — always in DOM, hidden until mounted */}
+          <span
+            className={`items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-amber-700 bg-amber-50 border-amber-200 ${
+              mounted && !isOnline ? 'hidden sm:flex' : 'hidden'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+            Offline
+            {pendingApprovals > 0 && (
+              <span className="ml-1 bg-amber-200 text-amber-800 rounded-full px-1.5 py-0.5 text-[10px] font-700">
+                {pendingApprovals} queued
+              </span>
+            )}
+          </span>
+          {/* Sync button — always in DOM, hidden until mounted + conditions met */}
+          <button
+            onClick={triggerSync}
+            className={`items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100 transition-colors ${
+              mounted && isOnline && pendingApprovals > 0 ? 'hidden sm:flex' : 'hidden'
+            }`}
+          >
+            <Icon name="ArrowPathIcon" size={12} />
+            Sync {pendingApprovals} approval{pendingApprovals !== 1 ? 's' : ''}
+          </button>
           <span className={`hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 ${config.roleBadgeClass}`}>
             <Icon name="UserCircleIcon" size={12} />
             {profile?.fullName ? profile.fullName.split(' ')[0] : config.roleLabel}
           </span>
           <span className={`hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
             mounted && realtimeActive
-              ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :'text-muted-foreground bg-muted border-border'
-          }`}>
-            <span className={`w-2 h-2 rounded-full inline-block ${mounted && realtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} />
+              ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-muted-foreground bg-muted border-border'
+          }`} suppressHydrationWarning>
+            <span className={`w-2 h-2 rounded-full inline-block ${mounted && realtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} suppressHydrationWarning />
             {mounted && realtimeActive ? 'Live' : 'Connecting…'}
           </span>
           <button className="btn-brand">
