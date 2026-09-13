@@ -797,6 +797,48 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     async function loadStaff() {
       setStaffLoading(true);
       try {
+        // Non-managers only need their own record — fetch just that one row
+        if (!isManagerOrAbove && profile) {
+          let ownRecord: StaffOption | null = null;
+
+          // Try by staff_id first (fastest)
+          if (profile.staffId) {
+            const { data: row } = await supabaseRef.current
+              .from('staff')
+              .select('id, full_name, job_title, supervisor_id, supervisor_name')
+              .eq('id', profile.staffId)
+              .eq('employment_status', 'active')
+              .maybeSingle();
+            ownRecord = row ?? null;
+          }
+
+          // Fallback: match by email
+          if (!ownRecord && profile.email) {
+            const { data: row } = await supabaseRef.current
+              .from('staff')
+              .select('id, full_name, job_title, supervisor_id, supervisor_name')
+              .eq('email', profile.email)
+              .eq('employment_status', 'active')
+              .maybeSingle();
+            ownRecord = row ?? null;
+          }
+
+          if (ownRecord) {
+            setStaffList([ownRecord]);
+            // Pre-fill form immediately
+            setForm((prev) => ({
+              ...prev,
+              staffId: ownRecord!.id,
+              staffName: ownRecord!.full_name,
+              jobTitle: ownRecord!.job_title,
+              supervisorId: ownRecord!.supervisor_id || prev.supervisorId,
+              supervisorName: ownRecord!.supervisor_name || prev.supervisorName,
+            }));
+          }
+          return;
+        }
+
+        // Managers and above: load the full active staff list (cached)
         const data = await roleCachedFetch(
           'staff-active-list',
           'all',
@@ -821,7 +863,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     }
     loadStaff();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isManagerOrAbove, profile]);
 
   // ── Auto-lock staff field to logged-in user (Measure 1) ──────────────────
   // Runs whenever staffList or profile changes so the lock fires even if
