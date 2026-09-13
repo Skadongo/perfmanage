@@ -111,6 +111,83 @@ function StaffUpdateBanner({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
+// ── Actions bar — rendered only on client to avoid hydration mismatch ───────
+interface ActionsBarProps {
+  isOnline: boolean;
+  pendingApprovals: number;
+  realtimeActive: boolean;
+  triggerSync: () => void;
+  config: RoleDashboardConfig;
+  profile: { fullName?: string | null } | null;
+}
+
+function ActionsBar({ isOnline, pendingApprovals, realtimeActive, triggerSync, config, profile }: ActionsBarProps) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  if (!mounted) {
+    // Render a stable placeholder that matches SSR output exactly
+    return (
+      <div className="flex items-center gap-2">
+        <span className={`hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 ${config.roleBadgeClass}`}>
+          <Icon name="UserCircleIcon" size={12} />
+          {config.roleLabel}
+        </span>
+        <span className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors text-muted-foreground bg-muted border-border">
+          <span className="w-2 h-2 rounded-full inline-block bg-muted-foreground" />
+          Connecting…
+        </span>
+        <button className="btn-brand">
+          <Icon name="EcsaExportIcon" size={14} className="text-white" />
+          <span className="hidden sm:inline">Export</span>
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Offline indicator */}
+      {!isOnline && (
+        <span className="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-amber-700 bg-amber-50 border-amber-200">
+          <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+          Offline
+          {pendingApprovals > 0 && (
+            <span className="ml-1 bg-amber-200 text-amber-800 rounded-full px-1.5 py-0.5 text-[10px] font-700">
+              {pendingApprovals} queued
+            </span>
+          )}
+        </span>
+      )}
+      {/* Sync button */}
+      {isOnline && pendingApprovals > 0 && (
+        <button
+          onClick={triggerSync}
+          className="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100 transition-colors"
+        >
+          <Icon name="ArrowPathIcon" size={12} />
+          Sync {pendingApprovals} approval{pendingApprovals !== 1 ? 's' : ''}
+        </button>
+      )}
+      <span className={`hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 ${config.roleBadgeClass}`}>
+        <Icon name="UserCircleIcon" size={12} />
+        {profile?.fullName ? profile.fullName.split(' ')[0] : config.roleLabel}
+      </span>
+      <span className={`hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+        realtimeActive
+          ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :'text-muted-foreground bg-muted border-border'
+      }`}>
+        <span className={`w-2 h-2 rounded-full inline-block ${realtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`} />
+        {realtimeActive ? 'Live' : 'Connecting…'}
+      </span>
+      <button className="btn-brand">
+        <Icon name="EcsaExportIcon" size={14} className="text-white" />
+        <span className="hidden sm:inline">Export</span>
+      </button>
+    </div>
+  );
+}
+
 // ── Main page ───────────────────────────────────────────────────────────────
 export default function PerformanceDashboardPage() {
   const { profile } = useAuth();
@@ -164,55 +241,14 @@ export default function PerformanceDashboardPage() {
       pageTitle={config.roleLabel}
       pageSubtitle={config.dashboardSubtitle}
       actions={
-        <div className="flex items-center gap-2" suppressHydrationWarning>
-          {/* Offline indicator — always in DOM, hidden until mounted */}
-          <span
-            suppressHydrationWarning
-            className={`items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-amber-700 bg-amber-50 border-amber-200 ${
-              mounted && !isOnline ? 'hidden sm:flex' : 'hidden'
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
-            Offline
-            {pendingApprovals > 0 && (
-              <span className="ml-1 bg-amber-200 text-amber-800 rounded-full px-1.5 py-0.5 text-[10px] font-700">
-                {pendingApprovals} queued
-              </span>
-            )}
-          </span>
-          {/* Sync button — always in DOM, hidden until mounted + conditions met */}
-          <button
-            onClick={triggerSync}
-            suppressHydrationWarning
-            className={`items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100 transition-colors ${
-              mounted && isOnline && pendingApprovals > 0 ? 'hidden sm:flex' : 'hidden'
-            }`}
-          >
-            <Icon name="ArrowPathIcon" size={12} />
-            Sync {pendingApprovals} approval{pendingApprovals !== 1 ? 's' : ''}
-          </button>
-          <span className={`hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 ${config.roleBadgeClass}`}>
-            <Icon name="UserCircleIcon" size={12} />
-            {profile?.fullName ? profile.fullName.split(' ')[0] : config.roleLabel}
-          </span>
-          <span
-            suppressHydrationWarning
-            className={`hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-              mounted && realtimeActive
-                ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-muted-foreground bg-muted border-border'
-            }`}
-          >
-            <span
-              suppressHydrationWarning
-              className={`w-2 h-2 rounded-full inline-block ${mounted && realtimeActive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground'}`}
-            />
-            {mounted ? (realtimeActive ? 'Live' : 'Connecting…') : 'Connecting…'}
-          </span>
-          <button className="btn-brand">
-            <Icon name="EcsaExportIcon" size={14} className="text-white" />
-            <span className="hidden sm:inline">Export</span>
-          </button>
-        </div>
+        <ActionsBar
+          isOnline={isOnline}
+          pendingApprovals={pendingApprovals}
+          realtimeActive={realtimeActive}
+          triggerSync={triggerSync}
+          config={config}
+          profile={profile}
+        />
       }
     >
       {/* Prefetch likely next routes — invisible links that trigger Next.js prefetch */}
@@ -223,18 +259,16 @@ export default function PerformanceDashboardPage() {
       </div>
 
       <div className="space-y-5">
-        {/* Offline banner — suppressed to avoid hydration mismatch */}
-        <div suppressHydrationWarning>
-          {mounted && !isOnline && (
-            <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
-              <Icon name="WifiIcon" size={16} className="text-amber-600 flex-shrink-0" />
-              <span className="flex-1 font-500">
-                You&apos;re offline. Viewing cached dashboard data.
-                {pendingApprovals > 0 && ` ${pendingApprovals} review approval${pendingApprovals !== 1 ? 's' : ''} will sync when you reconnect.`}
-              </span>
-            </div>
-          )}
-        </div>
+        {/* Offline banner — only rendered client-side after mount */}
+        {mounted && !isOnline && (
+          <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+            <Icon name="WifiIcon" size={16} className="text-amber-600 flex-shrink-0" />
+            <span className="flex-1 font-500">
+              You&apos;re offline. Viewing cached dashboard data.
+              {pendingApprovals > 0 && ` ${pendingApprovals} review approval${pendingApprovals !== 1 ? 's' : ''} will sync when you reconnect.`}
+            </span>
+          </div>
+        )}
 
         {showRoleBanner && <RoleChangeBanner onDismiss={() => setShowRoleBanner(false)} />}
         {showStaffBanner && <StaffUpdateBanner onDismiss={() => setShowStaffBanner(false)} />}
