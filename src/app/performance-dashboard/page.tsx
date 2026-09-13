@@ -213,7 +213,7 @@ export default function PerformanceDashboardPage() {
 
       <div className="space-y-5">
         {/* Offline banner */}
-        {!isOnline && (
+        {mounted && !isOnline && (
           <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
             <Icon name="WifiIcon" size={16} className="text-amber-600 flex-shrink-0" />
             <span className="flex-1 font-500">
