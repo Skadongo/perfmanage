@@ -51,6 +51,18 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   if (url.origin !== self.location.origin && !url.hostname.includes('supabase.co')) return;
 
+  // Never intercept Supabase auth endpoints — these use navigator locks and
+  // SW interception causes "Lock broken by steal" AbortErrors
+  if (url.hostname.includes('supabase.co') && (
+    url.pathname.includes('/auth/') ||
+    url.pathname.includes('/token') ||
+    url.pathname.includes('/user') ||
+    url.pathname.includes('/logout') ||
+    url.pathname.includes('/session')
+  )) {
+    return; // Let the browser handle auth requests directly
+  }
+
   // Supabase REST API — network-first, cache fallback (role-scoped key)
   if (url.hostname.includes('supabase.co') && url.pathname.includes('/rest/')) {
     event.respondWith(networkFirstWithCache(request, API_CACHE, 2 * 60 * 1000));
