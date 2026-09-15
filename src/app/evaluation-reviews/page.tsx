@@ -8,6 +8,7 @@ import WorkplanSettingForm from './components/WorkplanSettingForm';
 import SelfEvaluationForm from './components/SelfEvaluationForm';
 import SupervisorReviewForm from './components/SupervisorReviewForm';
 import WorkflowProgressPanel from './components/WorkflowProgressPanel';
+import WorkplanListView from './components/WorkplanListView';
 import { Toaster, toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
@@ -525,6 +526,12 @@ export default function EvaluationReviewsPage() {
             <ReviewStatsDashboard reviews={reviewsSummary} />
             }
             </div>
+
+            {/* Paginated workplan list with fiscal-year accordion */}
+            <div className="bg-white rounded-xl border border-border shadow-card p-5">
+              <WorkplanListView onOpenWorkplan={() => setActiveForm('workplan')} />
+            </div>
+
             <ReviewTable />
           </> :
 

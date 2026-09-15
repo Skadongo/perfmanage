@@ -794,6 +794,61 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.staffId]);
 
+  // ── On-demand: load existing workplan when staff + fiscal year are selected ──
+  const [existingWorkplanId, setExistingWorkplanId] = useState<string | null>(null);
+  const [existingWorkplanLoading, setExistingWorkplanLoading] = useState(false);
+  const existingWorkplanFetched = useRef(false);
+
+  useEffect(() => {
+    if (!form.staffId || !form.fiscalYear) return;
+    if (existingWorkplanFetched.current) return;
+
+    existingWorkplanFetched.current = true;
+    setExistingWorkplanLoading(true);
+
+    supabaseRef.current
+      .from('workplan_settings')
+      .select('id, perspectives_objectives, general_competencies, custom_kpis, staff_signature, supervisor_signature, supervisor_id, supervisor_name, workflow_stage, status')
+      .eq('staff_id', form.staffId)
+      .eq('fiscal_year', form.fiscalYear)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data: existing }) => {
+        if (existing) {
+          setExistingWorkplanId(existing.id);
+          setSavedWorkplanId(existing.id);
+          // Populate form with existing data so staff can edit/re-submit
+          setForm((prev) => ({
+            ...prev,
+            supervisorId: existing.supervisor_id || prev.supervisorId,
+            supervisorName: existing.supervisor_name || prev.supervisorName,
+            perspectivesObjectives: existing.perspectives_objectives?.length
+              ? existing.perspectives_objectives
+              : prev.perspectivesObjectives,
+            generalCompetencies: existing.general_competencies?.length
+              ? existing.general_competencies
+              : prev.generalCompetencies,
+            customKpis: existing.custom_kpis || prev.customKpis,
+            staffSignature: existing.staff_signature || prev.staffSignature,
+            supervisorSignature: existing.supervisor_signature || prev.supervisorSignature,
+          }));
+          if (existing.status === 'signed' || existing.status === 'approved') {
+            toast.info(`Loaded existing workplan for ${form.fiscalYear}. You can review or update it.`);
+          }
+        }
+      })
+      .catch(() => { /* silent — form still works with defaults */ })
+      .finally(() => setExistingWorkplanLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.staffId, form.fiscalYear]);
+
+  // Reset on-demand fetch flag when staff or fiscal year changes
+  useEffect(() => {
+    existingWorkplanFetched.current = false;
+    setExistingWorkplanId(null);
+  }, [form.staffId, form.fiscalYear]);
+
   useEffect(() => {
     async function loadStaff() {
       setStaffLoading(true);
@@ -1526,6 +1581,20 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
                 Loading staff list…
               </div>
             ) : (
+              <>
+                {/* On-demand workplan loading indicator */}
+                {existingWorkplanLoading && (
+                  <div className="flex items-center gap-2 text-xs text-sky-700 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+                    <div className="w-3.5 h-3.5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                    Loading existing workplan for {form.fiscalYear}…
+                  </div>
+                )}
+                {existingWorkplanId && !existingWorkplanLoading && (
+                  <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                    <Icon name="CheckCircleIcon" size={13} className="flex-shrink-0" />
+                    Existing workplan loaded for {form.fiscalYear} — you can review and update it.
+                  </div>
+                )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Staff Member" required error={step0Errors.staffId}>
                   {/* ── Measure 1: Lock staff field for non-managers ─────── */}
@@ -1596,6 +1665,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
                   </select>
                 </FormField>
               </div>
+              </>
             )}
           </div>
         )}
