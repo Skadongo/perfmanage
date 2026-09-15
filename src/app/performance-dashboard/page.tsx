@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useCallback, Suspense } from 'react';
+import dynamic from 'next/dynamic';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { ChartSkeleton, MetricCardSkeleton, TableSkeleton } from '@/components/ui/SkeletonLoader';
@@ -15,14 +16,14 @@ import {
 import type { DrillDownFilter } from './components/StaffDrillDownModal';
 
 // ── Lazy-load heavy dashboard widgets ──────────────────────────────────────
-const DashboardMetricCards  = lazy(() => import('./components/DashboardMetricCards'));
-const BSCPerspectiveChart   = lazy(() => import('./components/BSCPerspectiveChart'));
-const KPITrendChart         = lazy(() => import('./components/KPITrendChart'));
-const FrameworkIndicators   = lazy(() => import('./components/FrameworkIndicators'));
-const AtRiskStaffTable      = lazy(() => import('./components/AtRiskStaffTable'));
-const ActivityFeed          = lazy(() => import('./components/ActivityFeed'));
-const StaffDrillDownModal   = lazy(() => import('./components/StaffDrillDownModal'));
-const StrategicPlanSection  = lazy(() => import('./components/StrategicPlanSection'));
+const DashboardMetricCards  = dynamic(() => import('./components/DashboardMetricCards'));
+const BSCPerspectiveChart   = dynamic(() => import('./components/BSCPerspectiveChart'));
+const KPITrendChart         = dynamic(() => import('./components/KPITrendChart'));
+const FrameworkIndicators   = dynamic(() => import('./components/FrameworkIndicators'));
+const AtRiskStaffTable      = dynamic(() => import('./components/AtRiskStaffTable'));
+const ActivityFeed          = dynamic(() => import('./components/ActivityFeed'));
+const StaffDrillDownModal   = dynamic(() => import('./components/StaffDrillDownModal'));
+const StrategicPlanSection  = dynamic(() => import('./components/StrategicPlanSection'));
 
 // ── Live strip metric definitions ──────────────────────────────────────────
 interface StripItem {
