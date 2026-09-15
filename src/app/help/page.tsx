@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { MANUAL_SECTIONS, type Section } from './helpData';
@@ -45,6 +46,15 @@ export default function HelpPage() {
             <Icon name="BookOpenIcon" size={13} />
             v2.0 · 2026
           </span>
+          <Link
+            href="/user-manual/print"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg transition-colors font-semibold"
+          >
+            <Icon name="ArrowDownTrayIcon" size={13} />
+            Download PDF Manual
+          </Link>
         </div>
       }
     >
