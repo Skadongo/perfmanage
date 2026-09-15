@@ -1,12 +1,11 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import Icon from '@/components/ui/AppIcon';
 import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-import { useServiceWorker } from '@/hooks/useServiceWorker';
 
 const NotificationCenter = dynamic(() => import('./NotificationCenter'), { ssr: false });
 const Sidebar = dynamic(() => import('./Sidebar'), { ssr: false });
@@ -50,21 +49,30 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Close mobile menu on route change (navigation)
   useEffect(() => {
     setMobileOpen(false);
   }, []);
 
-  useServiceWorker(); // Register SW and keep online/offline state in sync
+  // Removed useServiceWorker() from AppLayout — it was registering on every page mount.
+  // Service worker is now registered once at the page level where needed.
 
-  const handleSignOut = async () => {
+  const handleSignOut = useCallback(async () => {
     try {
       await signOut();
       router.replace('/login');
     } catch {
       router.replace('/login');
     }
-  };
+  }, [signOut, router]);
+
+  const handleToggleCollapsed = useCallback(() => setCollapsed(c => !c), []);
+  const handleMobileClose = useCallback(() => setMobileOpen(false), []);
+  const handleMobileOpen = useCallback(() => setMobileOpen(true), []);
+  const handleToggleUserMenu = useCallback(() => setUserMenuOpen(v => !v), []);
+  const handleChangePassword = useCallback(() => {
+    setUserMenuOpen(false);
+    router.push('/change-password');
+  }, [router]);
 
   const roleLabel = getRoleLabel(profile?.systemRole);
 
@@ -73,9 +81,9 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
       {/* Sidebar — handles its own mobile overlay internally */}
       <Sidebar
         collapsed={collapsed}
-        onToggle={() => setCollapsed(!collapsed)}
+        onToggle={handleToggleCollapsed}
         mobileOpen={mobileOpen}
-        onMobileClose={() => setMobileOpen(false)}
+        onMobileClose={handleMobileClose}
       />
 
       {/* Main content — offset by sidebar width on desktop */}
@@ -89,7 +97,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
           {/* Mobile hamburger */}
           <button
             className="lg:hidden p-2 rounded-md hover:bg-muted text-muted-foreground flex-shrink-0"
-            onClick={() => setMobileOpen(true)}
+            onClick={handleMobileOpen}
             aria-label="Open menu"
           >
             <Icon name="EcsaMenuIcon" size={20} />
@@ -133,7 +141,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
             {/* User avatar + dropdown */}
             <div className="relative" ref={menuRef}>
               <button
-                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                onClick={handleToggleUserMenu}
                 className="flex items-center gap-1.5 sm:gap-2 pl-1 pr-1.5 sm:pr-2 py-1 rounded-full hover:bg-muted transition-colors"
                 aria-label="User menu"
               >
@@ -163,7 +171,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                   {/* Menu items */}
                   <div className="py-1">
                     <button
-                      onClick={() => { setUserMenuOpen(false); router.push('/change-password'); }}
+                      onClick={handleChangePassword}
                       className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
