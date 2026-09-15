@@ -12,10 +12,10 @@ CREATE INDEX IF NOT EXISTS idx_ws_fiscal_year
 CREATE INDEX IF NOT EXISTS idx_ws_supervisor_id
   ON public.workplan_settings (supervisor_id);
 
--- ─── workplan_settings: user_id ──────────────────────────────────────────────
+-- ─── workplan_settings: staff_id ─────────────────────────────────────────────
 -- Used by: staff member own-workplan queries
-CREATE INDEX IF NOT EXISTS idx_ws_user_id
-  ON public.workplan_settings (user_id);
+CREATE INDEX IF NOT EXISTS idx_ws_staff_id
+  ON public.workplan_settings (staff_id);
 
 -- ─── Composite: fiscal_year + status ─────────────────────────────────────────
 -- Used by: list view filtered by year AND status (most common combined filter)
