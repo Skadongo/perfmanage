@@ -732,7 +732,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     jobTitle: '',
     supervisorId: '',
     supervisorName: '',
-    fiscalYear: 'FY 2025-2026 (Jul–Jun)',
+    fiscalYear: 'FY 2025-2026',
     reviewYear: 2026,
     perspectivesObjectives: [makeRow()],
     generalCompetencies: DEFAULT_GENERAL_COMPETENCIES.map((c) => ({ ...c })),
@@ -808,7 +808,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
 
     supabaseRef.current
       .from('workplan_settings')
-      .select('id, perspectives_objectives, general_competencies, custom_kpis, staff_signature, supervisor_signature, supervisor_id, supervisor_name, workflow_stage, status')
+      .select('id, perspectives_objectives, general_competencies, custom_kpis, staff_signature, supervisor_signature, supervisor_id, workflow_stage, status')
       .eq('staff_id', form.staffId)
       .eq('fiscal_year', form.fiscalYear)
       .order('created_at', { ascending: false })
@@ -1651,9 +1651,9 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
 
                 <FormField label="Fiscal Year" required error={step0Errors.fiscalYear}>
                   <select className={step0Errors.fiscalYear ? selectErrCls : selectCls} value={form.fiscalYear} onChange={(e) => setField('fiscalYear', e.target.value)}>
-                    <option value="FY 2025-2026 (Jul–Jun)">FY 2025-2026 (Jul 2025 – Jun 2026)</option>
-                    <option value="FY 2026-2027 (Jul–Jun)">FY 2026-2027 (Jul 2026 – Jun 2027)</option>
-                    <option value="FY 2027-2028 (Jul–Jun)">FY 2027-2028 (Jul 2027 – Jun 2028)</option>
+                    <option value="FY 2025-2026">FY 2025-2026 (Jul 2025 – Jun 2026)</option>
+                    <option value="FY 2026-2027">FY 2026-2027 (Jul 2026 – Jun 2027)</option>
+                    <option value="FY 2027-2028">FY 2027-2028 (Jul 2027 – Jun 2028)</option>
                   </select>
                 </FormField>
 
