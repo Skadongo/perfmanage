@@ -30,6 +30,7 @@ function getRoleLabel(systemRole: string | undefined): string {
 }
 
 export default function AppLayout({ children, pageTitle, pageSubtitle, actions }: AppLayoutProps) {
+  const [mounted, setMounted] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -39,6 +40,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const router = useRouter();
 
   useEffect(() => {
+    setMounted(true);
     setCurrentYear(new Date().getFullYear());
   }, []);
 
@@ -51,13 +53,6 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
-
-  useEffect(() => {
-    setMobileOpen(false);
-  }, []);
-
-  // Removed useServiceWorker() from AppLayout — it was registering on every page mount.
-  // Service worker is now registered once at the page level where needed.
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -78,6 +73,24 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   }, [router]);
 
   const roleLabel = getRoleLabel(profile?.systemRole);
+
+  // Render a minimal loading shell on the server / before hydration
+  // This prevents any server↔client HTML mismatch
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-background flex overflow-x-hidden">
+        <div className="flex-1 flex flex-col min-h-screen min-w-0 lg:ml-60">
+          <header className="h-14 sm:h-16 bg-white border-b border-border border-t-2 border-t-primary flex items-center px-3 sm:px-4 lg:px-6 gap-2 sm:gap-4 sticky top-0 z-20" />
+          <main className="flex-1 p-3 sm:p-4 lg:p-6 xl:p-8 w-full max-w-screen-2xl mx-auto overflow-x-hidden">
+            {children}
+          </main>
+          <footer className="border-t border-border bg-white mt-auto">
+            <div className="h-1 bg-primary w-full" />
+          </footer>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex overflow-x-hidden">
