@@ -7,8 +7,13 @@ import Image from 'next/image';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 
-const NotificationCenter = dynamic(() => import('./NotificationCenter'), { ssr: false });
-const Sidebar = dynamic(() => import('./Sidebar'), { ssr: false });
+const NotificationCenter = dynamic(() => import('./NotificationCenter'), { ssr: false, loading: () => null });
+const Sidebar = dynamic(() => import('./Sidebar'), {
+  ssr: false,
+  loading: () => (
+    <aside className="fixed left-0 top-0 h-screen bg-white border-r border-border z-40 flex flex-col w-16 lg:w-60" />
+  ),
+});
 
 interface AppLayoutProps {
   children: React.ReactNode;
