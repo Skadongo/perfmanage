@@ -1,10 +1,8 @@
 'use client';
 
-import React, { useRef } from 'react';
-import useSWR from 'swr';
+import React, { useEffect, useState } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
-import { cachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 
 interface ActivityLog {
   id: string;
@@ -20,13 +18,16 @@ interface ActivityLog {
 }
 
 interface Props {
+  /** When set, only shows activity for this staff member (self view) */
   staffId?: string | null;
+  /** When set, only shows activity for direct reports of this supervisor */
   supervisorId?: string | null;
 }
 
 function timeAgo(dateStr: string): string {
-  const now = Date.now();
-  const diffMs = now - new Date(dateStr).getTime();
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMins / 60);
   const diffDays = Math.floor(diffHours / 24);
@@ -37,61 +38,62 @@ function timeAgo(dateStr: string): string {
   return `${diffDays}d ago`;
 }
 
-// Module-level stable client — shared across all instances
-let _supabase: ReturnType<typeof createClient> | null = null;
-function getSupabase() {
-  if (!_supabase) _supabase = createClient();
-  return _supabase;
-}
+export default function ActivityFeed({ staffId, supervisorId }: Props) {
+  const [activities, setActivities] = useState<ActivityLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-async function fetchActivities(staffId: string | null | undefined, supervisorId: string | null | undefined): Promise<ActivityLog[]> {
-  const cacheKey = `activity-feed:${staffId ?? supervisorId ?? 'org'}`;
-  return cachedFetch<ActivityLog[]>(
-    cacheKey,
-    async () => {
-      const supabase = getSupabase();
-      let query = supabase
-        .from('activity_logs')
-        .select('id, activity_type, actor_name, action_description, subject_name, subject_detail, icon_name, icon_bg, icon_color, created_at')
-        .order('created_at', { ascending: false })
-        .limit(10);
+  useEffect(() => {
+    const fetchActivities = async () => {
+      try {
+        const supabase = createClient();
 
-      if (staffId) {
-        query = query.eq('subject_id', staffId);
-      } else if (supervisorId) {
-        query = query.eq('supervisor_id', supervisorId);
+        let query = supabase
+          .from('activity_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        // Scope by staff member (self view)
+        if (staffId) {
+          query = query.eq('subject_id', staffId);
+        }
+        // Scope by supervisor — filter by actor_id matching supervisor's staff id
+        // so supervisors see actions taken by or about their direct reports
+        if (supervisorId && !staffId) {
+          query = query.eq('supervisor_id', supervisorId);
+        }
+
+        const { data, error: fetchError } = await query;
+
+        if (fetchError) {
+          setError('Could not load activity logs.');
+          return;
+        }
+
+        const mapped: ActivityLog[] = (data || []).map((row) => ({
+          id: row.id,
+          activityType: row.activity_type,
+          actorName: row.actor_name,
+          actionDescription: row.action_description,
+          subjectName: row.subject_name,
+          subjectDetail: row.subject_detail,
+          iconName: row.icon_name,
+          iconBg: row.icon_bg,
+          iconColor: row.icon_color,
+          createdAt: row.created_at,
+        }));
+
+        setActivities(mapped);
+      } catch {
+        setError('Could not load activity logs.');
+      } finally {
+        setLoading(false);
       }
+    };
 
-      const { data, error } = await query;
-      if (error) throw new Error('Could not load activity logs.');
-
-      return (data || []).map((row) => ({
-        id: row.id,
-        activityType: row.activity_type,
-        actorName: row.actor_name,
-        actionDescription: row.action_description,
-        subjectName: row.subject_name,
-        subjectDetail: row.subject_detail,
-        iconName: row.icon_name,
-        iconBg: row.icon_bg,
-        iconColor: row.icon_color,
-        createdAt: row.created_at,
-      }));
-    },
-    TTL_DASHBOARD_METRICS
-  );
-}
-
-export default React.memo(function ActivityFeed({ staffId, supervisorId }: Props) {
-  const { data: activities, isLoading, error } = useSWR(
-    ['activity-feed', staffId ?? supervisorId ?? 'org'],
-    () => fetchActivities(staffId, supervisorId),
-    {
-      revalidateOnFocus: false,
-      dedupingInterval: 60_000,
-      fallbackData: undefined,
-    }
-  );
+    fetchActivities();
+  }, [staffId, supervisorId]);
 
   return (
     <div className="bg-white rounded-xl border border-border shadow-card p-5 h-full">
@@ -107,27 +109,27 @@ export default React.memo(function ActivityFeed({ staffId, supervisorId }: Props
         <Icon name="BellIcon" size={16} className="text-muted-foreground" />
       </div>
 
-      {isLoading && (
+      {loading && (
         <div className="flex items-center justify-center py-8">
           <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
       )}
 
-      {error && !isLoading && (
+      {error && !loading && (
         <div className="flex items-center justify-center py-8 text-red-500 text-sm gap-2">
           <Icon name="ExclamationTriangleIcon" size={14} className="text-red-500" />
-          Could not load activity logs.
+          {error}
         </div>
       )}
 
-      {!isLoading && !error && (!activities || activities.length === 0) && (
+      {!loading && !error && activities.length === 0 && (
         <div className="flex flex-col items-center justify-center py-8 text-muted-foreground text-sm gap-2">
           <Icon name="ClockIcon" size={20} className="text-muted-foreground/50" />
           No recent activity
         </div>
       )}
 
-      {!isLoading && !error && activities && activities.length > 0 && (
+      {!loading && !error && activities.length > 0 && (
         <div className="space-y-3">
           {activities.map((activity) => (
             <div key={activity.id} className="flex items-start gap-3">
@@ -154,4 +156,4 @@ export default React.memo(function ActivityFeed({ staffId, supervisorId }: Props
       )}
     </div>
   );
-});
+}

@@ -1,25 +1,15 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { MANUAL_SECTIONS, type Section } from './helpData';
-import { generateAndDownloadManualPDF } from './generateManualPDF';
 
 export default function HelpPage() {
   const [activeSection, setActiveSection] = useState<string>('getting-started');
   const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set(['getting-started-0']));
   const [searchQuery, setSearchQuery] = useState('');
-  const [isDownloading, setIsDownloading] = useState(false);
-
-  const handleDownloadPDF = async () => {
-    setIsDownloading(true);
-    try {
-      await generateAndDownloadManualPDF();
-    } finally {
-      setIsDownloading(false);
-    }
-  };
 
   const toggleTopic = (key: string) => {
     setExpandedTopics((prev) => {
@@ -56,26 +46,15 @@ export default function HelpPage() {
             <Icon name="BookOpenIcon" size={13} />
             v2.0 · 2026
           </span>
-          <button
-            onClick={handleDownloadPDF}
-            disabled={isDownloading}
-            className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-400 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors font-semibold"
+          <Link
+            href="/user-manual/print"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg transition-colors font-semibold"
           >
-            {isDownloading ? (
-              <>
-                <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                Generating…
-              </>
-            ) : (
-              <>
-                <Icon name="ArrowDownTrayIcon" size={13} />
-                Download PDF Manual
-              </>
-            )}
-          </button>
+            <Icon name="ArrowDownTrayIcon" size={13} />
+            Download PDF Manual
+          </Link>
         </div>
       }
     >

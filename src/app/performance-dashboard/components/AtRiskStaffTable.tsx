@@ -61,18 +61,18 @@ export default React.memo(function AtRiskStaffTable({ supervisorId }: Props) {
             `)
             .in('review_status', ['draft', 'submitted', 'rejected'])
             .order('created_at', { ascending: false })
-            .limit(20);
+            .limit(50);
 
           if (supervisorId) {
             reviewsQuery = reviewsQuery.eq('supervisor_id', supervisorId);
           }
 
-          // Only fetch staff without reviews — limit tightly
+          // Build staff query — scope to direct reports if supervisorId provided
           let staffQuery = supabase
             .from('staff')
             .select('id, full_name, job_title, supervisor_name, departments:department_id ( name )')
             .eq('employment_status', 'active')
-            .limit(20);
+            .limit(50);
 
           if (supervisorId) {
             staffQuery = staffQuery.eq('supervisor_id', supervisorId);
@@ -118,27 +118,22 @@ export default React.memo(function AtRiskStaffTable({ supervisorId }: Props) {
             });
           }
 
-          // Only add staff without reviews up to fill the 10-item cap
-          const remaining = 10 - result.length;
-          if (remaining > 0) {
-            for (const staff of (allStaff as any[]).slice(0, remaining + reviewedStaffIds.size)) {
-              if (reviewedStaffIds.has(staff.id)) continue;
-              if (result.length >= 10) break;
-              const deptName = staff.departments?.name || 'General';
-              result.push({
-                id: `no-review-${staff.id}`,
-                name: staff.full_name,
-                role: staff.job_title,
-                perspective: deptName,
-                kpi: 'Mid-Year Review Submission',
-                current: 'No review started',
-                target: 'Submitted & Approved',
-                progress: 0,
-                status: 'overdue',
-                dueDate: '30 Jun 2026',
-                supervisor: staff.supervisor_name || 'Not assigned',
-              });
-            }
+          for (const staff of allStaff as any[]) {
+            if (reviewedStaffIds.has(staff.id)) continue;
+            const deptName = staff.departments?.name || 'General';
+            result.push({
+              id: `no-review-${staff.id}`,
+              name: staff.full_name,
+              role: staff.job_title,
+              perspective: deptName,
+              kpi: 'Mid-Year Review Submission',
+              current: 'No review started',
+              target: 'Submitted & Approved',
+              progress: 0,
+              status: 'overdue',
+              dueDate: '30 Jun 2026',
+              supervisor: staff.supervisor_name || 'Not assigned',
+            });
           }
 
           result.sort((a, b) => {

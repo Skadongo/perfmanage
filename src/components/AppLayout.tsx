@@ -1,17 +1,13 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import dynamic from 'next/dynamic';
+import React, { useState, useRef, useEffect } from 'react';
+import Sidebar from './Sidebar';
 import Icon from '@/components/ui/AppIcon';
 import Image from 'next/image';
+import NotificationCenter from './NotificationCenter';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-
-const NotificationCenter = dynamic(() => import('./NotificationCenter'), { ssr: false, loading: () => null });
-const Sidebar = dynamic(() => import('./Sidebar'), {
-  ssr: false,
-  loading: () => null,
-});
+import { useServiceWorker } from '@/hooks/useServiceWorker';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -52,23 +48,21 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const handleSignOut = useCallback(async () => {
+  // Close mobile menu on route change (navigation)
+  useEffect(() => {
+    setMobileOpen(false);
+  }, []);
+
+  useServiceWorker(); // Register SW and keep online/offline state in sync
+
+  const handleSignOut = async () => {
     try {
       await signOut();
       router.replace('/login');
     } catch {
       router.replace('/login');
     }
-  }, [signOut, router]);
-
-  const handleToggleCollapsed = useCallback(() => setCollapsed(c => !c), []);
-  const handleMobileClose = useCallback(() => setMobileOpen(false), []);
-  const handleMobileOpen = useCallback(() => setMobileOpen(true), []);
-  const handleToggleUserMenu = useCallback(() => setUserMenuOpen(v => !v), []);
-  const handleChangePassword = useCallback(() => {
-    setUserMenuOpen(false);
-    router.push('/change-password');
-  }, [router]);
+  };
 
   const roleLabel = getRoleLabel(profile?.systemRole);
 
@@ -77,9 +71,9 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
       {/* Sidebar — handles its own mobile overlay internally */}
       <Sidebar
         collapsed={collapsed}
-        onToggle={handleToggleCollapsed}
+        onToggle={() => setCollapsed(!collapsed)}
         mobileOpen={mobileOpen}
-        onMobileClose={handleMobileClose}
+        onMobileClose={() => setMobileOpen(false)}
       />
 
       {/* Main content — offset by sidebar width on desktop */}
@@ -93,7 +87,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
           {/* Mobile hamburger */}
           <button
             className="lg:hidden p-2 rounded-md hover:bg-muted text-muted-foreground flex-shrink-0"
-            onClick={handleMobileOpen}
+            onClick={() => setMobileOpen(true)}
             aria-label="Open menu"
           >
             <Icon name="EcsaMenuIcon" size={20} />
@@ -137,7 +131,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
             {/* User avatar + dropdown */}
             <div className="relative" ref={menuRef}>
               <button
-                onClick={handleToggleUserMenu}
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
                 className="flex items-center gap-1.5 sm:gap-2 pl-1 pr-1.5 sm:pr-2 py-1 rounded-full hover:bg-muted transition-colors"
                 aria-label="User menu"
               >
@@ -167,7 +161,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                   {/* Menu items */}
                   <div className="py-1">
                     <button
-                      onClick={handleChangePassword}
+                      onClick={() => { setUserMenuOpen(false); router.push('/change-password'); }}
                       className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -213,7 +207,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                 <p className="text-[10px] text-muted-foreground">Performance Management System</p>
               </div>
             </div>
-            <p className="text-[11px] text-muted-foreground text-center" suppressHydrationWarning>
+            <p className="text-[11px] text-muted-foreground text-center">
               © {currentYear} East, Central &amp; Southern Africa Health Community. All rights reserved.
             </p>
             <div className="hidden sm:flex items-center gap-4">

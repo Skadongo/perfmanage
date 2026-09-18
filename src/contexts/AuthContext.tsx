@@ -85,13 +85,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const fetchProfile = async (userId: string, authUser?: any): Promise<UserProfile | null> => {
     try {
+      // Only fetch user_profiles — skip the redundant getUser() call when authUser is already provided
       const profileResult = await supabase
         .from('user_profiles')
         .select('id, email, full_name, role, system_role, department, job_title, avatar_initials, is_active, must_change_password, staff_id')
         .eq('id', userId)
         .maybeSingle();
 
-      // Only call getUser if authUser was not passed in
+      // Only call getUser if authUser was not passed in (avoids a round-trip on every auth event)
       const resolvedAuthUser = authUser ?? (await supabase.auth.getUser()).data?.user;
 
       const data = profileResult.data;
@@ -171,8 +172,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setUser(session?.user ?? null);
 
       if (session?.user) {
-        // Only re-fetch profile on meaningful auth events — skip TOKEN_REFRESHED to reduce DB calls
-        if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+        // Only re-fetch profile on meaningful auth events
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
           const p = await fetchProfile(session.user.id, session.user);
           setProfile(p);
         }

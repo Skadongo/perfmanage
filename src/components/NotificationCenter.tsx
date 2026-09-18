@@ -58,7 +58,6 @@ export default function NotificationCenter() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Use a single query joining user_profiles — avoids two round-trips
       const { data: profile } = await supabase
         .from('user_profiles')
         .select('staff_id')
@@ -68,12 +67,23 @@ export default function NotificationCenter() {
       staffIdRef.current = profile?.staff_id ?? null;
 
       // Fetch unread count once staff_id is known
-      const countQuery = staffIdRef.current
-        ? supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('is_read', false).eq('recipient_staff_id', staffIdRef.current)
-        : supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('is_read', false);
+      if (staffIdRef.current) {
+        let query = supabase
+          .from('notifications')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_read', false)
+          .eq('recipient_staff_id', staffIdRef.current);
 
-      const { count } = await countQuery;
-      if (count != null) setUnreadCount(count);
+        const { count } = await query;
+        if (count != null) setUnreadCount(count);
+      } else {
+        // Fallback: HR/Director — fetch all unread
+        const { count } = await supabase
+          .from('notifications')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_read', false);
+        if (count != null) setUnreadCount(count);
+      }
     }
 
     resolveStaffId();
