@@ -10,9 +10,7 @@ import { useRouter } from 'next/navigation';
 const NotificationCenter = dynamic(() => import('./NotificationCenter'), { ssr: false, loading: () => null });
 const Sidebar = dynamic(() => import('./Sidebar'), {
   ssr: false,
-  loading: () => (
-    <aside className="fixed left-0 top-0 h-screen bg-white border-r border-border z-40 flex flex-col w-16 lg:w-60" />
-  ),
+  loading: () => null,
 });
 
 interface AppLayoutProps {
