@@ -26,14 +26,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/api/') ||
     pathname.includes('.') // static files with extensions
   ) {
-    const response = NextResponse.next({ request });
-    // Add cache headers for static assets to reduce repeated downloads
-    if (pathname.startsWith('/_next/static/')) {
-      response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-    } else if (pathname.startsWith('/assets/') || pathname.match(/\.(png|jpg|jpeg|gif|webp|ico|svg|woff|woff2|ttf|otf|eot)$/)) {
-      response.headers.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
-    }
-    return response;
+    return NextResponse.next({ request });
   }
 
   injectTokenFromHeader(request);

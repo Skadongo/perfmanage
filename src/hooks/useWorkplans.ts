@@ -14,7 +14,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { cacheSet, cacheGet, cacheSetPersisted, cacheGetStale, TTL_WORKPLAN_LIST, roleKey } from '@/lib/cache';
+import { cacheSet, cacheGet, TTL_WORKPLAN_LIST, roleKey } from '@/lib/cache';
 import { useAuth } from '@/contexts/AuthContext';
 
 export interface WorkplanRow {
@@ -193,20 +193,18 @@ export function useWorkplans(options: UseWorkplansOptions = {}): UseWorkplansRes
       const pageKey = roleKey(`${cacheBase}:p${targetPage}`, role, scopeId);
 
       if (!forceRefresh) {
-        // Stale-While-Revalidate: serve stale data instantly, refresh in background
-        const staleResult = cacheGetStale<{ rows: WorkplanRow[]; total: number }>(pageKey);
-        if (staleResult) {
+        const cached = cacheGet<{ rows: WorkplanRow[]; total: number }>(pageKey);
+        if (cached) {
           if (isMounted.current) {
-            setWorkplans(staleResult.rows);
-            setTotalCount(staleResult.total);
+            setWorkplans(cached.rows);
+            setTotalCount(cached.total);
             setLoading(false);
           }
-          if (!staleResult.isStale) return; // fresh — no need to refetch
-          // Stale — fall through to background refresh (don't set loading)
+          return;
         }
       }
 
-      if (isMounted.current && !cacheGetStale(pageKey)) setLoading(true);
+      if (isMounted.current) setLoading(true);
       if (isMounted.current) setError(null);
 
       try {
@@ -238,12 +236,8 @@ export function useWorkplans(options: UseWorkplansOptions = {}): UseWorkplansRes
 
         const total = count ?? 0;
 
-        // Persist page 1 to localStorage for instant load on next visit
-        if (targetPage === 1) {
-          cacheSetPersisted(pageKey, { rows, total }, TTL_WORKPLAN_LIST, TTL_WORKPLAN_LIST * 3);
-        } else {
-          cacheSet(pageKey, { rows, total }, TTL_WORKPLAN_LIST);
-        }
+        // Cache this page
+        cacheSet(pageKey, { rows, total }, TTL_WORKPLAN_LIST);
 
         if (isMounted.current) {
           setWorkplans(rows);

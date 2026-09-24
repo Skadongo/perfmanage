@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { cacheGetStale, cacheSetPersisted } from '@/lib/cache';
+import { cacheGet, cacheSet } from '@/lib/cache';
 
 export interface LiveStats {
   totalReviews: number;
@@ -29,10 +29,7 @@ interface UseRealtimeDashboardReturn {
   refetch: () => void;
 }
 
-// 30 s fresh TTL — short enough to feel live, long enough to avoid hammering DB
-// Stale-while-revalidate window: 5 min — serve stale data instantly on revisit
-const CACHE_TTL = 30_000;
-const STALE_TTL = 5 * 60_000;
+const CACHE_TTL = 30_000; // 30 s — short enough to feel live, long enough to avoid hammering DB
 
 export function useRealtimeDashboard({
   staffId,
@@ -45,7 +42,6 @@ export function useRealtimeDashboard({
   const [refreshKey, setRefreshKey] = useState(0);
   const isMounted = useRef(true);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inFlightRef = useRef(false);
   // Stable client ref — never recreated
   const supabaseRef = useRef(createClient());
 
@@ -54,20 +50,14 @@ export function useRealtimeDashboard({
   const fetchLiveStats = useCallback(async (forceRefresh = false) => {
     const supabase = supabaseRef.current;
 
-    // Stale-While-Revalidate: serve stale data immediately, refresh in background
+    // Return cached value immediately if available and not forcing refresh
     if (!forceRefresh) {
-      const staleResult = cacheGetStale<LiveStats>(cacheKey);
-      if (staleResult) {
-        if (isMounted.current) setLiveStats(staleResult.data);
-        // If data is stale, fall through to refresh in background
-        if (!staleResult.isStale) return;
-        // Already stale — continue to background fetch below
-        if (inFlightRef.current) return; // already refreshing
+      const cached = cacheGet<LiveStats>(cacheKey);
+      if (cached) {
+        if (isMounted.current) setLiveStats(cached);
+        return;
       }
     }
-
-    if (inFlightRef.current && !forceRefresh) return;
-    inFlightRef.current = true;
 
     try {
       // Run both queries in parallel, select only needed columns
@@ -122,14 +112,10 @@ export function useRealtimeDashboard({
         lastUpdated: timeStr,
       };
 
-      // Persist to localStorage so next page load shows data instantly
-      cacheSetPersisted(cacheKey, stats, CACHE_TTL, STALE_TTL);
-
-      if (isMounted.current) setLiveStats(stats);
+      cacheSet(cacheKey, stats, CACHE_TTL);
+      setLiveStats(stats);
     } catch {
       // silently fail — keep previous stats
-    } finally {
-      inFlightRef.current = false;
     }
   }, [staffId, cacheKey]);
 
