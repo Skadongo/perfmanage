@@ -625,6 +625,7 @@ export default function MidYearReviewsPage() {
 
   const handleSave = useCallback(async (data: Partial<MidYearReview>, action: string) => {
     if (!selectedReview) return;
+    const supabase = supabaseRef.current;
     try {
       const now = new Date().toISOString();
       let updates: Partial<MidYearReview> = { ...data, updated_at: now };
@@ -644,7 +645,7 @@ export default function MidYearReviewsPage() {
         updates.review_status = 'rejected';
       }
 
-      const { error } = await supabaseRef.current
+      const { error } = await supabase
         .from('mid_year_reviews')
         .update(updates)
         .eq('id', selectedReview.id);
@@ -655,7 +656,7 @@ export default function MidYearReviewsPage() {
         action === 'submit' ? 'Review submitted successfully' :
         action === 'save_draft' ? 'Draft saved' :
         action === 'mark_reviewed' ? 'Review marked as reviewed' :
-        action === 'approve'? 'Review approved' : 'Review rejected',
+        action === 'approve' ? 'Review approved' : 'Review rejected',
         'success'
       );
       await fetchData();
@@ -663,14 +664,15 @@ export default function MidYearReviewsPage() {
       showToast(err instanceof Error ? err.message : 'Action failed', 'error');
       throw err;
     }
-  }, [selectedReview, supabaseRef.current, showToast, fetchData]);
+  }, [selectedReview, showToast, fetchData]); // supabaseRef is stable — excluded from deps
 
   const handleCreateReview = useCallback(async () => {
     if (!newReviewStaffId || !timeline) return;
     setCreatingReview(true);
+    const supabase = supabaseRef.current;
     try {
       const staffMember = staff.find(s => s.id === newReviewStaffId);
-      const { error } = await supabaseRef.current.from('mid_year_reviews').insert({
+      const { error } = await supabase.from('mid_year_reviews').insert({
         staff_id: newReviewStaffId,
         supervisor_id: staffMember?.supervisor_id || null,
         timeline_id: timeline.id,
@@ -688,7 +690,7 @@ export default function MidYearReviewsPage() {
     } finally {
       setCreatingReview(false);
     }
-  }, [newReviewStaffId, timeline, staff, supabaseRef.current, showToast, fetchData]);
+  }, [newReviewStaffId, timeline, staff, showToast, fetchData]); // supabaseRef is stable — excluded from deps
 
   // Stats
   const stats = useMemo(() => {

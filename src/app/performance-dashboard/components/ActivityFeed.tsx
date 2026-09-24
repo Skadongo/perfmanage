@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 
@@ -42,11 +42,13 @@ export default function ActivityFeed({ staffId, supervisorId }: Props) {
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Stable client ref — never recreated across renders
+  const supabaseRef = useRef(createClient());
 
   useEffect(() => {
     const fetchActivities = async () => {
       try {
-        const supabase = createClient();
+        const supabase = supabaseRef.current;
 
         let query = supabase
           .from('activity_logs')

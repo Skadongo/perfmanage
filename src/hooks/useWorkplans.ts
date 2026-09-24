@@ -103,6 +103,7 @@ export function useWorkplans(options: UseWorkplansOptions = {}): UseWorkplansRes
 
   const { profile } = useAuth();
   const supabaseRef = useRef(createClient());
+  // supabase is a stable reference — supabaseRef.current never changes
   const supabase = supabaseRef.current;
 
   const [workplans, setWorkplans] = useState<WorkplanRow[]>([]);
@@ -268,8 +269,10 @@ export function useWorkplans(options: UseWorkplansOptions = {}): UseWorkplansRes
     try {
       const staffId = profile.staffId;
       const userId = profile.id;
+      // Use ref directly to avoid stale closure and keep dep array clean
+      const sb = supabaseRef.current;
 
-      let q = supabase
+      let q = sb
         .from('workplan_settings')
         .select(
           `id, staff_id, fiscal_year, status, workflow_stage, created_at, updated_at,
@@ -312,7 +315,7 @@ export function useWorkplans(options: UseWorkplansOptions = {}): UseWorkplansRes
     } catch {
       // Silent — prefetch failure is non-critical
     }
-  }, [profile, supabase]);
+  }, [profile]); // supabaseRef is stable — excluded from deps
 
   // ── Effects ────────────────────────────────────────────────────────────────
   useEffect(() => {

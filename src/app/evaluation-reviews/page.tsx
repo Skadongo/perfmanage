@@ -74,7 +74,6 @@ export default function EvaluationReviewsPage() {
 
   // Stable supabase client ref — prevents re-creation on every render
   const supabaseRef = useRef(createClient());
-  const supabase = supabaseRef.current;
   const isMounted = useRef(true);
 
   const fetchStageCounts = useCallback(async (forceRefresh = false) => {
@@ -83,7 +82,7 @@ export default function EvaluationReviewsPage() {
       const data = await cachedFetch<{ workflow_stage: string }[]>(
         'eval-stage-counts',
         async () => {
-          const { data: rows } = await supabase
+          const { data: rows } = await supabaseRef.current
             .from('workplan_settings')
             // Only fetch the column we need for counting
             .select('workflow_stage')
@@ -120,7 +119,7 @@ export default function EvaluationReviewsPage() {
     } finally {
       if (isMounted.current) setStageLoading(false);
     }
-  }, [supabase]);
+  }, []); // supabaseRef is stable — no need to include it in deps
 
   useEffect(() => {
     isMounted.current = true;
@@ -131,7 +130,7 @@ export default function EvaluationReviewsPage() {
         const mapped = await cachedFetch<ReviewSummary[]>(
           'eval-reviews-summary',
           async () => {
-            const { data, error } = await supabase
+            const { data, error } = await supabaseRef.current
               .from('mid_year_reviews')
               // Limit columns — only what the summary display needs
               .select(`
@@ -193,7 +192,7 @@ export default function EvaluationReviewsPage() {
     Promise.all([fetchSummary(), fetchStageCounts()]);
 
     return () => { isMounted.current = false; };
-  }, [fetchStageCounts, supabase]);
+  }, [fetchStageCounts]);
 
   // Memoize derived stats to avoid recalculation on every render
   const { totalReviews, submittedApproved, inProgress, overdue, submittedPct } = useMemo(() => {

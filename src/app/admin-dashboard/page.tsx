@@ -994,7 +994,8 @@ function PerformanceImportTab({ supabase, showToast }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AdminDashboardPage() {
-  const supabase = createClient();
+  // Stable supabase client ref — never recreated on re-render
+  const supabaseRef = useRef(createClient());
   const { getDisplayName } = useAuth();
 
   const [activeTab, setActiveTab] = useState<Tab>('staff');
@@ -1016,7 +1017,7 @@ export default function AdminDashboardPage() {
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.rpc('admin_get_all_users');
+      const { data, error } = await supabaseRef.current.rpc('admin_get_all_users');
       if (error) throw error;
       setUsers((data as AdminUser[]) || []);
     } catch (err: unknown) {
@@ -1024,7 +1025,7 @@ export default function AdminDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase, showToast]);
+  }, [showToast]); // supabaseRef is stable — excluded from deps
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
@@ -1035,6 +1036,7 @@ export default function AdminDashboardPage() {
     type: 'password_reset' | 'role_change',
     options?: { recipientName?: string; newRole?: string; resetLink?: string }
   ) => {
+    const supabase = supabaseRef.current;
     try {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
       const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -1086,7 +1088,7 @@ export default function AdminDashboardPage() {
         setConfirmModal(null);
         setActionLoading(userId);
         try {
-          const { error } = await supabase.rpc('admin_toggle_user_active', { target_user_id: userId, new_is_active: newActive });
+          const { error } = await supabaseRef.current.rpc('admin_toggle_user_active', { target_user_id: userId, new_is_active: newActive });
           if (error) throw error;
           setUsers(prev => prev.map(u => u.user_id === userId ? { ...u, is_active: newActive } : u));
           showToast(`Account ${newActive ? 'activated' : 'deactivated'} successfully`, 'success');
@@ -1109,7 +1111,7 @@ export default function AdminDashboardPage() {
         setConfirmModal(null);
         setActionLoading(userId);
         try {
-          const { error } = await supabase.rpc('admin_force_password_reset', { target_user_id: userId });
+          const { error } = await supabaseRef.current.rpc('admin_force_password_reset', { target_user_id: userId });
           if (error) throw error;
           setUsers(prev => prev.map(u => u.user_id === userId ? { ...u, must_change_password: true } : u));
           // Send email notification via Resend
@@ -1130,7 +1132,7 @@ export default function AdminDashboardPage() {
   const handleSaveRole = async (userId: string, systemRole: string, role: string) => {
     setRoleSaving(true);
     try {
-      const { error } = await supabase.rpc('admin_update_user_role', {
+      const { error } = await supabaseRef.current.rpc('admin_update_user_role', {
         target_user_id: userId,
         new_system_role: systemRole,
         new_role: role,
@@ -1227,10 +1229,10 @@ export default function AdminDashboardPage() {
                 actionLoading={actionLoading} />
             )}
             {activeTab === 'bsc' && (
-              <BSCPerspectivesTab supabase={supabase} showToast={showToast} />
+              <BSCPerspectivesTab supabase={supabaseRef.current} showToast={showToast} />
             )}
             {activeTab === 'import' && (
-              <PerformanceImportTab supabase={supabase} showToast={showToast} />
+              <PerformanceImportTab supabase={supabaseRef.current} showToast={showToast} />
             )}
           </div>
         </div>
