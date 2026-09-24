@@ -136,17 +136,12 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
         <nav className="flex-1 overflow-y-auto py-4 scrollbar-thin">
           {NAV_GROUPS.map((group) =>
           <div key={`group-${group.label}`} className="mb-4">
-              {/* Show group label on mobile always; on desktop only when not collapsed */}
-              {(!collapsed || mobileOpen) && (
-                <p className="px-4 mb-1 text-[10px] font-600 uppercase tracking-widest text-primary/60 lg:block">
-                  {group.label}
-                </p>
-              )}
-              {collapsed && !mobileOpen && (
-                <p className="hidden lg:block px-4 mb-1 text-[10px] font-600 uppercase tracking-widest text-primary/60 opacity-0 select-none">
-                  {group.label}
-                </p>
-              )}
+              {/* Single group label — always rendered; CSS controls visibility */}
+              <p className={`px-4 mb-1 text-[10px] font-600 uppercase tracking-widest text-primary/60 ${
+                collapsed && !mobileOpen ? 'lg:opacity-0 lg:select-none' : ''
+              }`}>
+                {group.label}
+              </p>
               {group.items.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
               return (
