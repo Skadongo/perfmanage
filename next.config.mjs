@@ -1,5 +1,5 @@
 import { imageHosts } from './image-hosts.config.mjs';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
@@ -10,8 +10,9 @@ class HydrationScannerPlugin {
   apply(compiler) {
     compiler.hooks.beforeRun.tapAsync('HydrationScannerPlugin', (compiler, callback) => {
       try {
-        execSync(
-          `node "${path.join(__dirname, 'scripts', 'check-hydration.js')}" --json`,
+        execFileSync(
+          process.execPath,
+          [path.join(__dirname, 'scripts', 'check-hydration.js'), '--json'],
           { stdio: 'inherit', cwd: __dirname }
         );
         callback();

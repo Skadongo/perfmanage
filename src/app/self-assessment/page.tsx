@@ -301,7 +301,7 @@ export default function SelfAssessmentPage() {
           review_period: reviewPeriod,
           form_data: formData,
           active_step: activeStep,
-          last_saved_at: new Date().toISOString(), // hydration-ok
+          last_saved_at: new Date().toISOString(),
         },
         { onConflict: 'staff_id,workplan_id,draft_type,review_period' }
       );
@@ -469,7 +469,7 @@ export default function SelfAssessmentPage() {
         challenges_faced: overallChallenges || null,
         support_needed: developmentNeeds || null,
         self_rating: overallSelfRating,
-        submitted_at: new Date().toISOString(), // hydration-ok
+        submitted_at: new Date().toISOString(),
       };
 
       const { error } = await supabaseRef.current.from('mid_year_reviews').insert(payload);

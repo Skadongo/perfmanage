@@ -354,12 +354,9 @@ const selectErrCls = inputErrCls + ' cursor-pointer';
 const textareaCls = inputCls + ' resize-none';
 const textareaErrCls = inputErrCls + ' resize-none';
 
-let _wsIdCounter = 0;
-function nextWsId(): string { return `${++_wsIdCounter}`; }
-
 function makeRow(): PerspectiveRow {
   return {
-    id: `p-${nextWsId()}`,
+    id: `p-${Date.now()}-${Math.random()}`,
     perspective: '',
     objective: '',
     kpis: [],
@@ -546,7 +543,7 @@ function KPICombobox({ perspective, kpis, onAdd, onRemove, onUpdateTarget, hasEr
     const trimmed = label.trim();
     if (!trimmed) return;
     if (addedLabels.has(trimmed.toLowerCase())) return;
-    onAdd({ id: `kpi-${Date.now()}-${Math.random()}`, label: trimmed, target: '' }); // hydration-ok
+    onAdd({ id: `kpi-${Date.now()}-${Math.random()}`, label: trimmed, target: '' });
     setInputValue('');
     setOpen(false);
     inputRef.current?.focus();
@@ -1042,7 +1039,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
 
   function addCustomKPI() {
     const newEntry: CustomKPIEntry = {
-      id: `ckpi-${Date.now()}-${Math.random()}`, // hydration-ok
+      id: `ckpi-${Date.now()}-${Math.random()}`,
       label: '',
       target: '',
       weight: 0,
@@ -1165,12 +1162,12 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
           general_competencies: form.generalCompetencies,
           custom_kpis: form.customKpis,
           staff_signature: form.staffSignature,
-          staff_signed_at: new Date().toISOString(), // hydration-ok
+          staff_signed_at: new Date().toISOString(),
           supervisor_signature: form.supervisorSignature,
-          supervisor_signed_at: new Date().toISOString(), // hydration-ok
+          supervisor_signed_at: new Date().toISOString(),
           status: 'signed',
           workflow_stage: 'workplan_pending',
-          submitted_at: new Date().toISOString(), // hydration-ok
+          submitted_at: new Date().toISOString(),
           review_type: 'annual',
         };
 
@@ -1267,7 +1264,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
           .from('workplan_settings')
           .update({
             workflow_stage: 'workplan_approved',
-            supervisor_approved_at: new Date().toISOString(), // hydration-ok
+            supervisor_approved_at: new Date().toISOString(),
             supervisor_approval_comments: approvalComments || null,
           })
           .eq('id', savedWorkplanId);

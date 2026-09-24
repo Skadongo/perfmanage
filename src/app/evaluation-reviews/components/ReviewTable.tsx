@@ -144,7 +144,7 @@ export default function ReviewTable() {
           const uiStatus = mapStatus(dbStatus);
 
           const reviewPeriod = (timelineRow?.review_period as string) ?? (row.review_period as string) ?? 'mid-year';
-          const reviewYear = (timelineRow?.review_year as number) ?? (row.review_year as number) ?? new Date().getFullYear(); // hydration-ok
+          const reviewYear = (timelineRow?.review_year as number) ?? (row.review_year as number) ?? new Date().getFullYear();
           const reviewType = reviewPeriod === 'annual' ? 'Annual Review' : 'Mid-Year Review';
 
           const deadlineRaw = timelineRow?.submission_deadline as string | null;
@@ -213,7 +213,7 @@ export default function ReviewTable() {
       const supabase = createClient();
       const { error: updateError } = await supabase
         .from('mid_year_reviews')
-        .update({ review_status: 'approved', approved_at: new Date().toISOString() }) // hydration-ok
+        .update({ review_status: 'approved', approved_at: new Date().toISOString() })
         .eq('id', id);
       if (updateError) throw updateError;
       setReviews(prev => prev.map(r => r.id === id ? { ...r, status: 'approved' as ReviewStatus, overallProgress: 100 } : r));

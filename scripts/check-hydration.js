@@ -243,8 +243,6 @@ function scanFile(filePath) {
     if (trimmed?.startsWith('//') || trimmed?.startsWith('*') || trimmed?.startsWith('/*')) continue;
     // Skip import / require lines (they don't execute at render time)
     if (/^\s*(import|export)\s/?.test(line) && !line?.includes('(')) continue;
-    // Skip lines explicitly marked as safe
-    if (line?.includes('// hydration-ok')) continue;
 
     for (const rule of RULES) {
       if (rule?.pattern?.test(line)) {

@@ -12,9 +12,6 @@ function ChangePasswordContent() {
   const { user, profile, loading } = useAuth();
   const supabase = createClient();
 
-  const [currentYear, setCurrentYear] = useState<number>(2026);
-  useEffect(() => { setCurrentYear(new Date().getFullYear()); }, []); // hydration-ok
-
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNew, setShowNew] = useState(false);
@@ -72,7 +69,7 @@ function ChangePasswordContent() {
       if (isForced) {
         const { error: profileError } = await supabase
           .from('user_profiles')
-          .update({ must_change_password: false, updated_at: new Date().toISOString() }) // hydration-ok
+          .update({ must_change_password: false, updated_at: new Date().toISOString() })
           .eq('id', user!.id);
 
         if (profileError) throw profileError;
@@ -322,7 +319,7 @@ function ChangePasswordContent() {
 
           <div className="px-8 py-4 bg-muted/30 border-t border-border text-center">
             <p className="text-[11px] text-muted-foreground">
-              © {currentYear} East, Central &amp; Southern Africa Health Community
+              © {new Date().getFullYear()} East, Central &amp; Southern Africa Health Community
             </p>
           </div>
         </div>

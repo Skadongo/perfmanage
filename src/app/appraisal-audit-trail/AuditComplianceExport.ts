@@ -154,7 +154,7 @@ export async function exportAuditToExcel(
   const metaRows = [
     { 'Field': 'Report Title', 'Value': 'ECSA-HC Appraisal Compliance Report' },
     { 'Field': 'Organisation', 'Value': 'ECSA-HC Performance Management System' },
-    { 'Field': 'Generated At', 'Value': formatDateTime(new Date().toISOString()) }, // hydration-ok
+    { 'Field': 'Generated At', 'Value': formatDateTime(new Date().toISOString()) },
     { 'Field': 'Filter — Form Type', 'Value': filters.type === 'all' ? 'All Types' : filters.type.replace(/\b\w/g, (c) => c.toUpperCase()) },
     { 'Field': 'Filter — Status', 'Value': filters.status === 'all' ? 'All Statuses' : filters.status.replace(/\b\w/g, (c) => c.toUpperCase()) },
     { 'Field': 'Filter — Year', 'Value': filters.year === 'all' ? 'All Years' : filters.year },
@@ -232,7 +232,7 @@ export async function exportAuditToPDF(
     doc.setFontSize(7.5);
     doc.setFont('helvetica', 'normal');
     doc.text(
-      `Generated: ${formatDate(new Date().toISOString())}`, // hydration-ok
+      `Generated: ${formatDate(new Date().toISOString())}`,
       pageW - margin,
       8,
       { align: 'right' }
@@ -478,7 +478,7 @@ export async function exportAuditToPDF(
       { align: 'center' }
     );
     doc.text(`Page ${i} of ${pageCount}`, pageW - margin, pageH - 3.5, { align: 'right' });
-    doc.text(formatDate(new Date().toISOString()), margin, pageH - 3.5); // hydration-ok
+    doc.text(formatDate(new Date().toISOString()), margin, pageH - 3.5);
   }
 
   doc.save(filename);

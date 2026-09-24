@@ -74,7 +74,7 @@ export async function exportToPDF(reviews: ReviewExportRecord[], filename = 'eva
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
   doc.text(`ECSA-HC Performance Management System · FY 2025–2026`, 14, 23);
-  doc.text(`Generated: ${formatDate(new Date())}`, 14, 28); // hydration-ok
+  doc.text(`Generated: ${formatDate(new Date())}`, 14, 28);
 
   // Summary stats
   const total = reviews.length;
@@ -325,7 +325,7 @@ export async function exportAppraisalPDF(data: AppraisalExportData, filename?: s
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(186, 210, 255);
-  doc.text(`${data.fiscalYear ?? 'FY 2025–2026'}  ·  Generated: ${formatDate(new Date())}`, pageW - margin, 19, { align: 'right' }); // hydration-ok
+  doc.text(`${data.fiscalYear ?? 'FY 2025–2026'}  ·  Generated: ${formatDate(new Date())}`, pageW - margin, 19, { align: 'right' });
 
   // Status pill
   const statusColor = data.status === 'approved' ? emerald : data.status === 'submitted' ? sky : data.status === 'overdue' ? red : amber;
@@ -588,7 +588,7 @@ export async function exportAppraisalPDF(data: AppraisalExportData, filename?: s
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...mutedText);
   doc.text(`Name: ${data.supervisor}`, supSigX + 4, curY + 25);
-  doc.text(`Date: ${data.submittedDate || formatDate(new Date())}`, supSigX + 4, curY + 30); // hydration-ok
+  doc.text(`Date: ${data.submittedDate || formatDate(new Date())}`, supSigX + 4, curY + 30);
 
   curY += 42;
 

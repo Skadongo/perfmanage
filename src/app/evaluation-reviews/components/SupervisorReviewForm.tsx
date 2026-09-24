@@ -158,9 +158,9 @@ export default function SupervisorReviewForm() {
         .update({
           supervisor_rating: form.supervisorRating,
           supervisor_comments: form.supervisorComments,
-          supervisor_reviewed_at: new Date().toISOString(), // hydration-ok
+          supervisor_reviewed_at: new Date().toISOString(),
           review_status: 'reviewed',
-          updated_at: new Date().toISOString(), // hydration-ok
+          updated_at: new Date().toISOString(),
         })
         .eq('id', reviewId);
 
@@ -201,10 +201,10 @@ export default function SupervisorReviewForm() {
           supervisor_rating: form.supervisorRating,
           supervisor_comments: form.supervisorComments,
           approval_comments: form.approvalComments,
-          supervisor_reviewed_at: new Date().toISOString(), // hydration-ok
-          approved_at: new Date().toISOString(), // hydration-ok
+          supervisor_reviewed_at: new Date().toISOString(),
+          approved_at: new Date().toISOString(),
           review_status: 'approved',
-          updated_at: new Date().toISOString(), // hydration-ok
+          updated_at: new Date().toISOString(),
         })
         .eq('id', reviewId);
 
@@ -249,7 +249,7 @@ export default function SupervisorReviewForm() {
           rejected_reason: form.rejectedReason,
           supervisor_comments: form.supervisorComments,
           review_status: 'rejected',
-          updated_at: new Date().toISOString(), // hydration-ok
+          updated_at: new Date().toISOString(),
         })
         .eq('id', reviewId);
 
