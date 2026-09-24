@@ -55,7 +55,7 @@ async function fetchMetrics(
 
       let workplansQuery = supabase
         .from('workplan_settings')
-        .select('status, workflow_stage, staff_id');
+        .select('status, workflow_stage, staff_id, submitted_at');
       if (staffId) {
         workplansQuery = workplansQuery.eq('staff_id', staffId);
       } else if (supervisorId) {
@@ -115,9 +115,16 @@ async function fetchMetrics(
         ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
         : null;
 
-      // Count workplans that have been submitted (any status beyond draft)
+      // Count workplans that have been submitted:
+      // Primary signal: status is not 'draft', OR submitted_at is set, OR workflow_stage is beyond workplan_pending
       const submittedWorkplans = workplanList.filter(w =>
-        w.status !== 'draft' || w.workflow_stage !== 'workplan_pending'
+        w.status === 'submitted' ||
+        w.status === 'approved' ||
+        w.status === 'hr_review' ||
+        w.workflow_stage === 'supervisor_review' ||
+        w.workflow_stage === 'hr_review' ||
+        w.workflow_stage === 'approved' ||
+        w.submitted_at != null
       ).length;
       const approvedWorkplans = workplanList.filter(w =>
         w.status === 'approved' || w.workflow_stage === 'approved'

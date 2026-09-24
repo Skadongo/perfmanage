@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { cacheGet, cacheSet } from '@/lib/cache';
+import { cacheGet, cacheSet, invalidateByBase } from '@/lib/cache';
 
 export interface LiveStats {
   totalReviews: number;
@@ -11,6 +11,8 @@ export interface LiveStats {
   avgRating: number;
   totalStaff: number;
   pendingReviews: number;
+  workplansSubmitted: number;
+  workplansTotal: number;
   lastUpdated: string;
 }
 
@@ -60,8 +62,8 @@ export function useRealtimeDashboard({
     }
 
     try {
-      // Run both queries in parallel, select only needed columns
-      const [reviewsResult, staffResult] = await Promise.all([
+      // Run all queries in parallel
+      const [reviewsResult, staffResult, workplansResult] = await Promise.all([
         staffId
           ? supabase
               .from('mid_year_reviews')
@@ -74,11 +76,20 @@ export function useRealtimeDashboard({
           .from('staff')
           .select('id', { count: 'exact', head: true })
           .eq('employment_status', 'active'),
+        staffId
+          ? supabase
+              .from('workplan_settings')
+              .select('status, workflow_stage, submitted_at')
+              .eq('staff_id', staffId)
+          : supabase
+              .from('workplan_settings')
+              .select('status, workflow_stage, submitted_at'),
       ]);
 
       if (!isMounted.current) return;
 
       const reviewList = reviewsResult.data || [];
+      const workplanList = workplansResult.data || [];
       const total = reviewList.length;
       const submitted = reviewList.filter(r =>
         ['submitted', 'reviewed', 'approved'].includes(r.review_status)
@@ -95,6 +106,17 @@ export function useRealtimeDashboard({
           ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
           : 0;
 
+      // Count workplans that have been submitted
+      const workplansSubmitted = workplanList.filter((w: Record<string, unknown>) =>
+        w.status === 'submitted' ||
+        w.status === 'approved' ||
+        w.status === 'hr_review' ||
+        w.workflow_stage === 'supervisor_review' ||
+        w.workflow_stage === 'hr_review' ||
+        w.workflow_stage === 'approved' ||
+        w.submitted_at != null
+      ).length;
+
       const now = new Date();
       const timeStr = now.toISOString().slice(11, 19);
 
@@ -105,6 +127,8 @@ export function useRealtimeDashboard({
         avgRating,
         totalStaff: staffResult.count ?? 0,
         pendingReviews: pending,
+        workplansSubmitted,
+        workplansTotal: workplanList.length,
         lastUpdated: timeStr,
       };
 
@@ -119,6 +143,8 @@ export function useRealtimeDashboard({
   const debouncedFetch = useCallback(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
+      // Invalidate the dashboard-metrics cache so DashboardMetricCards re-fetches fresh data
+      invalidateByBase('dashboard-metrics');
       fetchLiveStats(true); // force refresh on realtime event
       setRefreshKey(k => k + 1);
     }, 500);
