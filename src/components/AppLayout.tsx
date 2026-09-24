@@ -30,12 +30,14 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [currentYear, setCurrentYear] = useState<number>(2026);
+  const [mounted, setMounted] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     setCurrentYear(new Date().getFullYear());
+    setMounted(true);
   }, []);
 
   useEffect(() => {
@@ -74,6 +76,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
         onToggle={() => setCollapsed(!collapsed)}
         mobileOpen={mobileOpen}
         onMobileClose={() => setMobileOpen(false)}
+        mounted={mounted}
       />
 
       {/* Main content — offset by sidebar width on desktop */}
