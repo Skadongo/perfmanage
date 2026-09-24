@@ -30,6 +30,7 @@ export default React.memo(function AtRiskStaffTable({ supervisorId }: Props) {
   const [staffList, setStaffList] = useState<AtRiskStaffRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
   // Stable client ref — never recreated across renders
   const supabaseRef = useRef(createClient());
   const isMounted = useRef(true);
@@ -156,6 +157,7 @@ export default React.memo(function AtRiskStaffTable({ supervisorId }: Props) {
   }, [supervisorId]);
 
   useEffect(() => {
+    setMounted(true);
     isMounted.current = true;
     fetchAtRiskStaff();
     return () => { isMounted.current = false; };
@@ -274,13 +276,18 @@ export default React.memo(function AtRiskStaffTable({ supervisorId }: Props) {
             {supervisorId ? 'Direct reports requiring attention' : 'Staff requiring immediate attention'} · Q1 2026
           </p>
         </div>
-        {!loading && !error && (
+        {mounted && !loading && !error && (
           <span className="text-[11px] bg-red-50 text-red-700 border border-red-200 px-2 py-1 rounded-md font-600">
             {overdueCount} Overdue · {atRiskCount} At Risk
           </span>
         )}
       </div>
-      {renderBody()}
+      {mounted ? renderBody() : (
+        <div className="flex items-center justify-center py-12">
+          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <span className="ml-3 text-sm text-muted-foreground">Loading staff data…</span>
+        </div>
+      )}
     </div>
   );
 });
