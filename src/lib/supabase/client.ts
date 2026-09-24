@@ -2,6 +2,25 @@ import { createBrowserClient } from '@supabase/ssr';
 
 const PFX = 'sb_';
 
+// ── Disable native Web Locks API for this page ──────────────────────────────
+// GoTrue (Supabase auth) uses navigator.locks to serialize token refreshes.
+// When React Strict Mode double-mounts or rapid navigation orphans a lock,
+// a competing request steals it and throws:
+//   AbortError: Lock broken by another request with the 'steal' option
+// Removing navigator.locks forces GoTrue to use our custom promise-based
+// mutex (passed via the `auth.lock` option below) which never steals locks.
+if (typeof window !== 'undefined' && 'locks' in navigator) {
+  try {
+    Object.defineProperty(navigator, 'locks', {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    });
+  } catch {
+    // Some browsers don't allow redefining navigator.locks — ignore
+  }
+}
+
 const canUseCookies = (() => {
   let cache: boolean | null = null;
   return () => {
