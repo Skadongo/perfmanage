@@ -9,8 +9,6 @@ import SelfEvaluationForm from './components/SelfEvaluationForm';
 import SupervisorReviewForm from './components/SupervisorReviewForm';
 import WorkflowProgressPanel from './components/WorkflowProgressPanel';
 import WorkplanListView from './components/WorkplanListView';
-import WorkplanBulkUpload from './components/WorkplanBulkUpload';
-import WorkplanDocumentImport from './components/WorkplanDocumentImport';
 import { Toaster, toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
@@ -39,7 +37,6 @@ interface WorkflowStageCounts {
 }
 
 type ActiveForm = null | 'workplan' | 'mid-year' | 'end-year';
-type UploadModal = null | 'bulk-upload' | 'doc-import';
 
 function mapStatus(dbStatus: string): string {
   const map: Record<string, string> = {
@@ -61,18 +58,7 @@ function computeProgress(status: string, selfRating: number, supervisorRating: n
 
 export default function EvaluationReviewsPage() {
   const [activeForm, setActiveForm] = useState<ActiveForm>(null);
-  const [uploadModal, setUploadModal] = useState<UploadModal>(null);
-  const [importDropdownOpen, setImportDropdownOpen] = useState(false);
-  const [workplanPrefill, setWorkplanPrefill] = useState<{
-    staffId: string;
-    staffName: string;
-    jobTitle: string;
-    supervisorId: string;
-    supervisorName: string;
-    fiscalYear: string;
-    perspectivesObjectives: any[];
-  } | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'supervisor-review' | 'upload-workplan'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'supervisor-review'>('overview');
   const [reviewsSummary, setReviewsSummary] = useState<ReviewSummary[]>([]);
   const [statsLoading, setStatsLoading] = useState(true);
   const [stageCounts, setStageCounts] = useState<WorkflowStageCounts>({
@@ -85,7 +71,6 @@ export default function EvaluationReviewsPage() {
     total: 0
   });
   const [stageLoading, setStageLoading] = useState(true);
-  const [workplanInitiated, setWorkplanInitiated] = useState(false);
 
   // Stable supabase client ref — prevents re-creation on every render
   const supabaseRef = useRef(createClient());
@@ -222,8 +207,6 @@ export default function EvaluationReviewsPage() {
 
   function handleFormSubmit() {
     setActiveForm(null);
-    setWorkplanPrefill(null);
-    setWorkplanInitiated(false);
     // Force-refresh stage counts after form submission
     fetchStageCounts(true);
     toast?.success('Saved successfully and routed for processing.');
@@ -333,24 +316,6 @@ export default function EvaluationReviewsPage() {
       actions={
       <div className="flex items-center gap-2">
           <button
-            type="button"
-            onClick={() => setUploadModal('bulk-upload')}
-            className="flex items-center gap-1.5 text-xs font-600 text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
-          >
-            <Icon name="EcsaImportIcon" size={13} className="text-emerald-600" />
-            <span className="hidden sm:inline">Import Excel / CSV</span>
-            <span className="sm:hidden">Excel</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setUploadModal('doc-import')}
-            className="flex items-center gap-1.5 text-xs font-600 text-violet-700 bg-violet-50 border border-violet-200 px-3 py-1.5 rounded-lg hover:bg-violet-100 transition-colors"
-          >
-            <Icon name="EcsaDocIcon" size={13} className="text-violet-600" />
-            <span className="hidden sm:inline">Import Word / PDF</span>
-            <span className="sm:hidden">Word</span>
-          </button>
-          <button
           onClick={() => setActiveForm('workplan')}
           className="btn-brand">
 
@@ -362,10 +327,10 @@ export default function EvaluationReviewsPage() {
 
       <Toaster position="bottom-right" richColors />
 
-      {/* ── Workplan Form Modal ── */}
+      {/* ── Form Modal ── */}
       {activeForm &&
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setActiveForm(null); setWorkplanPrefill(null); }} />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setActiveForm(null)} />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col overflow-hidden animate-fade-in">
             {/* Modal header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-white">
@@ -378,48 +343,18 @@ export default function EvaluationReviewsPage() {
                   <p className="text-xs text-muted-foreground">ECSA-HC · {formMeta[activeForm]?.subtitle}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {activeForm === 'workplan' && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setUploadModal('bulk-upload')}
-                      className="flex items-center gap-1.5 text-xs font-600 text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
-                    >
-                      <Icon name="EcsaImportIcon" size={13} className="text-emerald-600" />
-                      <span className="hidden sm:inline">Import Excel / CSV</span>
-                      <span className="sm:hidden">Excel</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setUploadModal('doc-import')}
-                      className="flex items-center gap-1.5 text-xs font-600 text-violet-700 bg-violet-50 border border-violet-200 px-3 py-1.5 rounded-lg hover:bg-violet-100 transition-colors"
-                    >
-                      <Icon name="EcsaDocIcon" size={13} className="text-violet-600" />
-                      <span className="hidden sm:inline">Import Word / PDF</span>
-                      <span className="sm:hidden">Word</span>
-                    </button>
-                  </>
-                )}
-                <button
-                onClick={() => { setActiveForm(null); setWorkplanPrefill(null); }}
-                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                aria-label="Close form">
-                  <Icon name="XMarkIcon" size={18} />
-                </button>
-              </div>
+              <button
+              onClick={() => setActiveForm(null)}
+              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Close form">
+
+                <Icon name="XMarkIcon" size={18} />
+              </button>
             </div>
             {/* Form content */}
             <div className="flex-1 overflow-y-auto flex flex-col">
               {activeForm === 'workplan' &&
-            <WorkplanSettingForm
-              onClose={() => { setActiveForm(null); setWorkplanPrefill(null); setWorkplanInitiated(false); }}
-              onSubmit={handleFormSubmit}
-              onWorkplanReady={() => setWorkplanInitiated(true)}
-              onImportExcel={() => { setUploadModal('bulk-upload'); }}
-              onImportWord={() => { setUploadModal('doc-import'); }}
-              prefillData={workplanPrefill}
-            />
+            <WorkplanSettingForm onClose={() => setActiveForm(null)} onSubmit={handleFormSubmit} />
             }
               {(activeForm === 'mid-year' || activeForm === 'end-year') &&
             <SelfEvaluationForm
@@ -433,75 +368,7 @@ export default function EvaluationReviewsPage() {
         </div>
       }
 
-      {/* ── Bulk Upload Modal ── */}
-      {uploadModal === 'bulk-upload' && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setUploadModal(null)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col overflow-hidden animate-fade-in">
-            <WorkplanBulkUpload
-              onClose={() => setUploadModal(null)}
-              onComplete={() => {
-                setUploadModal(null);
-                fetchStageCounts(true);
-              }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* ── Document Import Modal ── */}
-      {uploadModal === 'doc-import' && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setUploadModal(null)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[95vh] flex flex-col overflow-hidden animate-fade-in">
-            <WorkplanDocumentImport
-              onClose={() => setUploadModal(null)}
-              onPrefill={(data) => {
-                setWorkplanPrefill(data);
-                setUploadModal(null);
-                setActiveForm('workplan');
-                toast.success('Document parsed — form pre-filled. Review and save.');
-              }}
-            />
-          </div>
-        </div>
-      )}
-
       <div className="space-y-6">
-        {/* ── Always-visible Import Actions Bar ── */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white border border-border rounded-xl px-4 py-3 shadow-card">
-          <div className="flex items-start gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-              <Icon name="EcsaImportIcon" size={16} className="text-primary" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-700 text-foreground">Import Workplan Data</p>
-              <p className="text-[11px] text-muted-foreground leading-snug">
-                Use the ECSA-HC Individual Performance Contract format (Performance_contract_Template).
-                Upload Excel/CSV for bulk data or Word/PDF to auto-parse objectives.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
-            <button
-              type="button"
-              onClick={() => setUploadModal('bulk-upload')}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-600 text-emerald-700 bg-emerald-50 border border-emerald-200 px-4 py-2 rounded-lg hover:bg-emerald-100 active:scale-95 transition-all"
-            >
-              <Icon name="EcsaImportIcon" size={14} className="text-emerald-600 flex-shrink-0" />
-              Import Excel / CSV
-            </button>
-            <button
-              type="button"
-              onClick={() => setUploadModal('doc-import')}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-600 text-violet-700 bg-violet-50 border border-violet-200 px-4 py-2 rounded-lg hover:bg-violet-100 active:scale-95 transition-all"
-            >
-              <Icon name="EcsaDocIcon" size={14} className="text-violet-600 flex-shrink-0" />
-              Import Word / PDF
-            </button>
-          </div>
-        </div>
-
         {/* Summary stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-4 gap-4">
           {[
@@ -624,31 +491,29 @@ export default function EvaluationReviewsPage() {
         </div>
 
         {/* Tab navigation */}
-        <div className="w-full overflow-x-auto">
-          <div className="flex items-center gap-1 bg-muted/30 border border-border rounded-xl p-1 min-w-max">
-            {[
-            { key: 'overview', label: 'Overview & All Reviews', icon: 'EcsaCapacityIcon' },
-            { key: 'supervisor-review', label: 'Supervisor Review Form', icon: 'EcsaEvaluationIcon' },
-            { key: 'upload-workplan', label: 'Upload Workplan', icon: 'EcsaImportIcon' }].
-            map((tab) =>
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key as 'overview' | 'supervisor-review' | 'upload-workplan')}
-              className={`flex items-center gap-1.5 px-4 py-2 text-xs font-600 rounded-lg transition-all whitespace-nowrap ${
-              activeTab === tab.key ?
-              'bg-white text-primary shadow-sm border border-border' :
-              'text-muted-foreground hover:text-foreground'}`
-              }>
-                <Icon name={tab.icon} size={14} />
-                {tab.label}
-              </button>
-            )}
-          </div>
+        <div className="flex items-center gap-1 bg-muted/30 border border-border rounded-xl p-1 w-fit">
+          {[
+          { key: 'overview', label: 'Overview & All Reviews', icon: 'EcsaCapacityIcon' },
+          { key: 'supervisor-review', label: 'Supervisor Review Form', icon: 'EcsaEvaluationIcon' }].
+          map((tab) =>
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key as 'overview' | 'supervisor-review')}
+            className={`flex items-center gap-1.5 px-4 py-2 text-xs font-600 rounded-lg transition-all ${
+            activeTab === tab.key ?
+            'bg-white text-primary shadow-sm border border-border' :
+            'text-muted-foreground hover:text-foreground'}`
+            }>
+
+              <Icon name={tab.icon} size={14} />
+              {tab.label}
+            </button>
+          )}
         </div>
 
         {/* Tab content */}
-        {activeTab === 'overview' && (
-          <>
+        {activeTab === 'overview' ?
+        <>
             {/* Workflow Progress Panel — real-time stage data */}
             <WorkflowProgressPanel />
 
@@ -668,117 +533,12 @@ export default function EvaluationReviewsPage() {
             </div>
 
             <ReviewTable />
-          </>
-        )}
+          </> :
 
-        {activeTab === 'supervisor-review' && (
-          <div className="bg-white rounded-xl border border-border shadow-card p-5">
+        <div className="bg-white rounded-xl border border-border shadow-card p-5">
             <SupervisorReviewForm />
           </div>
-        )}
-
-        {/* ── Upload Workplan Tab ── */}
-        {activeTab === 'upload-workplan' && (
-          <div className="space-y-4">
-            {/* Header */}
-            <div className="bg-white rounded-xl border border-border shadow-card px-5 py-4">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <Icon name="EcsaImportIcon" size={20} className="text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-sm font-700 text-foreground">Upload Workplan</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                    Import your ECSA-HC Individual Performance Contract workplan data using the standard template
-                    (<span className="font-600 text-foreground/70">Performance_contract_Template</span>).
-                    Choose the format that matches your file.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Two full-width import cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Import Excel / CSV Card */}
-              <button
-                type="button"
-                onClick={() => setUploadModal('bulk-upload')}
-                className="group text-left bg-white rounded-xl border-2 border-emerald-200 hover:border-emerald-400 shadow-card hover:shadow-md transition-all active:scale-[0.99] p-6 flex flex-col gap-4 w-full"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200 group-hover:bg-emerald-100 flex items-center justify-center flex-shrink-0 transition-colors">
-                    <Icon name="EcsaImportIcon" size={28} className="text-emerald-600" />
-                  </div>
-                  <div>
-                    <p className="text-base font-700 text-foreground">Import Excel / CSV</p>
-                    <p className="text-xs text-emerald-700 font-600 mt-0.5">.xlsx · .xls · .csv</p>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Upload a spreadsheet file following the ECSA-HC Performance Contract template.
-                  Bulk-import multiple staff objectives, KPIs, and targets in one step.
-                  Ideal for HR administrators managing large teams.
-                </p>
-                <div className="flex flex-wrap gap-2 mt-auto">
-                  {['Bulk import', 'Multiple staff', 'Objectives & KPIs', 'Auto-mapped columns'].map((tag) => (
-                    <span key={tag} className="text-[10px] font-600 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-                <div className="flex items-center gap-1.5 text-xs font-700 text-emerald-700 group-hover:gap-2.5 transition-all">
-                  <Icon name="EcsaImportIcon" size={14} className="text-emerald-600" />
-                  Click to upload Excel / CSV
-                  <Icon name="EcsaChevronRightIcon" size={12} className="text-emerald-500 ml-auto" />
-                </div>
-              </button>
-
-              {/* Import Word / PDF Card */}
-              <button
-                type="button"
-                onClick={() => setUploadModal('doc-import')}
-                className="group text-left bg-white rounded-xl border-2 border-violet-200 hover:border-violet-400 shadow-card hover:shadow-md transition-all active:scale-[0.99] p-6 flex flex-col gap-4 w-full"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl bg-violet-50 border border-violet-200 group-hover:bg-violet-100 flex items-center justify-center flex-shrink-0 transition-colors">
-                    <Icon name="EcsaDocIcon" size={28} className="text-violet-600" />
-                  </div>
-                  <div>
-                    <p className="text-base font-700 text-foreground">Import Word / PDF</p>
-                    <p className="text-xs text-violet-700 font-600 mt-0.5">.docx · .doc · .pdf</p>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Upload a Word document or PDF of the ECSA-HC Individual Performance Contract.
-                  The system will auto-parse objectives and KPIs and pre-fill the appraisal form
-                  for your review before saving.
-                </p>
-                <div className="flex flex-wrap gap-2 mt-auto">
-                  {['Auto-parse', 'Pre-fill form', 'Review before save', 'Single staff'].map((tag) => (
-                    <span key={tag} className="text-[10px] font-600 px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-                <div className="flex items-center gap-1.5 text-xs font-700 text-violet-700 group-hover:gap-2.5 transition-all">
-                  <Icon name="EcsaDocIcon" size={14} className="text-violet-600" />
-                  Click to upload Word / PDF
-                  <Icon name="EcsaChevronRightIcon" size={12} className="text-violet-500 ml-auto" />
-                </div>
-              </button>
-            </div>
-
-            {/* Format guidance note */}
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
-              <Icon name="EcsaInfoIcon" size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-amber-800 leading-relaxed">
-                <span className="font-700">Template required:</span> Files must follow the ECSA-HC Individual Performance Contract format
-                (<span className="font-600">Performance_contract_Template</span>). Columns and sections must match the standard template
-                for successful import. Contact HR for the latest template version.
-              </p>
-            </div>
-          </div>
-        )}
+        }
       </div>
     </AppLayout>);
 

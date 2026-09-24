@@ -55,7 +55,7 @@ async function fetchMetrics(
 
       let workplansQuery = supabase
         .from('workplan_settings')
-        .select('status, workflow_stage, staff_id, submitted_at');
+        .select('status, workflow_stage, staff_id');
       if (staffId) {
         workplansQuery = workplansQuery.eq('staff_id', staffId);
       } else if (supervisorId) {
@@ -115,28 +115,14 @@ async function fetchMetrics(
         ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
         : null;
 
-      // Count workplans that have been submitted:
-      // Primary signal: status is not 'draft', OR submitted_at is set, OR workflow_stage is beyond workplan_pending
-      const submittedWorkplans = workplanList.filter(w =>
-        w.status === 'submitted' ||
-        w.status === 'approved' ||
-        w.status === 'hr_review' ||
-        w.workflow_stage === 'supervisor_review' ||
-        w.workflow_stage === 'hr_review' ||
-        w.workflow_stage === 'approved' ||
-        w.submitted_at != null
-      ).length;
       const approvedWorkplans = workplanList.filter(w =>
         w.status === 'approved' || w.workflow_stage === 'approved'
       ).length;
-
-      // Use submitted (not just approved) as the completion denominator
-      // so dashboards show workplans that have been submitted even if not yet approved
-      const workplanDenominator = staffId
+      const cpdDenominator = staffId
         ? 1
-        : Math.max(workplanList.length > 0 ? workplanList.length : staffCount, 1);
-      const cpdCompletionRate = workplanDenominator > 0
-        ? Math.min(100, Math.round((submittedWorkplans / workplanDenominator) * 100))
+        : Math.max(staffCount, 1);
+      const cpdCompletionRate = cpdDenominator > 0
+        ? Math.min(100, Math.round((approvedWorkplans / cpdDenominator) * 100))
         : null;
 
       return {
@@ -242,15 +228,15 @@ export default function DashboardMetricCards({
     },
     {
       id: 'metric-cpd-completion',
-      label: 'Workplan Submission Rate',
+      label: 'Workplan Completion Rate',
       value: cpdValue,
       rawValue: cpdRaw,
-      target: '100% submitted',
+      target: '100% by Dec 31',
       delta: m.workplansTotal > 0
-        ? `${m.workplansTotal} workplan${m.workplansTotal !== 1 ? 's' : ''} submitted (${m.workplansApproved} approved)`
+        ? `${m.workplansApproved} of ${m.workplansTotal} workplans approved`
         : 'No workplans yet',
       positive: cpdRaw >= 80,
-      description: 'Staff with submitted workplans',
+      description: 'Staff with approved workplans',
       icon: 'AcademicCapIcon',
       color: 'text-violet-600',
       bgColor: 'bg-violet-50',

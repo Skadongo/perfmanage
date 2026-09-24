@@ -44,7 +44,7 @@ const ALL_STRIP_ITEMS: StripItem[] = [
   },
   {
     key: 'submitted',
-    label: 'Reviews Submitted',
+    label: 'Submitted',
     color: 'text-sky-700',
     bg: 'bg-sky-50',
     sub: (s) => {
@@ -53,18 +53,8 @@ const ALL_STRIP_ITEMS: StripItem[] = [
     },
   },
   {
-    key: 'workplansSubmitted',
-    label: 'Workplans Submitted',
-    color: 'text-violet-700',
-    bg: 'bg-violet-50',
-    sub: (s) => {
-      const pct = s.workplansTotal > 0 ? Math.round((s.workplansSubmitted / s.workplansTotal) * 100) : 0;
-      return `${pct}% of ${s.workplansTotal} total`;
-    },
-  },
-  {
     key: 'approved',
-    label: 'Reviews Approved',
+    label: 'Approved',
     color: 'text-emerald-700',
     bg: 'bg-emerald-50',
     sub: () => 'Fully approved',

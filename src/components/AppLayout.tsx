@@ -1,15 +1,13 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import Sidebar from './Sidebar';
 import Icon from '@/components/ui/AppIcon';
 import Image from 'next/image';
-import dynamic from 'next/dynamic';
+import NotificationCenter from './NotificationCenter';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useServiceWorker } from '@/hooks/useServiceWorker';
-import Sidebar from './Sidebar';
-
-const NotificationCenter = dynamic(() => import('./NotificationCenter'), { ssr: false });
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -102,8 +100,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
               alt="ECSA-HC Logo"
               width={72}
               height={72}
-              style={{ width: 'auto', height: 'auto' }}
-              className="object-contain h-10 sm:h-14"
+              className="object-contain h-10 sm:h-14 w-auto"
               priority
             />
             <div className="hidden md:flex flex-col leading-tight">
@@ -142,8 +139,8 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                   <span className="text-primary text-xs font-700">{getInitials()}</span>
                 </div>
                 <div className="hidden md:flex flex-col items-start leading-tight">
-                  <span suppressHydrationWarning className="text-xs font-600 text-foreground max-w-[120px] truncate">{getDisplayName()}</span>
-                  <span suppressHydrationWarning className="text-[10px] text-muted-foreground max-w-[120px] truncate">{roleLabel}</span>
+                  <span className="text-xs font-600 text-foreground max-w-[120px] truncate">{getDisplayName()}</span>
+                  <span className="text-[10px] text-muted-foreground max-w-[120px] truncate">{roleLabel}</span>
                 </div>
                 <svg className="w-3.5 h-3.5 text-muted-foreground hidden md:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -154,9 +151,9 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                 <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-lg border border-border z-50 overflow-hidden">
                   {/* User info header */}
                   <div className="px-4 py-3 border-b border-border bg-muted/30">
-                    <p suppressHydrationWarning className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
-                    <p suppressHydrationWarning className="text-xs text-muted-foreground truncate">{profile?.email || ''}</p>
-                    <span suppressHydrationWarning className="inline-block mt-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-600">
+                    <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
+                    <p className="text-xs text-muted-foreground truncate">{profile?.email || ''}</p>
+                    <span className="inline-block mt-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-600">
                       {roleLabel}
                     </span>
                   </div>
@@ -203,8 +200,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                 alt="ECSA-HC Logo"
                 width={32}
                 height={32}
-                style={{ width: 'auto', height: 'auto' }}
-                className="object-contain h-7"
+                className="object-contain h-7 w-auto"
               />
               <div className="leading-tight">
                 <p className="text-xs font-700 text-foreground">ECSA-HC</p>

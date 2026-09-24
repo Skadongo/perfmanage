@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
@@ -27,9 +27,7 @@ const NAV_GROUPS = [
   label: 'Organisation',
   items: [
   { label: 'Staff Management', href: '/staff-management', icon: 'EcsaStaffIcon', badge: null },
-    { label: 'HR Configuration', href: '/hr-configuration', icon: 'Cog6ToothIcon', badge: null },
     { label: 'Appraisal Audit Trail', href: '/appraisal-audit-trail', icon: 'ClipboardDocumentListIcon', badge: null },
-  { label: 'Upload Workplan', href: '/workplan-upload', icon: 'ArrowUpTrayIcon', badge: null },
   { label: 'Permissions', href: '/permissions', icon: 'EcsaPermissionsIcon', badge: null },
   { label: 'Admin Dashboard', href: '/admin-dashboard', icon: 'ShieldCheckIcon', badge: null }]
 },
@@ -57,11 +55,6 @@ interface SidebarProps {
 export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const { getDisplayName, getInitials, profile } = useAuth();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const roleLabel = profile?.systemRole
     ? profile.systemRole.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
@@ -69,17 +62,16 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
 
   return (
     <>
-      {/* Mobile overlay backdrop — always rendered, shown/hidden via CSS to keep DOM stable */}
-      <div
-        className={`fixed inset-0 bg-black/40 z-30 lg:hidden transition-opacity duration-200 ${
-          mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
-        onClick={onMobileClose}
-        aria-hidden="true"
-      />
+      {/* Mobile overlay backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-30 lg:hidden"
+          onClick={onMobileClose}
+          aria-hidden="true"
+        />
+      )}
 
       <aside
-        suppressHydrationWarning
         className={`
           fixed left-0 top-0 h-screen bg-white border-r border-border z-40
           flex flex-col transition-all duration-300 ease-in-out
@@ -143,12 +135,17 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
         <nav className="flex-1 overflow-y-auto py-4 scrollbar-thin">
           {NAV_GROUPS.map((group) =>
           <div key={`group-${group.label}`} className="mb-4">
-              {/* Single group label — always rendered; CSS controls visibility */}
-              <p className={`px-4 mb-1 text-[10px] font-600 uppercase tracking-widest text-primary/60 ${
-                collapsed && !mobileOpen ? 'lg:opacity-0 lg:select-none' : ''
-              }`}>
-                {group.label}
-              </p>
+              {/* Show group label on mobile always; on desktop only when not collapsed */}
+              {(!collapsed || mobileOpen) && (
+                <p className="px-4 mb-1 text-[10px] font-600 uppercase tracking-widest text-primary/60 lg:block">
+                  {group.label}
+                </p>
+              )}
+              {collapsed && !mobileOpen && (
+                <p className="hidden lg:block px-4 mb-1 text-[10px] font-600 uppercase tracking-widest text-primary/60 opacity-0 select-none">
+                  {group.label}
+                </p>
+              )}
               {group.items.map((item) => {
               const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
               return (
@@ -187,35 +184,23 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
 
         {/* User */}
         <div className={`border-t border-border p-3 ${collapsed && !mobileOpen ? 'lg:flex lg:justify-center' : ''}`}>
-          {mounted ? (
-            <>
-              {collapsed && !mobileOpen ? (
-                <div className="hidden lg:flex w-8 h-8 rounded-full bg-primary/10 items-center justify-center">
-                  <span className="text-primary text-xs font-700">{getInitials()}</span>
-                </div>
-              ) : null}
-              <div className={`flex items-center gap-2 ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-primary text-xs font-700">{getInitials()}</span>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
-                  <p className="text-[11px] text-muted-foreground truncate">{roleLabel}</p>
-                </div>
-                <button className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground transition-colors">
-                  <Icon name="EcsaSettingsIcon" size={15} />
-                </button>
-              </div>
-            </>
-          ) : (
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-primary/10 flex-shrink-0" />
-              <div className={`flex-1 min-w-0 ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
-                <div className="h-3 w-24 bg-muted rounded animate-pulse mb-1" />
-                <div className="h-2.5 w-16 bg-muted rounded animate-pulse" />
-              </div>
+          {collapsed && !mobileOpen ? (
+            <div className="hidden lg:flex w-8 h-8 rounded-full bg-primary/10 items-center justify-center">
+              <span className="text-primary text-xs font-700">{getInitials()}</span>
             </div>
-          )}
+          ) : null}
+          <div className={`flex items-center gap-2 ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
+            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <span className="text-primary text-xs font-700">{getInitials()}</span>
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
+              <p className="text-[11px] text-muted-foreground truncate">{roleLabel}</p>
+            </div>
+            <button className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground transition-colors">
+              <Icon name="EcsaSettingsIcon" size={15} />
+            </button>
+          </div>
         </div>
       </aside>
     </>
