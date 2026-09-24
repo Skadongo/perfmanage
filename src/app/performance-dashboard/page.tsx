@@ -7,6 +7,7 @@ import { ChartSkeleton, MetricCardSkeleton, TableSkeleton } from '@/components/u
 import { useAuth } from '@/contexts/AuthContext';
 import { useRealtimeDashboard, type LiveStats } from '@/hooks/useRealtimeDashboard';
 import { useServiceWorker } from '@/hooks/useServiceWorker';
+import { usePrefetchRoutes } from '@/hooks/usePrefetch';
 import {
   resolveRoleBucket,
   getRoleDashboardConfig,
@@ -114,6 +115,9 @@ function StaffUpdateBanner({ onDismiss }: { onDismiss: () => void }) {
 export default function PerformanceDashboardPage() {
   const { profile } = useAuth();
   const { isOnline, pendingApprovals, triggerSync } = useServiceWorker();
+
+  // Silently prefetch the most visited routes after dashboard mounts
+  usePrefetchRoutes();
 
   const systemRole = profile?.systemRole ?? 'default';
   const roleBucket = resolveRoleBucket(systemRole);
