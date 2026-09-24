@@ -1,3 +1,4 @@
+import React, { useId } from 'react';
 #!/usr/bin/env node
 /**
  * Hydration Trigger Scanner
