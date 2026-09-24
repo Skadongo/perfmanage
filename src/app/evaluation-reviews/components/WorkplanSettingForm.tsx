@@ -65,7 +65,9 @@ interface WorkplanFormData {
   generalCompetencies: GeneralCompetency[];
   customKpis: CustomKPIEntry[];
   staffSignature: string;
+  staffSignatureDate: string;
   supervisorSignature: string;
+  supervisorSignatureDate: string;
   managementSupport: string;
 }
 
@@ -120,14 +122,16 @@ const PERSPECTIVE_ROW_COUNTS: Record<string, number> = {
   'Financial/Stewardship': 1,
   'Customer/Stakeholder': 4,
   'Internal Business Processes': 8,
-  'Innovation Learning & Growth': 7,
+  'Innovation Learning & Growth': 8,
 };
 
 // ── Part 3: Ratings & Salary Increment Policy (from PDF) ──────────────────
+// Column headers: Overall Score | Rating Category | Salary Reward / Action
 const RATINGS_POLICY = [
   { score: '≥ 120%', rating: 'Outstanding', action: '2-Notch Salary Increment + Letter', color: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
   { score: '100% – 120%', rating: 'Above Average / Meets', action: '1-Notch Salary Increment', color: 'bg-sky-100 text-sky-800 border-sky-200' },
   { score: '75% – 99%', rating: 'Needs Improvement', action: 'No Annual Increment', color: 'bg-amber-100 text-amber-800 border-amber-200' },
+  { score: '50% – 74%', rating: '(No Category Defined)', action: '—', color: 'bg-gray-100 text-gray-600 border-gray-200' },
   { score: '< 50%', rating: 'Unsatisfactory', action: 'Mandatory Performance Improvement Plan (PIP)', color: 'bg-red-100 text-red-800 border-red-200' },
 ];
 
@@ -786,7 +790,9 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
     generalCompetencies: DEFAULT_GENERAL_COMPETENCIES.map((c) => ({ ...c })),
     customKpis: [],
     staffSignature: '',
+    staffSignatureDate: '',
     supervisorSignature: '',
+    supervisorSignatureDate: '',
     managementSupport: '',
   }));
 
@@ -2295,6 +2301,12 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                   Part 3: 2026 Ratings &amp; Salary Increment Policy
                 </p>
               </div>
+              {/* Header row matching PDF column names */}
+              <div className="grid grid-cols-3 gap-2 px-4 py-2 bg-muted/60 border-b border-border">
+                <div className="text-[10px] font-700 text-foreground uppercase tracking-wide">Overall Score</div>
+                <div className="text-[10px] font-700 text-foreground uppercase tracking-wide">Rating Category</div>
+                <div className="text-[10px] font-700 text-foreground uppercase tracking-wide">Salary Reward / Action</div>
+              </div>
               <div className="divide-y divide-border">
                 {RATINGS_POLICY.map((row) => (
                   <div key={row.rating} className={`grid grid-cols-3 gap-2 px-4 py-2.5 text-xs ${row.color} border-l-4`}>
@@ -2304,11 +2316,14 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                   </div>
                 ))}
               </div>
+              <div className="px-4 py-2 bg-muted/20 border-t border-border">
+                <p className="text-[10px] text-muted-foreground italic">⚠ No rating category is defined in the 2026 policy for scores between 50%–74%.</p>
+              </div>
             </div>
 
             {/* Part 4: Management Support field (matching PDF) */}
             <div className="space-y-2">
-              <p className="text-xs font-700 text-foreground">Part 4: Commitment & Sign-Off</p>
+              <p className="text-xs font-700 text-foreground">Part 4: Commitment &amp; Sign-Off</p>
               <FormField label="Support Required from Management">
                 <textarea
                   className={textareaCls}
@@ -2330,12 +2345,30 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                 />
               </FormField>
 
+              <FormField label="Employee Date">
+                <input
+                  type="date"
+                  className={inputCls}
+                  value={form.staffSignatureDate}
+                  onChange={(e) => setField('staffSignatureDate', e.target.value)}
+                />
+              </FormField>
+
               <FormField label={`Supervisor Signature (${form.supervisorName || 'Supervisor'})`} required error={step2Errors.supervisorSignature}>
                 <input
                   className={step2Errors.supervisorSignature ? inputErrCls : inputCls}
                   placeholder="Type full name as signature…"
                   value={form.supervisorSignature}
                   onChange={(e) => setField('supervisorSignature', e.target.value)}
+                />
+              </FormField>
+
+              <FormField label="Supervisor Date">
+                <input
+                  type="date"
+                  className={inputCls}
+                  value={form.supervisorSignatureDate}
+                  onChange={(e) => setField('supervisorSignatureDate', e.target.value)}
                 />
               </FormField>
             </div>

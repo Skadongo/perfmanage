@@ -108,11 +108,15 @@ async function downloadTemplate() {
     ['6. The "Competencies" sheet is for reference only — competency weights are set in the system.'],
     ['7. Do NOT modify column headers in the Workplan Data sheet.'],
     [''],
-    ['SCORING POLICY (Part 3):'],
-    ['Overall Score ≥ 120%   → Outstanding            → 2-Notch Salary Increment + Letter'],
-    ['Overall Score 100–120% → Above Average / Meets  → 1-Notch Salary Increment'],
-    ['Overall Score 75–99%   → Needs Improvement      → No Annual Increment'],
-    ['Overall Score < 50%    → Unsatisfactory         → Mandatory Performance Improvement Plan (PIP)'],
+    ['PART 3 — SCORING POLICY (2026 Ratings & Salary Increment Policy):'],
+    ['Overall Score | Rating Category | Salary Reward / Action'],
+    ['≥ 120%        | Outstanding            | 2-Notch Salary Increment + Letter'],
+    ['100% – 120%   | Above Average / Meets  | 1-Notch Salary Increment'],
+    ['75% – 99%     | Needs Improvement      | No Annual Increment'],
+    ['50% – 74%     | (No Category Defined)  | —'],
+    ['< 50%         | Unsatisfactory         | Mandatory Performance Improvement Plan (PIP)'],
+    [''],
+    ['NOTE: No rating category is defined in the 2026 policy for scores between 50%–74%.'],
   ];
   const wsInstr = XLSX.utils.aoa_to_sheet(instructions);
   wsInstr['!cols'] = [{ wch: 100 }];
@@ -143,32 +147,32 @@ async function downloadTemplate() {
   dataRows.push(['Achievement for each KPI will be multiplied by its weight (1–5) to calculate the weighted score.']);
   dataRows.push([]);
 
-  // Scorecard column headers
+  // Scorecard column headers — exact PDF column names
   dataRows.push([
     'Perspective',
     'Key Work Objective',
-    'Key Activities',
+    'Key activities',
     'Measure / KPI (SMART)',
     'Target',
-    'Weight (1–5)',
+    'Weight (1-5)',
   ]);
 
-  // Perspective rows — Financial/Stewardship (1 row)
+  // Perspective rows — Financial/Stewardship (1 row per PDF)
   dataRows.push(['Financial/Stewardship', '', '', '', '', '']);
 
-  // Customer/Stakeholder (4 rows)
+  // Customer/Stakeholder (4 rows per PDF rowspan="4")
   dataRows.push(['Customer/Stakeholder', '', '', '', '', '']);
   dataRows.push(['', '', '', '', '', '']);
   dataRows.push(['', '', '', '', '', '']);
   dataRows.push(['', '', '', '', '', '']);
 
-  // Internal Business Processes (8 rows)
+  // Internal Business Processes (8 rows per PDF rowspan="8")
   dataRows.push(['Internal Business Processes', '', '', '', '', '']);
   for (let i = 0; i < 7; i++) dataRows.push(['', '', '', '', '', '']);
 
-  // Innovation Learning & Growth (7 rows per PDF)
+  // Innovation Learning & Growth (8 rows per PDF rowspan="8")
   dataRows.push(['Innovation Learning & Growth', '', '', '', '', '']);
-  for (let i = 0; i < 6; i++) dataRows.push(['', '', '', '', '', '']);
+  for (let i = 0; i < 7; i++) dataRows.push(['', '', '', '', '', '']);
 
   dataRows.push([]);
 
@@ -186,7 +190,20 @@ async function downloadTemplate() {
   dataRows.push(['Leadership (GS3+)', 'Acts as a role model and provides timely specific feedback to staff.', '', '', '']);
   dataRows.push([]);
 
-  // Part 4 — Sign-off
+  // Part 3 — Ratings & Salary Increment Policy (exact PDF column headers)
+  dataRows.push(['PART 3: 2026 RATINGS & SALARY INCREMENT POLICY']);
+  dataRows.push([]);
+  dataRows.push(['Overall Score', 'Rating Category', 'Salary Reward / Action']);
+  dataRows.push(['≥ 120%', 'Outstanding', '2-Notch Salary Increment + Letter']);
+  dataRows.push(['100% – 120%', 'Above Average / Meets', '1-Notch Salary Increment']);
+  dataRows.push(['75% – 99%', 'Needs Improvement', 'No Annual Increment']);
+  dataRows.push(['50% – 74%', '(No Category Defined)', '—']);
+  dataRows.push(['< 50%', 'Unsatisfactory', 'Mandatory Performance Improvement Plan (PIP)']);
+  dataRows.push([]);
+  dataRows.push(['NOTE: No rating category is defined in the 2026 policy for scores between 50%–74%.']);
+  dataRows.push([]);
+
+  // Part 4 — Sign-off (matching PDF fields exactly)
   dataRows.push(['PART 4: COMMITMENT & SIGN-OFF']);
   dataRows.push([]);
   dataRows.push(['Support Required from Management:', '']);
@@ -198,7 +215,7 @@ async function downloadTemplate() {
   wsData['!cols'] = [
     { wch: 30 }, // Perspective / field label
     { wch: 35 }, // Key Work Objective / behavioral expectation
-    { wch: 35 }, // Key Activities
+    { wch: 35 }, // Key activities
     { wch: 40 }, // Measure / KPI (SMART)
     { wch: 25 }, // Target
     { wch: 12 }, // Weight
@@ -212,7 +229,7 @@ async function downloadTemplate() {
     ['HOW TO FILL IN THE BULK UPLOAD — EXAMPLE DATA'],
     ['Fill one row per scorecard objective. The system groups rows by Staff Name + Fiscal Year.'],
     [],
-    ['Staff Name', 'Fiscal Year', 'Perspective', 'Key Work Objective', 'Key Activities', 'Measure / KPI (SMART)', 'Target', 'Weight (1-5)'],
+    ['Staff Name', 'Fiscal Year', 'Perspective', 'Key Work Objective', 'Key activities', 'Measure / KPI (SMART)', 'Target', 'Weight (1-5)'],
     ...TEMPLATE_EXAMPLE_ROWS.map((r) => ['Jane Doe', 'FY 2026-2027', ...r]),
   ];
   const wsExample = XLSX.utils.aoa_to_sheet(exampleRows);
