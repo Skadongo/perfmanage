@@ -148,6 +148,14 @@ export function useRealtimeDashboard({
       )
       .on(
         'postgres_changes',
+        { event: '*', schema: 'public', table: 'workplan_settings' },
+        () => {
+          debouncedFetch();
+          onPerformanceChange?.();
+        }
+      )
+      .on(
+        'postgres_changes',
         { event: '*', schema: 'public', table: 'staff' },
         () => {
           debouncedFetch();

@@ -11,7 +11,7 @@ import { formatDate } from '@/lib/dateUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = 'staff' | 'roles' | 'passwords' | 'bsc' | 'import';
+type Tab = 'staff' | 'roles' | 'passwords' | 'bsc' | 'import' | 'workplans';
 
 interface AdminUser {
   user_id: string;
@@ -992,6 +992,200 @@ function PerformanceImportTab({ supabase, showToast }: {
   );
 }
 
+// ─── Workplan Overview Tab ────────────────────────────────────────────────────
+
+interface WorkplanRow {
+  id: string;
+  staff_name: string;
+  fiscal_year: string;
+  status: string;
+  workflow_stage: string;
+  submitted_at: string | null;
+  supervisor_approved_at: string | null;
+  created_at: string;
+}
+
+function WorkplanOverviewTab({ supabase, showToast }: {
+  supabase: ReturnType<typeof createClient>;
+  showToast: (msg: string, type: 'success' | 'error') => void;
+}) {
+  const [workplans, setWorkplans] = useState<WorkplanRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+
+  const fetchWorkplans = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('workplan_settings')
+        .select(`
+          id,
+          fiscal_year,
+          status,
+          workflow_stage,
+          submitted_at,
+          supervisor_approved_at,
+          created_at,
+          staff:staff_id ( full_name )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const rows: WorkplanRow[] = (data || []).map((w: any) => ({
+        id: w.id,
+        staff_name: w.staff?.full_name || 'Unknown Staff',
+        fiscal_year: w.fiscal_year || '—',
+        status: w.status || 'draft',
+        workflow_stage: w.workflow_stage || 'workplan_pending',
+        submitted_at: w.submitted_at,
+        supervisor_approved_at: w.supervisor_approved_at,
+        created_at: w.created_at,
+      }));
+
+      setWorkplans(rows);
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Failed to load workplans', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [supabase, showToast]);
+
+  useEffect(() => { fetchWorkplans(); }, [fetchWorkplans]);
+
+  const statusLabel = (status: string, stage: string): { label: string; cls: string } => {
+    if (status === 'approved' || stage === 'approved') return { label: 'Approved', cls: 'bg-emerald-100 text-emerald-700' };
+    if (status === 'submitted' || stage === 'supervisor_review') return { label: 'Submitted', cls: 'bg-sky-100 text-sky-700' };
+    if (stage === 'hr_review') return { label: 'HR Review', cls: 'bg-violet-100 text-violet-700' };
+    if (status === 'draft') return { label: 'Draft', cls: 'bg-amber-100 text-amber-700' };
+    return { label: status || stage, cls: 'bg-slate-100 text-slate-600' };
+  };
+
+  const statuses = ['all', 'draft', 'submitted', 'approved'];
+
+  const filtered = workplans.filter(w => {
+    const matchSearch = !search || w.staff_name.toLowerCase().includes(search.toLowerCase()) ||
+      w.fiscal_year.toLowerCase().includes(search.toLowerCase());
+    if (filterStatus === 'all') return matchSearch;
+    if (filterStatus === 'approved') return matchSearch && (w.status === 'approved' || w.workflow_stage === 'approved');
+    if (filterStatus === 'submitted') return matchSearch && (w.status === 'submitted' || w.workflow_stage === 'supervisor_review' || w.workflow_stage === 'hr_review');
+    if (filterStatus === 'draft') return matchSearch && w.status === 'draft' && w.workflow_stage === 'workplan_pending';
+    return matchSearch;
+  });
+
+  const totalSubmitted = workplans.filter(w => w.status !== 'draft' || w.workflow_stage !== 'workplan_pending').length;
+  const totalApproved = workplans.filter(w => w.status === 'approved' || w.workflow_stage === 'approved').length;
+  const totalDraft = workplans.filter(w => w.status === 'draft' && w.workflow_stage === 'workplan_pending').length;
+
+  if (loading) return <div className="flex items-center justify-center py-20"><div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" /></div>;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h3 className="text-sm font-700 text-foreground">Submitted Workplans</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">All staff workplans in the system and their current status.</p>
+        </div>
+        <button onClick={fetchWorkplans} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm font-500 hover:bg-muted transition-colors">
+          <Icon name="ArrowPathIcon" size={14} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Summary stats */}
+      <div className="grid grid-cols-4 gap-3 mb-5">
+        {[
+          { label: 'Total Workplans', value: workplans.length, color: 'text-foreground', bg: 'bg-muted/50' },
+          { label: 'Submitted', value: totalSubmitted, color: 'text-sky-700', bg: 'bg-sky-50' },
+          { label: 'Approved', value: totalApproved, color: 'text-emerald-700', bg: 'bg-emerald-50' },
+          { label: 'Draft', value: totalDraft, color: 'text-amber-700', bg: 'bg-amber-50' },
+        ].map(stat => (
+          <div key={stat.label} className={`${stat.bg} rounded-xl p-3 text-center`}>
+            <p className={`text-xl font-700 ${stat.color}`}>{stat.value}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+        <div className="relative flex-1">
+          <Icon name="MagnifyingGlassIcon" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input type="text" placeholder="Search by staff name or fiscal year…" value={search} onChange={e => setSearch(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 text-sm border border-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" />
+        </div>
+        <div className="flex gap-2">
+          {statuses.map(s => (
+            <button key={s} onClick={() => setFilterStatus(s)}
+              className={`px-3 py-2 rounded-lg text-xs font-600 capitalize transition-colors
+                ${filterStatus === s ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}>{s}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Table */}
+      {filtered.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground">
+          <Icon name="ClipboardDocumentListIcon" size={40} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">{workplans.length === 0 ? 'No workplans found in the system.' : 'No workplans match your filter.'}</p>
+          {workplans.length === 0 && <p className="text-xs mt-1">Staff workplans will appear here once submitted.</p>}
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/50 border-b border-border">
+                <th className="text-left px-4 py-3 text-xs font-700 uppercase tracking-wider text-muted-foreground">Staff Member</th>
+                <th className="text-left px-4 py-3 text-xs font-700 uppercase tracking-wider text-muted-foreground hidden sm:table-cell">Fiscal Year</th>
+                <th className="text-center px-4 py-3 text-xs font-700 uppercase tracking-wider text-muted-foreground">Status</th>
+                <th className="text-left px-4 py-3 text-xs font-700 uppercase tracking-wider text-muted-foreground hidden lg:table-cell">Submitted</th>
+                <th className="text-left px-4 py-3 text-xs font-700 uppercase tracking-wider text-muted-foreground hidden lg:table-cell">Approved</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filtered.map(w => {
+                const { label, cls } = statusLabel(w.status, w.workflow_stage);
+                return (
+                  <tr key={w.id} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <span className="text-primary text-xs font-700">
+                            {w.staff_name.split(' ').slice(0, 2).map(p => p[0]).join('').toUpperCase()}
+                          </span>
+                        </div>
+                        <p className="font-600 text-foreground truncate">{w.staff_name}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 hidden sm:table-cell">
+                      <span className="text-xs text-muted-foreground">{w.fiscal_year}</span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-600 ${cls}`}>{label}</span>
+                    </td>
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      <span className="text-xs text-muted-foreground">
+                        {w.submitted_at ? formatDate(w.submitted_at) : '—'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      <span className="text-xs text-muted-foreground">
+                        {w.supervisor_approved_at ? formatDate(w.supervisor_approved_at) : '—'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground mt-3">Showing {filtered.length} of {workplans.length} workplans</p>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AdminDashboardPage() {
@@ -1157,11 +1351,12 @@ export default function AdminDashboardPage() {
   };
 
   const TABS: { key: Tab; label: string; icon: string; count?: number }[] = [
-    { key: 'staff',     label: 'Staff Records',    icon: 'UsersIcon',          count: users.length },
-    { key: 'roles',     label: 'Role Assignments', icon: 'ShieldCheckIcon' },
-    { key: 'passwords', label: 'Password Reset',   icon: 'KeyIcon',            count: users.filter(u => u.must_change_password).length || undefined },
-    { key: 'bsc',       label: 'BSC Perspectives', icon: 'ChartBarIcon' },
-    { key: 'import',    label: 'Data Import',      icon: 'ArrowUpTrayIcon' },
+    { key: 'staff',      label: 'Staff Records',    icon: 'UsersIcon',                count: users.length },
+    { key: 'roles',      label: 'Role Assignments', icon: 'ShieldCheckIcon' },
+    { key: 'passwords',  label: 'Password Reset',   icon: 'KeyIcon',                  count: users.filter(u => u.must_change_password).length || undefined },
+    { key: 'workplans',  label: 'Workplans',        icon: 'ClipboardDocumentListIcon' },
+    { key: 'bsc',        label: 'BSC Perspectives', icon: 'ChartBarIcon' },
+    { key: 'import',     label: 'Data Import',      icon: 'ArrowUpTrayIcon' },
   ];
 
   return (
@@ -1226,6 +1421,9 @@ export default function AdminDashboardPage() {
               <PasswordResetTab users={users} loading={loading}
                 onForceReset={handleForceReset}
                 actionLoading={actionLoading} />
+            )}
+            {activeTab === 'workplans' && (
+              <WorkplanOverviewTab supabase={supabase} showToast={showToast} />
             )}
             {activeTab === 'bsc' && (
               <BSCPerspectivesTab supabase={supabase} showToast={showToast} />
