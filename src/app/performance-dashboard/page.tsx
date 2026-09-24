@@ -13,6 +13,7 @@ import {
   type RoleDashboardConfig,
 } from './config/roleDashboardConfig';
 import type { DrillDownFilter } from './components/StaffDrillDownModal';
+import { HydrationErrorBoundary } from '@/components/HydrationErrorBoundary';
 
 // ── Lazy-load heavy dashboard widgets ──────────────────────────────────────
 const DashboardMetricCards  = lazy(() => import('./components/DashboardMetricCards'));
@@ -154,6 +155,7 @@ export default function PerformanceDashboardPage() {
   );
 
   return (
+    <HydrationErrorBoundary name="PerformanceDashboard">
     <AppLayout
       pageTitle={config.roleLabel}
       pageSubtitle={config.dashboardSubtitle}
@@ -342,5 +344,6 @@ export default function PerformanceDashboardPage() {
         </Suspense>
       )}
     </AppLayout>
+    </HydrationErrorBoundary>
   );
 }
