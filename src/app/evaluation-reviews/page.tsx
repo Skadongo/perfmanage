@@ -468,6 +468,40 @@ export default function EvaluationReviewsPage() {
       )}
 
       <div className="space-y-6">
+        {/* ── Always-visible Import Actions Bar ── */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white border border-border rounded-xl px-4 py-3 shadow-card">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <Icon name="EcsaImportIcon" size={16} className="text-primary" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-700 text-foreground">Import Workplan Data</p>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Use the ECSA-HC Individual Performance Contract format (Performance_contract_Template).
+                Upload Excel/CSV for bulk data or Word/PDF to auto-parse objectives.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={() => setUploadModal('bulk-upload')}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-600 text-emerald-700 bg-emerald-50 border border-emerald-200 px-4 py-2 rounded-lg hover:bg-emerald-100 active:scale-95 transition-all"
+            >
+              <Icon name="EcsaImportIcon" size={14} className="text-emerald-600 flex-shrink-0" />
+              Import Excel / CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => setUploadModal('doc-import')}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs font-600 text-violet-700 bg-violet-50 border border-violet-200 px-4 py-2 rounded-lg hover:bg-violet-100 active:scale-95 transition-all"
+            >
+              <Icon name="EcsaDocIcon" size={14} className="text-violet-600 flex-shrink-0" />
+              Import Word / PDF
+            </button>
+          </div>
+        </div>
+
         {/* Summary stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-4 gap-4">
           {[
