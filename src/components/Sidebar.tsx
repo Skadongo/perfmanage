@@ -56,22 +56,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
   const pathname = usePathname();
   const { getDisplayName, getInitials, profile } = useAuth();
 
-  const isSuperuser = profile?.systemRole === 'superuser';
-
-  // Build nav groups, injecting Diagnostics for superuser only
-  const navGroups = NAV_GROUPS.map(group => {
-    if (group.label === 'Intelligence' && isSuperuser) {
-      return {
-        ...group,
-        items: [
-          ...group.items,
-          { label: 'SSR Diagnostics', href: '/diagnostics', icon: 'BugAntIcon', badge: null },
-        ],
-      };
-    }
-    return group;
-  });
-
   const roleLabel = profile?.systemRole
     ? profile.systemRole.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
     : 'Staff Member';
@@ -149,7 +133,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto py-4 scrollbar-thin">
-          {navGroups.map((group) =>
+          {NAV_GROUPS.map((group) =>
           <div key={`group-${group.label}`} className="mb-4">
               {/* Show group label on mobile always; on desktop only when not collapsed */}
               {(!collapsed || mobileOpen) && (
