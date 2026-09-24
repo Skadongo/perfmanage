@@ -360,13 +360,36 @@ export default function EvaluationReviewsPage() {
                   <p className="text-xs text-muted-foreground">ECSA-HC · {formMeta[activeForm]?.subtitle}</p>
                 </div>
               </div>
-              <button
-              onClick={() => { setActiveForm(null); setWorkplanPrefill(null); }}
-              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="Close form">
-
-                <Icon name="XMarkIcon" size={18} />
-              </button>
+              <div className="flex items-center gap-2">
+                {activeForm === 'workplan' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setUploadModal('bulk-upload')}
+                      className="flex items-center gap-1.5 text-xs font-600 text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
+                    >
+                      <Icon name="EcsaImportIcon" size={13} className="text-emerald-600" />
+                      <span className="hidden sm:inline">Import Excel / CSV</span>
+                      <span className="sm:hidden">Excel</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUploadModal('doc-import')}
+                      className="flex items-center gap-1.5 text-xs font-600 text-violet-700 bg-violet-50 border border-violet-200 px-3 py-1.5 rounded-lg hover:bg-violet-100 transition-colors"
+                    >
+                      <Icon name="EcsaDocIcon" size={13} className="text-violet-600" />
+                      <span className="hidden sm:inline">Import Word / PDF</span>
+                      <span className="sm:hidden">Word</span>
+                    </button>
+                  </>
+                )}
+                <button
+                onClick={() => { setActiveForm(null); setWorkplanPrefill(null); }}
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Close form">
+                  <Icon name="XMarkIcon" size={18} />
+                </button>
+              </div>
             </div>
             {/* Form content */}
             <div className="flex-1 overflow-y-auto flex flex-col">
