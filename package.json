@@ -53,7 +53,6 @@
     "@heroicons/react": "^2.2.0",
     "@supabase/supabase-js": "2.100.0",
     "@supabase/ssr": "0.9.0",
-    "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/typography": "^0.5.16",
     "jspdf": "4.2.1",
     "jspdf-autotable": "5.0.7",
@@ -82,7 +81,6 @@
     "postcss": "8.4.8",
     "prettier": "^3.5.3",
     "tailwindcss": "3.4.6",
-    "tailwindcss-animate": "^1.0.7",
     "typescript": "^5"
   }
 }
