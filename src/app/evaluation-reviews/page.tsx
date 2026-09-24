@@ -85,6 +85,7 @@ export default function EvaluationReviewsPage() {
     total: 0
   });
   const [stageLoading, setStageLoading] = useState(true);
+  const [workplanInitiated, setWorkplanInitiated] = useState(false);
 
   // Stable supabase client ref — prevents re-creation on every render
   const supabaseRef = useRef(createClient());
@@ -222,6 +223,7 @@ export default function EvaluationReviewsPage() {
   function handleFormSubmit() {
     setActiveForm(null);
     setWorkplanPrefill(null);
+    setWorkplanInitiated(false);
     // Force-refresh stage counts after form submission
     fetchStageCounts(true);
     toast?.success('Saved successfully and routed for processing.');
@@ -337,7 +339,8 @@ export default function EvaluationReviewsPage() {
             <Icon name="EcsaNewIcon" size={14} className="text-white" />
             <span className="hidden sm:inline">New Appraisal Form</span>
           </button>
-          {/* Upload options dropdown */}
+          {/* Upload options dropdown — only shown after workplan is initiated with staff + fiscal year */}
+          {workplanInitiated && (
           <div className="relative">
             <button
               onClick={() => setImportDropdownOpen((prev) => !prev)}
@@ -381,6 +384,7 @@ export default function EvaluationReviewsPage() {
               </>
             )}
           </div>
+          )}
         </div>
       }>
 
@@ -414,8 +418,9 @@ export default function EvaluationReviewsPage() {
             <div className="flex-1 overflow-y-auto flex flex-col">
               {activeForm === 'workplan' &&
             <WorkplanSettingForm
-              onClose={() => { setActiveForm(null); setWorkplanPrefill(null); }}
+              onClose={() => { setActiveForm(null); setWorkplanPrefill(null); setWorkplanInitiated(false); }}
               onSubmit={handleFormSubmit}
+              onWorkplanReady={() => setWorkplanInitiated(true)}
               prefillData={workplanPrefill}
             />
             }

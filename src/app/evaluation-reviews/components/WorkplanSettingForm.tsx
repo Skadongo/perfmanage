@@ -689,6 +689,7 @@ function KPICombobox({ perspective, kpis, onAdd, onRemove, onUpdateTarget, hasEr
 interface WorkplanSettingFormProps {
   onClose: () => void;
   onSubmit?: () => void;
+  onWorkplanReady?: (staffId: string, fiscalYear: string) => void;
   prefillData?: {
     staffId: string;
     staffName: string;
@@ -700,7 +701,7 @@ interface WorkplanSettingFormProps {
   } | null;
 }
 
-export default function WorkplanSettingForm({ onClose, onSubmit, prefillData }: WorkplanSettingFormProps) {
+export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady, prefillData }: WorkplanSettingFormProps) {
   const [activeStep, setActiveStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -859,6 +860,13 @@ export default function WorkplanSettingForm({ onClose, onSubmit, prefillData }: 
     existingWorkplanFetched.current = false;
     setExistingWorkplanId(null);
   }, [form.staffId, form.fiscalYear]);
+
+  // Notify parent when both staffId and fiscalYear are set (workplan initiated)
+  useEffect(() => {
+    if (form.staffId && form.fiscalYear && onWorkplanReady) {
+      onWorkplanReady(form.staffId, form.fiscalYear);
+    }
+  }, [form.staffId, form.fiscalYear, onWorkplanReady]);
 
   useEffect(() => {
     async function loadStaff() {
