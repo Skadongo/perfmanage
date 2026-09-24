@@ -1,13 +1,15 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import Sidebar from './Sidebar';
+import dynamic from 'next/dynamic';
 import Icon from '@/components/ui/AppIcon';
 import Image from 'next/image';
 import NotificationCenter from './NotificationCenter';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useServiceWorker } from '@/hooks/useServiceWorker';
+
+const Sidebar = dynamic(() => import('./Sidebar'), { ssr: false });
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -69,12 +71,17 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   return (
     <div className="min-h-screen bg-background flex overflow-x-hidden">
       {/* Sidebar — handles its own mobile overlay internally */}
-      <Sidebar
-        collapsed={collapsed}
-        onToggle={() => setCollapsed(!collapsed)}
-        mobileOpen={mobileOpen}
-        onMobileClose={() => setMobileOpen(false)}
-      />
+      {Sidebar(
+        {
+          collapsed,
+          onToggle: () => setCollapsed(!collapsed),
+          mobileOpen,
+          onMobileClose: () => setMobileOpen(false),
+        },
+        null,
+        null,
+        { ssr: false }
+      )}
 
       {/* Main content — offset by sidebar width on desktop */}
       <div
