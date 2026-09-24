@@ -45,33 +45,46 @@ const VALID_PERSPECTIVES = [
 const FISCAL_YEARS = ['FY 2024-2025', 'FY 2025-2026', 'FY 2026-2027'];
 
 const TEMPLATE_HEADERS = [
-  'Staff Name',
-  'Fiscal Year',
-  'BSC Perspective',
-  'Objective / Goal Statement',
-  'KPIs (pipe-separated)',
-  'Weight (1-5)',
+  'Perspective',
+  'Key Work Objective',
   'Key Activities',
+  'Measure / KPI (SMART)',
+  'Target',
+  'Weight (1-5)',
 ];
 
 const TEMPLATE_EXAMPLE_ROWS = [
   [
-    'Jane Doe',
-    'FY 2025-2026',
     'Financial/Stewardship',
     'Strengthen financial sustainability',
-    'Budget Variance (≤5%)|Cost Recovery Rate (10%)',
-    '4',
     'Monthly budget reviews; quarterly variance reports',
+    'Budget Variance (≤5% of approved budget)',
+    '≤5% variance by June 2027',
+    '4',
   ],
   [
-    'Jane Doe',
-    'FY 2025-2026',
     'Customer/Stakeholder',
     'Improve stakeholder engagement',
-    'Stakeholder Satisfaction Index|No. of partnerships formalised',
-    '3',
     'Quarterly stakeholder meetings; partnership MoUs',
+    'Stakeholder Satisfaction Index',
+    '≥80% satisfaction score',
+    '3',
+  ],
+  [
+    'Internal Business Processes',
+    'Strengthen operational efficiency',
+    'Process audits; SOP reviews; automation of key workflows',
+    'PMS System Adoption Rate (100% of staff)',
+    '100% adoption by Dec 2026',
+    '4',
+  ],
+  [
+    'Innovation Learning & Growth',
+    'Strengthen workforce competencies',
+    'CPD sessions; training needs assessments; e-learning enrolments',
+    'CPD Completion Rate (% staff meeting annual PD targets)',
+    '≥90% completion by June 2027',
+    '3',
   ],
 ];
 
@@ -81,32 +94,134 @@ async function downloadTemplate() {
   const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
 
-  // Instructions sheet
+  // ── Instructions Sheet ──────────────────────────────────────────────────
   const instructions = [
-    ['ECSA-HC Workplan Bulk Upload Template'],
+    ['ECSA-HC Individual Performance Contract — Bulk Upload Template'],
     [''],
-    ['Instructions:'],
-    ['1. Fill in one row per BSC objective per staff member.'],
-    ['2. Staff Name must match exactly as in the system.'],
-    ['3. BSC Perspective must be one of: ' + VALID_PERSPECTIVES.join(' | ')],
-    ['4. KPIs: separate multiple KPIs with a pipe character |'],
-    ['5. Weight: integer between 1 and 5 per objective row.'],
-    ['6. Total weight per staff per fiscal year should not exceed 80.'],
-    ['7. Do not modify column headers in the Data sheet.'],
+    ['INSTRUCTIONS:'],
+    ['1. Use the "Workplan Data" sheet to enter one row per scorecard objective per staff member.'],
+    ['2. The "Staff Info" column must contain the staff member\'s full name exactly as in the system.'],
+    ['3. "Perspective" must be one of: Financial/Stewardship | Customer/Stakeholder | Internal Business Processes | Innovation Learning & Growth'],
+    ['4. "Weight (1-5)" must be an integer between 1 and 5 per objective row.'],
+    ['5. Total weight per staff per fiscal year should not exceed 80 (Part 1 Scorecard = 80%).'],
+    ['6. The "Competencies" sheet is for reference only — competency weights are set in the system.'],
+    ['7. Do NOT modify column headers in the Workplan Data sheet.'],
+    [''],
+    ['SCORING POLICY (Part 3):'],
+    ['Overall Score ≥ 120%   → Outstanding            → 2-Notch Salary Increment + Letter'],
+    ['Overall Score 100–120% → Above Average / Meets  → 1-Notch Salary Increment'],
+    ['Overall Score 75–99%   → Needs Improvement      → No Annual Increment'],
+    ['Overall Score < 50%    → Unsatisfactory         → Mandatory Performance Improvement Plan (PIP)'],
   ];
   const wsInstr = XLSX.utils.aoa_to_sheet(instructions);
+  wsInstr['!cols'] = [{ wch: 100 }];
   XLSX.utils.book_append_sheet(wb, wsInstr, 'Instructions');
 
-  // Data sheet
-  const wsData = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS, ...TEMPLATE_EXAMPLE_ROWS]);
-  // Column widths
-  wsData['!cols'] = [
-    { wch: 25 }, { wch: 16 }, { wch: 32 }, { wch: 45 },
-    { wch: 55 }, { wch: 10 }, { wch: 45 },
-  ];
-  XLSX.utils.book_append_sheet(wb, wsData, 'Workplan Data');
+  // ── Workplan Data Sheet (Part 1 — Scorecard, 80%) ──────────────────────
+  const dataRows: any[][] = [];
 
-  XLSX.writeFile(wb, 'ECSA-HC_Workplan_Bulk_Upload_Template.xlsx');
+  // Title block
+  dataRows.push(['ECSA-HC INDIVIDUAL PERFORMANCE CONTRACT']);
+  dataRows.push(['Review Period: July 2026 – June 2027', '', '', '', '', '', '', 'Appraisal Type: Biannual Appraisal']);
+  dataRows.push([]);
+
+  // Employee / Supervisor info block
+  dataRows.push(['EMPLOYEE INFORMATION', '', '', '', 'SUPERVISOR INFORMATION']);
+  dataRows.push(['Name:', '', '', '', 'Name:']);
+  dataRows.push(['Job Title:', '', '', '', 'Job Title:']);
+  dataRows.push(['Directorate:', '', '', '', 'Date:']);
+  dataRows.push([]);
+
+  // Staff name column header (for bulk upload identification)
+  dataRows.push(['Staff Name (must match system)', 'Fiscal Year', '', '', '', '', '', '']);
+  dataRows.push(['', 'FY 2026-2027 (Jul–Jun)', '', '', '', '', '', '']);
+  dataRows.push([]);
+
+  // Part 1 header
+  dataRows.push(['PART 1: SCORECARD PERFORMANCE', '', '', '', '', '', '', '80%']);
+  dataRows.push(['Achievement for each KPI will be multiplied by its weight (1–5) to calculate the weighted score.']);
+  dataRows.push([]);
+
+  // Scorecard column headers
+  dataRows.push([
+    'Perspective',
+    'Key Work Objective',
+    'Key Activities',
+    'Measure / KPI (SMART)',
+    'Target',
+    'Weight (1–5)',
+  ]);
+
+  // Perspective rows — Financial/Stewardship (1 row)
+  dataRows.push(['Financial/Stewardship', '', '', '', '', '']);
+
+  // Customer/Stakeholder (4 rows)
+  dataRows.push(['Customer/Stakeholder', '', '', '', '', '']);
+  dataRows.push(['', '', '', '', '', '']);
+  dataRows.push(['', '', '', '', '', '']);
+  dataRows.push(['', '', '', '', '', '']);
+
+  // Internal Business Processes (8 rows)
+  dataRows.push(['Internal Business Processes', '', '', '', '', '']);
+  for (let i = 0; i < 7; i++) dataRows.push(['', '', '', '', '', '']);
+
+  // Innovation Learning & Growth (8 rows)
+  dataRows.push(['Innovation Learning & Growth', '', '', '', '', '']);
+  for (let i = 0; i < 7; i++) dataRows.push(['', '', '', '', '', '']);
+
+  dataRows.push([]);
+
+  // Part 2 — General Competencies
+  dataRows.push(['PART 2: GENERAL COMPETENCIES', '', '', '', '', '', '', '20%']);
+  dataRows.push(['To be rated 1–5 based on behavioral evidence.']);
+  dataRows.push([]);
+  dataRows.push(['Competency Area', 'Key Behavioral Expectations', '', '', 'Weight (1–5)']);
+  dataRows.push(['Teamwork', 'Creates a culture of teamwork and responds rationally to feedback.', '', '', '']);
+  dataRows.push(['Respect for Diversity', 'Values individual differences and promotes a peaceful work environment.', '', '', '']);
+  dataRows.push(['Integrity', 'Reliable, meets all deadlines, and takes credit only for own work.', '', '', '']);
+  dataRows.push(['Communication', 'Explains complex issues clearly and uses visual aids effectively.', '', '', '']);
+  dataRows.push(['Results Oriented', 'Prioritizes activities and matches tasks with team capabilities.', '', '', '']);
+  dataRows.push(['Innovation', 'Thinks "outside the box" to foster team creativity.', '', '', '']);
+  dataRows.push(['Leadership (GS3+)', 'Acts as a role model and provides timely specific feedback to staff.', '', '', '']);
+  dataRows.push([]);
+
+  // Part 4 — Sign-off
+  dataRows.push(['PART 4: COMMITMENT & SIGN-OFF']);
+  dataRows.push([]);
+  dataRows.push(['Support Required from Management:', '']);
+  dataRows.push([]);
+  dataRows.push(['Employee Signature:', '', '', '', 'Date:']);
+  dataRows.push(['Supervisor Signature:', '', '', '', 'Date:']);
+
+  const wsData = XLSX.utils.aoa_to_sheet(dataRows);
+  wsData['!cols'] = [
+    { wch: 30 }, // Perspective / field label
+    { wch: 35 }, // Key Work Objective / behavioral expectation
+    { wch: 35 }, // Key Activities
+    { wch: 40 }, // Measure / KPI (SMART)
+    { wch: 25 }, // Target
+    { wch: 12 }, // Weight
+    { wch: 5 },
+    { wch: 20 },
+  ];
+  XLSX.utils.book_append_sheet(wb, wsData, 'Performance Contract');
+
+  // ── Example Data Sheet ──────────────────────────────────────────────────
+  const exampleRows: any[][] = [
+    ['HOW TO FILL IN THE BULK UPLOAD — EXAMPLE DATA'],
+    ['Fill one row per scorecard objective. The system groups rows by Staff Name + Fiscal Year.'],
+    [],
+    ['Staff Name', 'Fiscal Year', 'Perspective', 'Key Work Objective', 'Key Activities', 'Measure / KPI (SMART)', 'Target', 'Weight (1-5)'],
+    ...TEMPLATE_EXAMPLE_ROWS.map((r) => ['Jane Doe', 'FY 2026-2027 (Jul–Jun)', ...r]),
+  ];
+  const wsExample = XLSX.utils.aoa_to_sheet(exampleRows);
+  wsExample['!cols'] = [
+    { wch: 20 }, { wch: 22 }, { wch: 28 }, { wch: 35 },
+    { wch: 40 }, { wch: 40 }, { wch: 25 }, { wch: 12 },
+  ];
+  XLSX.utils.book_append_sheet(wb, wsExample, 'Example Data');
+
+  XLSX.writeFile(wb, 'ECSA-HC_Performance_Contract_Template.xlsx');
 }
 
 // ─── Row Validation ───────────────────────────────────────────────────────────
@@ -116,19 +231,21 @@ function validateRow(raw: Record<string, string>, rowNum: number, staffList: Sta
 
   const staffName = (raw['Staff Name'] || '').trim();
   const fiscalYear = (raw['Fiscal Year'] || '').trim();
-  const perspective = (raw['BSC Perspective'] || '').trim();
-  const objective = (raw['Objective / Goal Statement'] || '').trim();
-  const kpisRaw = (raw['KPIs (pipe-separated)'] || '').trim();
-  const weightRaw = (raw['Weight (1-5)'] || '').trim();
+  // Support both old and new column names
+  const perspective = (raw['Perspective'] || raw['BSC Perspective'] || '').trim();
+  const objective = (raw['Key Work Objective'] || raw['Objective / Goal Statement'] || '').trim();
+  const kpisRaw = (raw['Measure / KPI (SMART)'] || raw['KPIs (pipe-separated)'] || '').trim();
+  const weightRaw = (raw['Weight (1-5)'] || raw['Weight (1–5)'] || '').trim();
   const keyActivities = (raw['Key Activities'] || '').trim();
+  const target = (raw['Target'] || '').trim();
 
   if (!staffName) errors.push('Staff Name is required');
   if (!fiscalYear) errors.push('Fiscal Year is required');
   else if (!FISCAL_YEARS.includes(fiscalYear)) errors.push(`Fiscal Year must be one of: ${FISCAL_YEARS.join(', ')}`);
-  if (!perspective) errors.push('BSC Perspective is required');
+  if (!perspective) errors.push('Perspective is required');
   else if (!VALID_PERSPECTIVES.includes(perspective)) errors.push(`Perspective must be one of: ${VALID_PERSPECTIVES.join(', ')}`);
-  if (!objective) errors.push('Objective is required');
-  if (!kpisRaw) errors.push('At least one KPI is required');
+  if (!objective) errors.push('Key Work Objective is required');
+  if (!kpisRaw) errors.push('At least one Measure / KPI is required');
 
   const weight = parseInt(weightRaw, 10);
   if (isNaN(weight) || weight < 1 || weight > 5) errors.push('Weight must be an integer between 1 and 5');

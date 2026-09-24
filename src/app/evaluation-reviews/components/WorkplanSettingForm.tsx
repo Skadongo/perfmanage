@@ -55,8 +55,10 @@ interface WorkplanFormData {
   staffId: string;
   staffName: string;
   jobTitle: string;
+  directorate: string;
   supervisorId: string;
   supervisorName: string;
+  supervisorJobTitle: string;
   fiscalYear: string;
   reviewYear: number;
   perspectivesObjectives: PerspectiveRow[];
@@ -64,6 +66,7 @@ interface WorkplanFormData {
   customKpis: CustomKPIEntry[];
   staffSignature: string;
   supervisorSignature: string;
+  managementSupport: string;
 }
 
 // ─── Validation Types ─────────────────────────────────────────────────────────
@@ -87,13 +90,15 @@ interface Step1Errors {
   competencyWeight?: string;
 }
 
-// ─── NEW: Default General Competencies ───────────────────────────────────────
+// ─── NEW: Default General Competencies (matching ECSA-HC Performance Contract PDF) ──
 const DEFAULT_GENERAL_COMPETENCIES: GeneralCompetency[] = [
-  { id: 'gc-1', name: 'Communication', description: 'Ability to convey information clearly and effectively, both verbally and in writing', weight: 4 },
-  { id: 'gc-2', name: 'Teamwork & Collaboration', description: 'Works cooperatively with others, contributes to team goals, and supports colleagues', weight: 4 },
-  { id: 'gc-3', name: 'Initiative & Problem Solving', description: 'Proactively identifies issues, proposes solutions, and takes ownership of tasks', weight: 4 },
-  { id: 'gc-4', name: 'Professionalism & Work Ethics', description: 'Demonstrates integrity, punctuality, accountability, and adherence to organisational values', weight: 4 },
-  { id: 'gc-5', name: 'Adaptability & Learning', description: 'Embraces change, continuously develops skills, and applies new knowledge effectively', weight: 4 },
+  { id: 'gc-1', name: 'Teamwork', description: 'Creates a culture of teamwork and responds rationally to feedback.', weight: 3 },
+  { id: 'gc-2', name: 'Respect for Diversity', description: 'Values individual differences and promotes a peaceful work environment.', weight: 3 },
+  { id: 'gc-3', name: 'Integrity', description: 'Reliable, meets all deadlines, and takes credit only for own work.', weight: 3 },
+  { id: 'gc-4', name: 'Communication', description: 'Explains complex issues clearly and uses visual aids effectively.', weight: 3 },
+  { id: 'gc-5', name: 'Results Oriented', description: 'Prioritizes activities and matches tasks with team capabilities.', weight: 3 },
+  { id: 'gc-6', name: 'Innovation', description: 'Thinks "outside the box" to foster team creativity.', weight: 3 },
+  { id: 'gc-7', name: 'Leadership (GS3+)', description: 'Acts as a role model and provides timely specific feedback to staff.', weight: 2 },
 ];
 
 interface Step2Errors {
@@ -740,8 +745,10 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
     staffId: prefillData?.staffId || '',
     staffName: prefillData?.staffName || '',
     jobTitle: prefillData?.jobTitle || '',
+    directorate: '',
     supervisorId: prefillData?.supervisorId || '',
     supervisorName: prefillData?.supervisorName || '',
+    supervisorJobTitle: '',
     fiscalYear: prefillData?.fiscalYear || 'FY 2025-2026 (Jul–Jun)',
     reviewYear: 2026,
     perspectivesObjectives: prefillData?.perspectivesObjectives?.length
@@ -751,6 +758,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
     customKpis: [],
     staffSignature: '',
     supervisorSignature: '',
+    managementSupport: '',
   }));
 
   // ── Autosave hook ────────────────────────────────────────────────────────
@@ -764,8 +772,10 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
       staffId: form.staffId,
       staffName: form.staffName,
       jobTitle: form.jobTitle,
+      directorate: form.directorate,
       supervisorId: form.supervisorId,
       supervisorName: form.supervisorName,
+      supervisorJobTitle: form.supervisorJobTitle,
       fiscalYear: form.fiscalYear,
       reviewYear: form.reviewYear,
       perspectivesObjectives: form.perspectivesObjectives,
@@ -773,6 +783,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
       customKpis: form.customKpis,
       staffSignature: form.staffSignature,
       supervisorSignature: form.supervisorSignature,
+      managementSupport: form.managementSupport,
     },
     activeStep,
     enabled: autosaveEnabled,
@@ -789,7 +800,9 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
           ...prev,
           supervisorId: fd.supervisorId || prev.supervisorId,
           supervisorName: fd.supervisorName || prev.supervisorName,
+          supervisorJobTitle: fd.supervisorJobTitle || prev.supervisorJobTitle,
           jobTitle: fd.jobTitle || prev.jobTitle,
+          directorate: fd.directorate || prev.directorate,
           fiscalYear: fd.fiscalYear || prev.fiscalYear,
           reviewYear: fd.reviewYear || prev.reviewYear,
           perspectivesObjectives: fd.perspectivesObjectives?.length ? fd.perspectivesObjectives : prev.perspectivesObjectives,
@@ -797,6 +810,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
           customKpis: fd.customKpis || prev.customKpis,
           staffSignature: fd.staffSignature || prev.staffSignature,
           supervisorSignature: fd.supervisorSignature || prev.supervisorSignature,
+          managementSupport: fd.managementSupport || prev.managementSupport,
         }));
         if (data.active_step) setActiveStep(data.active_step);
         setDraftRecovered(true);
@@ -1637,9 +1651,11 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                           const sup = staffList.find((s) => s.id === staff.supervisor_id);
                           setField('supervisorId', staff.supervisor_id);
                           setField('supervisorName', sup?.full_name || staff.supervisor_name || '');
+                          setField('supervisorJobTitle', sup?.job_title || '');
                         } else {
                           setField('supervisorId', '');
                           setField('supervisorName', '');
+                          setField('supervisorJobTitle', '');
                         }
                       }}
                     >
@@ -1651,21 +1667,22 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                   )}
                 </FormField>
 
-                <FormField label="Supervisor / Line Manager" required error={step0Errors.supervisorId}>
-                  <select
-                    className={step0Errors.supervisorId ? selectErrCls : selectCls}
-                    value={form.supervisorId}
-                    onChange={(e) => {
-                      const sup = staffList.find((s) => s.id === e.target.value);
-                      setField('supervisorId', e.target.value);
-                      setField('supervisorName', sup?.full_name || '');
-                    }}
-                  >
-                    <option value="">Select supervisor…</option>
-                    {staffList.map((s) => (
-                      <option key={s.id} value={s.id}>{s.full_name} — {s.job_title}</option>
-                    ))}
-                  </select>
+                <FormField label="Job Title">
+                  <input
+                    className={`${inputCls} bg-muted/40`}
+                    value={form.jobTitle}
+                    readOnly
+                    placeholder="Auto-filled from staff record"
+                  />
+                </FormField>
+
+                <FormField label="Directorate">
+                  <input
+                    className={inputCls}
+                    value={form.directorate}
+                    onChange={(e) => setField('directorate', e.target.value)}
+                    placeholder="e.g. Finance & Administration"
+                  />
                 </FormField>
 
                 <FormField label="Fiscal Year" required error={step0Errors.fiscalYear}>
@@ -1675,14 +1692,50 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                     <option value="FY 2027-2028 (Jul–Jun)">FY 2027-2028 (Jul 2027 – Jun 2028)</option>
                   </select>
                 </FormField>
+              </div>
 
-                <FormField label="Review Year" required>
-                  <select className={selectCls} value={form.reviewYear} onChange={(e) => setField('reviewYear', Number(e.target.value))}>
-                    <option value={2026}>2026</option>
-                    <option value={2027}>2027</option>
-                    <option value={2028}>2028</option>
-                  </select>
-                </FormField>
+              {/* Supervisor section — matching PDF layout */}
+              <div className="mt-2">
+                <p className="text-xs font-700 text-foreground mb-3 flex items-center gap-1.5">
+                  <Icon name="UserIcon" size={13} className="text-muted-foreground" />
+                  Supervisor Information
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <FormField label="Supervisor / Line Manager" required error={step0Errors.supervisorId}>
+                    <select
+                      className={step0Errors.supervisorId ? selectErrCls : selectCls}
+                      value={form.supervisorId}
+                      onChange={(e) => {
+                        const sup = staffList.find((s) => s.id === e.target.value);
+                        setField('supervisorId', e.target.value);
+                        setField('supervisorName', sup?.full_name || '');
+                        setField('supervisorJobTitle', sup?.job_title || '');
+                      }}
+                    >
+                      <option value="">Select supervisor…</option>
+                      {staffList.map((s) => (
+                        <option key={s.id} value={s.id}>{s.full_name} — {s.job_title}</option>
+                      ))}
+                    </select>
+                  </FormField>
+
+                  <FormField label="Supervisor Job Title">
+                    <input
+                      className={`${inputCls} bg-muted/40`}
+                      value={form.supervisorJobTitle}
+                      readOnly
+                      placeholder="Auto-filled from supervisor record"
+                    />
+                  </FormField>
+
+                  <FormField label="Review Year" required>
+                    <select className={selectCls} value={form.reviewYear} onChange={(e) => setField('reviewYear', Number(e.target.value))}>
+                      <option value={2026}>2026</option>
+                      <option value={2027}>2027</option>
+                      <option value={2028}>2028</option>
+                    </select>
+                  </FormField>
+                </div>
               </div>
               </>
             )}
@@ -1697,8 +1750,8 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                 <span className="text-xs font-800 text-primary">2</span>
               </div>
               <div>
-                <h3 className="text-sm font-700 text-foreground">Perspectives, Objectives & KPIs</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">Define the BSC perspectives, objectives, and KPIs for the evaluation year</p>
+                <h3 className="text-sm font-700 text-foreground">Part 1: Scorecard Performance <span className="text-xs font-500 text-muted-foreground ml-1">(80% of total score)</span></h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Achievement for each KPI will be multiplied by its weight (1–5) to calculate the weighted score</p>
               </div>
             </div>
 
@@ -1791,7 +1844,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                       </FormField>
                     </div>
 
-                    <FormField label="Objective / Goal Statement" required error={rowErr.objective}>
+                    <FormField label="Key Work Objective" required error={rowErr.objective}>
                       <ObjectiveCombobox
                         value={row.objective}
                         perspective={row.perspective}
@@ -1810,7 +1863,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                       />
                     </FormField>
 
-                                        <FormField label="KPIs & Targets" required error={rowErr.kpis}>
+                                        <FormField label="Measure / KPI (SMART)" required error={rowErr.kpis}>
                         <KPICombobox
                           perspective={row.perspective}
                           kpis={row.kpis}
@@ -1944,8 +1997,8 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                   <Icon name="StarIcon" size={15} className="text-indigo-600" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-700 text-foreground">General Competencies</h4>
-                  <p className="text-xs text-muted-foreground mt-0.5">Adjust the weight (1–5) for each competency. Total must equal <strong>20</strong>. Combined with BSC (normalised to 100), the system supports up to <strong>120%</strong> for exemplary performers.</p>
+                  <h4 className="text-sm font-700 text-foreground">Part 2: General Competencies <span className="text-xs font-500 text-muted-foreground ml-1">(20% of total score)</span></h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">Rate each competency 1–5 based on behavioral evidence. Total must equal <strong>20</strong>. Combined with BSC (normalised to 100), the system supports up to <strong>120%</strong> for exemplary performers.</p>
                 </div>
               </div>
 
@@ -1960,8 +2013,9 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                 {/* Header row */}
                 <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-indigo-100 border-b border-indigo-200">
                   <div className="col-span-1 text-[10px] font-700 text-indigo-700 uppercase tracking-wide">#</div>
-                  <div className="col-span-7 text-[10px] font-700 text-indigo-700 uppercase tracking-wide">Competency</div>
-                  <div className="col-span-4 text-[10px] font-700 text-indigo-700 uppercase tracking-wide text-center">Weight (1–5)</div>
+                  <div className="col-span-3 text-[10px] font-700 text-indigo-700 uppercase tracking-wide">Competency Area</div>
+                  <div className="col-span-5 text-[10px] font-700 text-indigo-700 uppercase tracking-wide">Key Behavioral Expectations</div>
+                  <div className="col-span-3 text-[10px] font-700 text-indigo-700 uppercase tracking-wide text-center">Weight (1–5)</div>
                 </div>
 
                 {form.generalCompetencies.map((comp, idx) => (
@@ -1970,11 +2024,13 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                     className={`grid grid-cols-12 gap-2 px-4 py-3 items-start ${idx < form.generalCompetencies.length - 1 ? 'border-b border-indigo-100' : ''}`}
                   >
                     <div className="col-span-1 text-xs font-700 text-indigo-600 mt-1">{idx + 1}</div>
-                    <div className="col-span-7">
+                    <div className="col-span-3">
                       <p className="text-xs font-600 text-foreground">{comp.name}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">{comp.description}</p>
                     </div>
-                    <div className="col-span-4 flex flex-col items-center gap-1">
+                    <div className="col-span-5">
+                      <p className="text-[10px] text-muted-foreground leading-relaxed">{comp.description}</p>
+                    </div>
+                    <div className="col-span-3 flex flex-col items-center gap-1">
                       <input
                         type="number"
                         min={1}
@@ -2149,8 +2205,22 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
               <span>By signing, both parties confirm agreement on the objectives and KPIs set above. The supervisor will then approve this workplan to unlock the Mid-Year Self-Evaluation stage.</span>
             </div>
 
+            {/* Part 4: Management Support field (matching PDF) */}
+            <div className="space-y-2">
+              <p className="text-xs font-700 text-foreground">Part 4: Commitment & Sign-Off</p>
+              <FormField label="Support Required from Management">
+                <textarea
+                  className={textareaCls}
+                  rows={3}
+                  placeholder="Describe any support, resources, or training required from management to achieve the objectives above…"
+                  value={form.managementSupport}
+                  onChange={(e) => setField('managementSupport', e.target.value)}
+                />
+              </FormField>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <FormField label={`Staff Signature (${form.staffName || 'Staff Member'})`} required error={step2Errors.staffSignature}>
+              <FormField label={`Employee Signature (${form.staffName || 'Staff Member'})`} required error={step2Errors.staffSignature}>
                 <input
                   className={step2Errors.staffSignature ? inputErrCls : inputCls}
                   placeholder="Type full name as signature…"
