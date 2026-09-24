@@ -7,6 +7,7 @@ import Image from 'next/image';
 import NotificationCenter from './NotificationCenter';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
+import { useServiceWorker } from '@/hooks/useServiceWorker';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -51,6 +52,8 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   useEffect(() => {
     setMobileOpen(false);
   }, []);
+
+  useServiceWorker(); // Register SW and keep online/offline state in sync
 
   const handleSignOut = async () => {
     try {
