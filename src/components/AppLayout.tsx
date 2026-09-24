@@ -71,17 +71,12 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   return (
     <div className="min-h-screen bg-background flex overflow-x-hidden">
       {/* Sidebar — handles its own mobile overlay internally */}
-      {Sidebar(
-        {
-          collapsed,
-          onToggle: () => setCollapsed(!collapsed),
-          mobileOpen,
-          onMobileClose: () => setMobileOpen(false),
-        },
-        null,
-        null,
-        { ssr: false }
-      )}
+      <Sidebar
+        collapsed={collapsed}
+        onToggle={() => setCollapsed(!collapsed)}
+        mobileOpen={mobileOpen}
+        onMobileClose={() => setMobileOpen(false)}
+      />
 
       {/* Main content — offset by sidebar width on desktop */}
       <div

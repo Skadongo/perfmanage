@@ -119,6 +119,8 @@ export default function SystemHealthPage() {
     const now = new Date();
     return {
       timestamp: formatTime(now),
+      latencyMs,
+      queryType: 'select',
       success,
     };
   }, []);
