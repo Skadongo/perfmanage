@@ -42,7 +42,7 @@ CREATE INDEX IF NOT EXISTS idx_ws_fiscal_year_partial
 
 -- Active staff by directorate (org chart / staff management view)
 CREATE INDEX IF NOT EXISTS idx_staff_active_directorate
-  ON public.staff (directorate_id, full_name)
+  ON public.staff (department_id, full_name)
   WHERE employment_status = 'active';
 
 -- Active staff by supervisor (supervisor scope queries)
