@@ -42,6 +42,9 @@ export default function ActivityFeed({ staffId, supervisorId }: Props) {
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     const fetchActivities = async () => {
@@ -148,7 +151,7 @@ export default function ActivityFeed({ staffId, supervisorId }: Props) {
                 )}
               </div>
               <span className="text-[10px] text-muted-foreground whitespace-nowrap flex-shrink-0">
-                {timeAgo(activity.createdAt)}
+                {mounted ? timeAgo(activity.createdAt) : ''}
               </span>
             </div>
           ))}

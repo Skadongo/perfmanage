@@ -351,7 +351,7 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
         challenges_faced: form.overallChallenges || null,
         support_needed: form.developmentNeeds || null,
         self_rating: form.overallSelfRating,
-        submitted_at: new Date().toISOString(),
+        submitted_at: new Date().toISOString(), // hydration-ok
       };
 
       const { data, error } = await supabaseRef.current.from('mid_year_reviews').insert(payload).select('id').single();
@@ -417,9 +417,9 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
         .update({
           review_status: 'approved',
           supervisor_comments: approvalComments || null,
-          supervisor_reviewed_at: new Date().toISOString(),
-          approved_at: new Date().toISOString(),
-          stage_approved_at: new Date().toISOString(),
+          supervisor_reviewed_at: new Date().toISOString(), // hydration-ok
+          approved_at: new Date().toISOString(), // hydration-ok
+          stage_approved_at: new Date().toISOString(), // hydration-ok
           stage_approval_comments: approvalComments || null,
         })
         .eq('id', savedReviewId);
@@ -434,7 +434,7 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
         .from('workplan_settings')
         .update({
           workflow_stage: nextWorkflowStage,
-          supervisor_approved_at: new Date().toISOString(),
+          supervisor_approved_at: new Date().toISOString(), // hydration-ok
         })
         .eq('id', form.workplanId);
 

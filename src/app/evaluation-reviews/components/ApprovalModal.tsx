@@ -94,7 +94,7 @@ export default function ApprovalModal({ open, onClose, review, onActionComplete 
         supervisor_comments: comments.trim() || null,
       };
       if (selectedAction === 'approve') {
-        updatePayload.approved_at = new Date().toISOString();
+        updatePayload.approved_at = new Date().toISOString(); // hydration-ok
       }
 
       const { error } = await supabase

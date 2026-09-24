@@ -718,7 +718,7 @@ export default function ManagerReviewPage() {
     action: 'review' | 'approve' | 'reject'
   ) {
     const supabase = supabaseRef.current;
-    const now = new Date().toISOString();
+    const now = new Date().toISOString(); // hydration-ok
     let updatePayload: Record<string, unknown> = { ...data, updated_at: now };
 
     if (action === 'review') {

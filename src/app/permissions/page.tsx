@@ -255,7 +255,7 @@ export default function PermissionsPage() {
     try {
       const { error } = await supabaseRef.current
         .from('role_permissions')
-        .update({ [permKey]: value, updated_at: new Date().toISOString() })
+        .update({ [permKey]: value, updated_at: new Date().toISOString() }) // hydration-ok
         .eq('role_name', role)
         .eq('screen_name', screen);
       if (error) throw error;

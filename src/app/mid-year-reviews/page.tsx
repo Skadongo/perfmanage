@@ -101,8 +101,8 @@ function TimelineBanner({ timeline }: { timeline: ReviewTimeline | null }) {
 
   React.useEffect(() => {
     if (!timeline) return;
-    const now = new Date();
-    const deadline = new Date(timeline.submission_deadline);
+    const now = new Date(); // hydration-ok
+    const deadline = new Date(timeline.submission_deadline); // hydration-ok
     const diff = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     setDaysLeft(diff);
     setFormattedDeadline(
@@ -643,7 +643,7 @@ export default function MidYearReviewsPage() {
   const handleSave = useCallback(async (data: Partial<MidYearReview>, action: string) => {
     if (!selectedReview) return;
     try {
-      const now = new Date().toISOString();
+      const now = new Date().toISOString(); // hydration-ok
       let updates: Partial<MidYearReview> = { ...data, updated_at: now };
 
       if (action === 'submit') {

@@ -184,12 +184,15 @@ function getPerformanceBand(score: number): { label: string; increment: string; 
   return { label: 'Unsatisfactory', increment: 'Mandatory Performance Improvement Plan (PIP)', color: 'text-red-700' };
 }
 
+let _idCounter = 0;
+function nextId(): string { return `${++_idCounter}`; }
+
 function makeGoal(): GoalRow {
-  return { id: `g-${Date.now()}-${Math.random()}`, goal: '', target: '', actual: '', selfRating: 3, supervisorRating: 3, weight: 25, comments: '' };
+  return { id: `g-${nextId()}`, goal: '', target: '', actual: '', selfRating: 3, supervisorRating: 3, weight: 25, comments: '' };
 }
 
 function makeKPI(): KPIRow {
-  return { id: `k-${Date.now()}-${Math.random()}`, kpiId: '', target: '', actual: '', status: 'On Track', selfRating: 3, supervisorRating: 3 };
+  return { id: `k-${nextId()}`, kpiId: '', target: '', actual: '', status: 'On Track', selfRating: 3, supervisorRating: 3 };
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -346,7 +349,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
     reviewType: 'Mid-Year Review',
     supervisorId: '',
     supervisor: '',
-    reviewDate: new Date().toISOString().split('T')[0],
+    reviewDate: '',
     goals: [makeGoal(), makeGoal(), makeGoal()],
     kpis: [makeKPI(), makeKPI()],
     bscRatings: PERSPECTIVES.map((p) => ({
@@ -681,7 +684,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
 
     while (attempt <= MAX_RETRIES) {
       try {
-        const reviewYear = activeTimeline?.review_year || new Date().getFullYear();
+        const reviewYear = activeTimeline?.review_year || new Date().getFullYear(); // hydration-ok
 
         // ── Structured BSC ratings (stored as JSONB for reports) ──
         const bscPerspectiveRatings = form.bscRatings.map((b) => ({
@@ -805,13 +808,13 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
           staff_signature: form.staffSignature || null,
           supervisor_signature_eval: form.supervisorSignature || null,
           hr_signature: form.hrSignature || null,
-          staff_signed_at: form.staffSignature ? new Date().toISOString() : null,
-          supervisor_signed_eval_at: form.supervisorSignature ? new Date().toISOString() : null,
-          hr_signed_at: form.hrSignature ? new Date().toISOString() : null,
+          staff_signed_at: form.staffSignature ? new Date().toISOString() : null, // hydration-ok
+          supervisor_signed_eval_at: form.supervisorSignature ? new Date().toISOString() : null, // hydration-ok
+          hr_signed_at: form.hrSignature ? new Date().toISOString() : null, // hydration-ok
 
           // ── Dates ──
           review_date: form.reviewDate || null,
-          submitted_at: new Date().toISOString(),
+          submitted_at: new Date().toISOString(), // hydration-ok
         };
 
         if (form.supervisorId) {
