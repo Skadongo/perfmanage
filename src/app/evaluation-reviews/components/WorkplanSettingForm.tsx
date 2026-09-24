@@ -115,6 +115,22 @@ const PERSPECTIVES = [
   'Innovation Learning & Growth',
 ];
 
+// ── ECSA-HC PDF: exact row counts per perspective ──────────────────────────
+const PERSPECTIVE_ROW_COUNTS: Record<string, number> = {
+  'Financial/Stewardship': 1,
+  'Customer/Stakeholder': 4,
+  'Internal Business Processes': 8,
+  'Innovation Learning & Growth': 7,
+};
+
+// ── Part 3: Ratings & Salary Increment Policy (from PDF) ──────────────────
+const RATINGS_POLICY = [
+  { score: '≥ 120%', rating: 'Outstanding', action: '2-Notch Salary Increment + Letter', color: 'bg-emerald-100 text-emerald-800 border-emerald-200' },
+  { score: '100% – 120%', rating: 'Above Average / Meets', action: '1-Notch Salary Increment', color: 'bg-sky-100 text-sky-800 border-sky-200' },
+  { score: '75% – 99%', rating: 'Needs Improvement', action: 'No Annual Increment', color: 'bg-amber-100 text-amber-800 border-amber-200' },
+  { score: '< 50%', rating: 'Unsatisfactory', action: 'Mandatory Performance Improvement Plan (PIP)', color: 'bg-red-100 text-red-800 border-red-200' },
+];
+
 // KPI suggestions by perspective (labels only — user can also type their own)
 const KPI_SUGGESTIONS: Record<string, string[]> = {
   'Financial/Stewardship': [
@@ -359,15 +375,26 @@ const selectErrCls = inputErrCls + ' cursor-pointer';
 const textareaCls = inputCls + ' resize-none';
 const textareaErrCls = inputErrCls + ' resize-none';
 
-function makeRow(): PerspectiveRow {
+function makeRow(perspective = ''): PerspectiveRow {
   return {
     id: `p-${Date.now()}-${Math.random()}`,
-    perspective: '',
+    perspective,
     objective: '',
     kpis: [],
     weight: 0,
     keyActivities: '',
   };
+}
+
+/** Build the default PDF-structured rows: Financial(1) + Customer(4) + Internal(8) + Innovation(7) = 20 rows */
+function makeDefaultPerspectiveRows(): PerspectiveRow[] {
+  const rows: PerspectiveRow[] = [];
+  for (const [perspective, count] of Object.entries(PERSPECTIVE_ROW_COUNTS)) {
+    for (let i = 0; i < count; i++) {
+      rows.push(makeRow(perspective));
+    }
+  }
+  return rows;
 }
 
 function FormField({ label, required, children, error }: { label: string; required?: boolean; children: React.ReactNode; error?: string }) {
@@ -749,11 +776,11 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
     supervisorId: prefillData?.supervisorId || '',
     supervisorName: prefillData?.supervisorName || '',
     supervisorJobTitle: '',
-    fiscalYear: prefillData?.fiscalYear || 'FY 2025-2026 (Jul–Jun)',
-    reviewYear: 2026,
+    fiscalYear: prefillData?.fiscalYear || 'FY 2026-2027 (Jul–Jun)',
+    reviewYear: 2027,
     perspectivesObjectives: prefillData?.perspectivesObjectives?.length
       ? prefillData.perspectivesObjectives
-      : [makeRow()],
+      : makeDefaultPerspectiveRows(),
     generalCompetencies: DEFAULT_GENERAL_COMPETENCIES.map((c) => ({ ...c })),
     customKpis: [],
     staffSignature: '',
@@ -1035,8 +1062,8 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
     });
   }
 
-  function addRow() {
-    setForm((prev) => ({ ...prev, perspectivesObjectives: [...prev.perspectivesObjectives, makeRow()] }));
+  function addRow(perspective?: string) {
+    setForm((prev) => ({ ...prev, perspectivesObjectives: [...prev.perspectivesObjectives, makeRow(perspective || '')] }));
   }
 
   function removeRow(idx: number) {
@@ -1580,6 +1607,19 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
         {/* ── Step 0: Staff & Supervisor ── */}
         {activeStep === 0 && (
           <div className="space-y-5">
+            {/* ECSA-HC Contract Header Banner */}
+            <div className="bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 rounded-xl p-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <h3 className="text-sm font-800 text-primary">ECSA-HC Individual Performance Contract</h3>
+                  <p className="text-xs text-primary/80 mt-0.5">Review Period: <strong>July 2026 – June 2027</strong></p>
+                </div>
+                <span className="text-[11px] font-700 px-3 py-1 rounded-full bg-primary/15 text-primary border border-primary/20">
+                  Biannual Appraisal
+                </span>
+              </div>
+            </div>
+
             <div className="flex items-start gap-3 mb-2">
               <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                 <span className="text-xs font-800 text-primary">1</span>
@@ -1594,7 +1634,6 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
               <Icon name="InformationCircleIcon" size={14} className="text-blue-600 flex-shrink-0 mt-0.5" />
               <span>This Performance Appraisal Form is completed at the <strong>beginning of the evaluation year (July)</strong>. It sets the perspectives, objectives, and KPIs that will be used for Mid-Year (December–January) and End-Year (May–June) evaluations. <strong>Supervisor approval unlocks the next stage.</strong></span>
             </div>
-
             {/* Step 0 error summary */}
             {hasStep0Errors(step0Errors) && (
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-700">
@@ -1687,8 +1726,8 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
 
                 <FormField label="Fiscal Year" required error={step0Errors.fiscalYear}>
                   <select className={step0Errors.fiscalYear ? selectErrCls : selectCls} value={form.fiscalYear} onChange={(e) => setField('fiscalYear', e.target.value)}>
-                    <option value="FY 2025-2026 (Jul–Jun)">FY 2025-2026 (Jul 2025 – Jun 2026)</option>
                     <option value="FY 2026-2027 (Jul–Jun)">FY 2026-2027 (Jul 2026 – Jun 2027)</option>
+                    <option value="FY 2025-2026 (Jul–Jun)">FY 2025-2026 (Jul 2025 – Jun 2026)</option>
                     <option value="FY 2027-2028 (Jul–Jun)">FY 2027-2028 (Jul 2027 – Jun 2028)</option>
                   </select>
                 </FormField>
@@ -1730,8 +1769,8 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
 
                   <FormField label="Review Year" required>
                     <select className={selectCls} value={form.reviewYear} onChange={(e) => setField('reviewYear', Number(e.target.value))}>
-                      <option value={2026}>2026</option>
                       <option value={2027}>2027</option>
+                      <option value={2026}>2026</option>
                       <option value={2028}>2028</option>
                     </select>
                   </FormField>
@@ -1752,6 +1791,13 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
               <div>
                 <h3 className="text-sm font-700 text-foreground">Part 1: Scorecard Performance <span className="text-xs font-500 text-muted-foreground ml-1">(80% of total score)</span></h3>
                 <p className="text-xs text-muted-foreground mt-0.5">Achievement for each KPI will be multiplied by its weight (1–5) to calculate the weighted score</p>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {Object.entries(PERSPECTIVE_ROW_COUNTS).map(([p, count]) => (
+                    <span key={p} className="text-[10px] font-600 px-2 py-0.5 rounded-full bg-muted border border-border text-muted-foreground">
+                      {p.split('/')[0]}: {count} row{count > 1 ? 's' : ''}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1863,7 +1909,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                       />
                     </FormField>
 
-                                        <FormField label="Measure / KPI (SMART)" required error={rowErr.kpis}>
+                    <FormField label="Measure / KPI (SMART)" required error={rowErr.kpis}>
                         <KPICombobox
                           perspective={row.perspective}
                           kpis={row.kpis}
@@ -1873,7 +1919,6 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                           hasError={!!rowErr.kpis}
                         />
                       </FormField>
-                    )}
 
                     {!row.perspective && (
                       <p className="text-[11px] text-muted-foreground italic">Select a BSC Perspective above to add KPIs.</p>
@@ -1883,14 +1928,20 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
               })}
             </div>
 
-            <button
-              type="button"
-              onClick={addRow}
-              className="flex items-center gap-1.5 text-xs font-600 text-primary border border-primary/30 bg-primary/5 hover:bg-primary/10 px-3 py-2 rounded-lg transition-colors"
-            >
-              <Icon name="PlusIcon" size={13} />
-              Add Another Objective
-            </button>
+            {/* Per-perspective "Add row" buttons */}
+            <div className="flex flex-wrap gap-2">
+              {PERSPECTIVES.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => addRow(p)}
+                  className="flex items-center gap-1.5 text-xs font-600 text-primary border border-primary/30 bg-primary/5 hover:bg-primary/10 px-3 py-2 rounded-lg transition-colors"
+                >
+                  <Icon name="PlusIcon" size={13} />
+                  Add {p.split('/')[0]} Row
+                </button>
+              ))}
+            </div>
 
             {/* ── Custom KPIs Section ── */}
             <div className="mt-6">
@@ -2203,6 +2254,25 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-800 flex items-start gap-2">
               <Icon name="ExclamationTriangleIcon" size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
               <span>By signing, both parties confirm agreement on the objectives and KPIs set above. The supervisor will then approve this workplan to unlock the Mid-Year Self-Evaluation stage.</span>
+            </div>
+
+            {/* Part 3: Ratings & Salary Increment Policy (from PDF) */}
+            <div className="rounded-xl border border-border overflow-hidden">
+              <div className="px-4 py-2.5 bg-muted/40 border-b border-border">
+                <p className="text-xs font-700 text-foreground flex items-center gap-1.5">
+                  <Icon name="ChartBarIcon" size={13} className="text-primary" />
+                  Part 3: 2026 Ratings &amp; Salary Increment Policy
+                </p>
+              </div>
+              <div className="divide-y divide-border">
+                {RATINGS_POLICY.map((row) => (
+                  <div key={row.rating} className={`grid grid-cols-3 gap-2 px-4 py-2.5 text-xs ${row.color} border-l-4`}>
+                    <div className="font-700">{row.score}</div>
+                    <div className="font-600">{row.rating}</div>
+                    <div className="text-[11px]">{row.action}</div>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Part 4: Management Support field (matching PDF) */}

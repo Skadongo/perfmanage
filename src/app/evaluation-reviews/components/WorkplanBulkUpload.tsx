@@ -42,7 +42,7 @@ const VALID_PERSPECTIVES = [
   'Innovation Learning & Growth',
 ];
 
-const FISCAL_YEARS = ['FY 2024-2025', 'FY 2025-2026', 'FY 2026-2027'];
+const FISCAL_YEARS = ['FY 2026-2027', 'FY 2025-2026', 'FY 2027-2028'];
 
 const TEMPLATE_HEADERS = [
   'Perspective',
@@ -97,6 +97,7 @@ async function downloadTemplate() {
   // ── Instructions Sheet ──────────────────────────────────────────────────
   const instructions = [
     ['ECSA-HC Individual Performance Contract — Bulk Upload Template'],
+    ['Review Period: July 2026 – June 2027 | Appraisal Type: Biannual Appraisal'],
     [''],
     ['INSTRUCTIONS:'],
     ['1. Use the "Workplan Data" sheet to enter one row per scorecard objective per staff member.'],
@@ -165,9 +166,9 @@ async function downloadTemplate() {
   dataRows.push(['Internal Business Processes', '', '', '', '', '']);
   for (let i = 0; i < 7; i++) dataRows.push(['', '', '', '', '', '']);
 
-  // Innovation Learning & Growth (8 rows)
+  // Innovation Learning & Growth (7 rows per PDF)
   dataRows.push(['Innovation Learning & Growth', '', '', '', '', '']);
-  for (let i = 0; i < 7; i++) dataRows.push(['', '', '', '', '', '']);
+  for (let i = 0; i < 6; i++) dataRows.push(['', '', '', '', '', '']);
 
   dataRows.push([]);
 
@@ -212,7 +213,7 @@ async function downloadTemplate() {
     ['Fill one row per scorecard objective. The system groups rows by Staff Name + Fiscal Year.'],
     [],
     ['Staff Name', 'Fiscal Year', 'Perspective', 'Key Work Objective', 'Key Activities', 'Measure / KPI (SMART)', 'Target', 'Weight (1-5)'],
-    ...TEMPLATE_EXAMPLE_ROWS.map((r) => ['Jane Doe', 'FY 2026-2027 (Jul–Jun)', ...r]),
+    ...TEMPLATE_EXAMPLE_ROWS.map((r) => ['Jane Doe', 'FY 2026-2027', ...r]),
   ];
   const wsExample = XLSX.utils.aoa_to_sheet(exampleRows);
   wsExample['!cols'] = [
