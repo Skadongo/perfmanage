@@ -40,8 +40,7 @@ const NAV_GROUPS = [
 {
   label: 'Support',
   items: [
-  { label: 'Help & User Manual', href: '/help', icon: 'BookOpenIcon', badge: null },
-  { label: 'User Manual (Full)', href: '/user-manual', icon: 'DocumentTextIcon', badge: null }]
+  { label: 'Help & User Manual', href: '/help', icon: 'BookOpenIcon', badge: null }]
 }];
 
 interface SidebarProps {
