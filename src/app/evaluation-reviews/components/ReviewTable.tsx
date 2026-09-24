@@ -10,7 +10,6 @@ import EvaluationComparisonModal from './EvaluationComparisonModal';
 import ApprovalModal, { ApprovalAction } from './ApprovalModal';
 import { exportToCSV, exportToPDF, exportAppraisalPDF } from './ExportUtils';
 import { createClient } from '@/lib/supabase/client';
-import { formatDate } from '@/lib/dateUtils';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type ReviewStatus = 'pending' | 'in-progress' | 'submitted' | 'approved' | 'overdue' | 'draft' | 'reviewed' | 'rejected';
@@ -149,12 +148,12 @@ export default function ReviewTable() {
 
           const deadlineRaw = timelineRow?.submission_deadline as string | null;
           const dueDate = deadlineRaw
-            ? formatDate(deadlineRaw)
+            ? new Date(deadlineRaw).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
             : `30 Jun ${reviewYear}`;
 
           const submittedRaw = (row.submitted_at as string) ?? (row.approved_at as string) ?? null;
           const submittedDate = submittedRaw
-            ? formatDate(submittedRaw)
+            ? new Date(submittedRaw).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
             : '';
 
           const progress = computeProgress(uiStatus, selfRating, supervisorRating);

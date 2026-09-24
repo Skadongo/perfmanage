@@ -1,8 +1,5 @@
 // Compliance Report Export Utilities — Appraisal Audit Trail
 
-
-import { formatDate, formatDateTime } from '@/lib/dateUtils';
-
 export interface AuditRecord {
   form_type: string;
   id: string;
@@ -19,6 +16,26 @@ export interface AuditRecord {
   updated_at: string;
   overall_self_score: number | null;
   overall_supervisor_score: number | null;
+}
+
+function formatDate(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function formatDateTime(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function getStaffSignatureStatus(record: AuditRecord): string {

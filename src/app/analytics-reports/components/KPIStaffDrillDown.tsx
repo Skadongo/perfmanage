@@ -5,7 +5,6 @@ import Icon from '@/components/ui/AppIcon';
 import ProgressBar from '@/components/ui/ProgressBar';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatDate } from '@/lib/dateUtils';
 
 interface KPIStaffDrillDownProps {
   metric: {
@@ -492,7 +491,7 @@ export default function KPIStaffDrillDown({ metric, onClose }: KPIStaffDrillDown
                                 </td>
                               )}
                               <td className="px-4 py-2.5 text-muted-foreground">
-                                {formatDate(s.submittedAt, '—')}
+                                {s.submittedAt ? new Date(s.submittedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
                               </td>
                             </tr>
                           );
