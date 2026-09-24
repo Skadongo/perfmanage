@@ -63,14 +63,14 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
 
   return (
     <>
-      {/* Mobile overlay backdrop */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-30 lg:hidden"
-          onClick={onMobileClose}
-          aria-hidden="true"
-        />
-      )}
+      {/* Mobile overlay backdrop — always rendered, shown/hidden via CSS to keep DOM stable */}
+      <div
+        className={`fixed inset-0 bg-black/40 z-30 lg:hidden transition-opacity duration-200 ${
+          mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={onMobileClose}
+        aria-hidden="true"
+      />
 
       <aside
         className={`
