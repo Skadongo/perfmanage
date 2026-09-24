@@ -1556,21 +1556,49 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
             {steps.map((s, i) => (
-              <button
-                key={s.label}
-                type="button"
-                onClick={() => setActiveStep(i)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-600 whitespace-nowrap transition-all flex-shrink-0 ${
-                  i === activeStep
-                    ? 'bg-primary text-white shadow-sm'
-                    : i < activeStep
-                    ? 'bg-emerald-100 text-emerald-700' :'bg-white border border-border text-muted-foreground hover:bg-muted/50'
-                }`}
-              >
-                {i < activeStep ? <Icon name="CheckIcon" size={11} /> : <Icon name={s.icon as any} size={11} />}
-                <span className="hidden sm:inline">{s.label}</span>
-                <span className="sm:hidden">{i + 1}</span>
-              </button>
+              <React.Fragment key={s.label}>
+                <button
+                  type="button"
+                  onClick={() => setActiveStep(i)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-600 whitespace-nowrap transition-all flex-shrink-0 ${
+                    i === activeStep
+                      ? 'bg-primary text-white shadow-sm'
+                      : i < activeStep
+                      ? 'bg-emerald-100 text-emerald-700' :'bg-white border border-border text-muted-foreground hover:bg-muted/50'
+                  }`}
+                >
+                  {i < activeStep ? <Icon name="CheckIcon" size={11} /> : <Icon name={s.icon as any} size={11} />}
+                  <span className="hidden sm:inline">{s.label}</span>
+                  <span className="sm:hidden">{i + 1}</span>
+                </button>
+                {/* Workplan Upload button — inserted between Staff & Supervisor (0) and Perspectives (1) */}
+                {i === 0 && (onImportExcel || onImportWord) && (
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {onImportExcel && (
+                      <button
+                        type="button"
+                        onClick={onImportExcel}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-600 whitespace-nowrap transition-all bg-white border border-border text-muted-foreground hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700"
+                      >
+                        <Icon name="ArrowUpTrayIcon" size={11} />
+                        <span className="hidden sm:inline">Excel/CSV</span>
+                        <span className="sm:hidden">XLS</span>
+                      </button>
+                    )}
+                    {onImportWord && (
+                      <button
+                        type="button"
+                        onClick={onImportWord}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-600 whitespace-nowrap transition-all bg-white border border-border text-muted-foreground hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700"
+                      >
+                        <Icon name="DocumentArrowUpIcon" size={11} />
+                        <span className="hidden sm:inline">Word/PDF</span>
+                        <span className="sm:hidden">DOC</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </React.Fragment>
             ))}
           </div>
           {/* Autosave status badge */}
