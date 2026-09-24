@@ -15,7 +15,7 @@ const nextConfig = {
 
   images: {
     remotePatterns: imageHosts,
-    minimumCacheTTL: 3600,
+    minimumCacheTTL: 60,
   },
 
   async redirects() {
@@ -31,7 +31,7 @@ const nextConfig = {
   webpack(
     config,
     {
-      dev: dev,
+      dev: dev
     }
   ) {
     if (dev) {
