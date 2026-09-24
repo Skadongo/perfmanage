@@ -72,38 +72,6 @@ export const useAuth = () => {
   return context;
 };
 
-// ── In-memory profile cache ──────────────────────────────────────────────────
-// Caches the user profile after first fetch so role-guard and permission checks
-// on subsequent page transitions read from memory (<1ms) instead of hitting DB.
-interface ProfileCacheEntry {
-  profile: UserProfile;
-  fetchedAt: number;
-}
-const PROFILE_CACHE_TTL = 5 * 60_000; // 5 minutes
-const profileCache = new Map<string, ProfileCacheEntry>();
-
-function getCachedProfile(userId: string): UserProfile | null {
-  const entry = profileCache.get(userId);
-  if (!entry) return null;
-  if (Date.now() - entry.fetchedAt > PROFILE_CACHE_TTL) {
-    profileCache.delete(userId);
-    return null;
-  }
-  return entry.profile;
-}
-
-function setCachedProfile(userId: string, profile: UserProfile): void {
-  profileCache.set(userId, { profile, fetchedAt: Date.now() });
-}
-
-function clearCachedProfile(userId?: string): void {
-  if (userId) {
-    profileCache.delete(userId);
-  } else {
-    profileCache.clear();
-  }
-}
-
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<any>(null);
   const [session, setSession] = useState<any>(null);
@@ -115,13 +83,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // Track whether initial session load already fetched the profile
   const initialLoadDone = useRef(false);
 
-  const fetchProfile = async (userId: string, authUser?: any, forceRefresh = false): Promise<UserProfile | null> => {
-    // Return cached profile immediately if available and not forcing refresh
-    if (!forceRefresh) {
-      const cached = getCachedProfile(userId);
-      if (cached) return cached;
-    }
-
+  const fetchProfile = async (userId: string, authUser?: any): Promise<UserProfile | null> => {
     try {
       // Only fetch user_profiles — skip the redundant getUser() call when authUser is already provided
       const profileResult = await supabase
@@ -162,7 +124,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           ? metaRole
           : 'staff');
 
-      const userProfile: UserProfile = {
+      return {
         id: userId,
         email: data?.email || resolvedAuthUser?.email || '',
         fullName:
@@ -179,10 +141,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         mustChangePassword: data?.must_change_password ?? false,
         staffId: data?.staff_id || undefined,
       };
-
-      // Cache the profile after successful fetch
-      setCachedProfile(userId, userProfile);
-      return userProfile;
     } catch {
       return null;
     }
@@ -214,17 +172,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setUser(session?.user ?? null);
 
       if (session?.user) {
-        // Only re-fetch profile on meaningful auth events; force refresh to get fresh data
+        // Only re-fetch profile on meaningful auth events
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-          const forceRefresh = event === 'USER_UPDATED';
-          const p = await fetchProfile(session.user.id, session.user, forceRefresh);
+          const p = await fetchProfile(session.user.id, session.user);
           setProfile(p);
         }
       } else {
-        // Clear cache on sign out
-        if (session === null) {
-          clearCachedProfile();
-        }
         setProfile(null);
       }
       setLoading(false);
@@ -261,12 +214,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return data;
   };
 
-  // Sign Out — clear profile cache
+  // Sign Out
   const signOut = async () => {
-    const userId = user?.id;
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
-    clearCachedProfile(userId);
     setProfile(null);
   };
 

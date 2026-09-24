@@ -5,9 +5,6 @@ const nextConfig = {
   productionBrowserSourceMaps: true,
   distDir: process.env.DIST_DIR || '.next',
 
-  // Enable Gzip/Brotli compression for all responses
-  compress: true,
-
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -19,8 +16,6 @@ const nextConfig = {
   images: {
     remotePatterns: imageHosts,
     minimumCacheTTL: 60,
-    // Serve AVIF first, then WebP, then fallback to original format
-    formats: ['image/avif', 'image/webp'],
   },
 
   async redirects() {
