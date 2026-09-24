@@ -1642,6 +1642,34 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
               <Icon name="InformationCircleIcon" size={14} className="text-blue-600 flex-shrink-0 mt-0.5" />
               <span>This Performance Appraisal Form is completed at the <strong>beginning of the evaluation year (July)</strong>. It sets the perspectives, objectives, and KPIs that will be used for Mid-Year (December–January) and End-Year (May–June) evaluations. <strong>Supervisor approval unlocks the next stage.</strong></span>
             </div>
+
+            {/* Import buttons — also visible on Step 0 so staff can upload immediately */}
+            {(onImportExcel || onImportWord) && (
+              <div className="flex flex-wrap items-center gap-2 p-3 bg-muted/30 border border-border rounded-xl">
+                <span className="text-xs font-600 text-muted-foreground mr-1">Upload workplan template:</span>
+                {onImportExcel && (
+                  <button
+                    type="button"
+                    onClick={onImportExcel}
+                    className="flex items-center gap-1.5 text-xs font-600 text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
+                  >
+                    <Icon name="EcsaDocIcon" size={13} className="text-emerald-600" />
+                    Import Excel / CSV
+                  </button>
+                )}
+                {onImportWord && (
+                  <button
+                    type="button"
+                    onClick={onImportWord}
+                    className="flex items-center gap-1.5 text-xs font-600 text-violet-700 bg-violet-50 border border-violet-200 px-3 py-1.5 rounded-lg hover:bg-violet-100 transition-colors"
+                  >
+                    <Icon name="EcsaDocIcon" size={13} className="text-violet-600" />
+                    Import Word / PDF
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Step 0 error summary */}
             {hasStep0Errors(step0Errors) && (
               <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-700">
