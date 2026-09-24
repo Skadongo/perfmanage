@@ -27,7 +27,6 @@ const NAV_GROUPS = [
   label: 'Organisation',
   items: [
   { label: 'Staff Management', href: '/staff-management', icon: 'EcsaStaffIcon', badge: null },
-  { label: 'Staff Bulk Upload', href: '/staff-bulk-upload', icon: 'ArrowUpTrayIcon', badge: null },
     { label: 'Appraisal Audit Trail', href: '/appraisal-audit-trail', icon: 'ClipboardDocumentListIcon', badge: null },
   { label: 'Permissions', href: '/permissions', icon: 'EcsaPermissionsIcon', badge: null },
   { label: 'Admin Dashboard', href: '/admin-dashboard', icon: 'ShieldCheckIcon', badge: null }]
