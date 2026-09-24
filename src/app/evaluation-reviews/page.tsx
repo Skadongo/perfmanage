@@ -375,8 +375,8 @@ export default function EvaluationReviewsPage() {
               onClose={() => { setActiveForm(null); setWorkplanPrefill(null); setWorkplanInitiated(false); }}
               onSubmit={handleFormSubmit}
               onWorkplanReady={() => setWorkplanInitiated(true)}
-              onImportExcel={() => { setActiveForm(null); setUploadModal('bulk-upload'); }}
-              onImportWord={() => { setActiveForm(null); setUploadModal('doc-import'); }}
+              onImportExcel={() => { setUploadModal('bulk-upload'); }}
+              onImportWord={() => { setUploadModal('doc-import'); }}
               prefillData={workplanPrefill}
             />
             }
@@ -394,7 +394,7 @@ export default function EvaluationReviewsPage() {
 
       {/* ── Bulk Upload Modal ── */}
       {uploadModal === 'bulk-upload' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setUploadModal(null)} />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col overflow-hidden animate-fade-in">
             <WorkplanBulkUpload
@@ -410,7 +410,7 @@ export default function EvaluationReviewsPage() {
 
       {/* ── Document Import Modal ── */}
       {uploadModal === 'doc-import' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setUploadModal(null)} />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[95vh] flex flex-col overflow-hidden animate-fade-in">
             <WorkplanDocumentImport
