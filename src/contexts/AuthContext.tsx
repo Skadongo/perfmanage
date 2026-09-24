@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { getCachedAuthProfile, setCachedAuthProfile, invalidateAuthProfile } from '@/lib/cache';
 
 // Role hierarchy for access control
 export const ROLE_HIERARCHY: Record<string, number> = {
@@ -86,10 +85,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const fetchProfile = async (userId: string, authUser?: any): Promise<UserProfile | null> => {
     try {
-      // Check in-memory cache first — avoids DB round-trip on page navigation
-      const cached = getCachedAuthProfile<UserProfile>();
-      if (cached && cached.id === userId) return cached;
-
       // Only fetch user_profiles — skip the redundant getUser() call when authUser is already provided
       const profileResult = await supabase
         .from('user_profiles')
@@ -129,7 +124,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           ? metaRole
           : 'staff');
 
-      const profile: UserProfile = {
+      return {
         id: userId,
         email: data?.email || resolvedAuthUser?.email || '',
         fullName:
@@ -146,10 +141,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         mustChangePassword: data?.must_change_password ?? false,
         staffId: data?.staff_id || undefined,
       };
-
-      // Cache the profile to avoid re-fetching on every page navigation
-      setCachedAuthProfile(profile);
-      return profile;
     } catch {
       return null;
     }
@@ -227,8 +218,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
-    // Clear cached profile on sign-out
-    invalidateAuthProfile();
     setProfile(null);
   };
 

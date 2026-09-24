@@ -157,8 +157,6 @@ export default function DashboardMetricCards({
     {
       revalidateOnFocus: false,
       dedupingInterval: 30_000, // 30 s dedup window
-      revalidateIfStale: true,  // serve stale, refresh in background
-      keepPreviousData: true,   // never flash empty state on key change
       fallbackData: undefined,
     }
   );

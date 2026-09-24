@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
 import Icon from '@/components/ui/AppIcon';
 import { useAuth } from '@/contexts/AuthContext';
@@ -54,13 +54,7 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
   const { getDisplayName, getInitials, profile } = useAuth();
-
-  // Prefetch a route on hover so it's ready before the user clicks
-  const handlePrefetch = useCallback((href: string) => {
-    router.prefetch(href);
-  }, [router]);
 
   const roleLabel = profile?.systemRole
     ? profile.systemRole.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
@@ -167,7 +161,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
                   'bg-primary/10 text-primary border-l-2 border-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground border-l-2 border-transparent'}
                       ${collapsed && !mobileOpen ? 'lg:justify-center' : ''}
                     `}
-                  onMouseEnter={() => handlePrefetch(item.href)}
                 >
                     <Icon
                     name={item.icon as Parameters<typeof Icon>[0]['name']}

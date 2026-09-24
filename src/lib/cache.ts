@@ -8,8 +8,6 @@
 interface CacheEntry<T> {
   data: T;
   expiresAt: number;
-  /** Stale-while-revalidate: timestamp after which background refresh should occur */
-  staleAt?: number;
 }
 
 const store = new Map<string, CacheEntry<unknown>>();
@@ -24,24 +22,8 @@ export function cacheGet<T>(key: string): T | null {
   return entry.data;
 }
 
-/** Returns cached value even if stale (for SWR pattern), null only if fully expired */
-export function cacheGetStale<T>(key: string): { data: T; isStale: boolean } | null {
-  const entry = store.get(key) as CacheEntry<T> | undefined;
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
-    store.delete(key);
-    return null;
-  }
-  const isStale = entry.staleAt !== undefined && Date.now() > entry.staleAt;
-  return { data: entry.data, isStale };
-}
-
-export function cacheSet<T>(key: string, data: T, ttlMs = 60_000, staleMs?: number): void {
-  store.set(key, {
-    data,
-    expiresAt: Date.now() + ttlMs,
-    staleAt: staleMs !== undefined ? Date.now() + staleMs : undefined,
-  });
+export function cacheSet<T>(key: string, data: T, ttlMs = 60_000): void {
+  store.set(key, { data, expiresAt: Date.now() + ttlMs });
 }
 
 export function cacheDelete(key: string): void {
@@ -67,63 +49,6 @@ export async function cachedFetch<T>(
   const data = await fetcher();
   cacheSet(key, data, ttlMs);
   return data;
-}
-
-/**
- * Stale-while-revalidate fetch helper.
- * Returns cached data immediately (even if stale), then refreshes in background.
- * Calls onRevalidated with fresh data once the background fetch completes.
- *
- * @param key          - cache key
- * @param fetcher      - async function to fetch fresh data
- * @param ttlMs        - hard expiry (data is never returned after this)
- * @param staleMs      - soft expiry (data is returned but background refresh triggered)
- * @param onRevalidated - called with fresh data after background refresh
- */
-export async function swrFetch<T>(
-  key: string,
-  fetcher: () => Promise<T>,
-  ttlMs = 120_000,
-  staleMs = 30_000,
-  onRevalidated?: (data: T) => void
-): Promise<T> {
-  const result = cacheGetStale<T>(key);
-
-  if (result !== null) {
-    if (result.isStale) {
-      // Return stale data immediately, refresh in background
-      fetcher().then((fresh) => {
-        cacheSet(key, fresh, ttlMs, staleMs);
-        onRevalidated?.(fresh);
-      }).catch(() => {/* silently ignore background refresh errors */});
-    }
-    return result.data;
-  }
-
-  // No cache — fetch synchronously
-  const data = await fetcher();
-  cacheSet(key, data, ttlMs, staleMs);
-  return data;
-}
-
-// ─── Auth profile cache ───────────────────────────────────────────────────────
-/** Cache the logged-in user's profile so it isn't re-fetched on every page navigation */
-const AUTH_PROFILE_KEY = 'auth:profile';
-/** Profile TTL: 10 minutes — role changes are rare */
-export const TTL_AUTH_PROFILE = 10 * 60_000;
-/** Stale threshold: 2 minutes — refresh silently after 2 min */
-export const STALE_AUTH_PROFILE = 2 * 60_000;
-
-export function getCachedAuthProfile<T>(): T | null {
-  return cacheGet<T>(AUTH_PROFILE_KEY);
-}
-
-export function setCachedAuthProfile<T>(profile: T): void {
-  cacheSet(AUTH_PROFILE_KEY, profile, TTL_AUTH_PROFILE, STALE_AUTH_PROFILE);
-}
-
-export function invalidateAuthProfile(): void {
-  cacheDelete(AUTH_PROFILE_KEY);
 }
 
 // ─── Role-keyed cache TTLs ────────────────────────────────────────────────────
