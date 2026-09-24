@@ -72,7 +72,7 @@ export default function EvaluationReviewsPage() {
     fiscalYear: string;
     perspectivesObjectives: any[];
   } | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'supervisor-review'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'supervisor-review' | 'upload-workplan'>('overview');
   const [reviewsSummary, setReviewsSummary] = useState<ReviewSummary[]>([]);
   const [statsLoading, setStatsLoading] = useState(true);
   const [stageCounts, setStageCounts] = useState<WorkflowStageCounts>({
@@ -627,11 +627,12 @@ export default function EvaluationReviewsPage() {
         <div className="flex items-center gap-1 bg-muted/30 border border-border rounded-xl p-1 w-fit">
           {[
           { key: 'overview', label: 'Overview & All Reviews', icon: 'EcsaCapacityIcon' },
-          { key: 'supervisor-review', label: 'Supervisor Review Form', icon: 'EcsaEvaluationIcon' }].
+          { key: 'supervisor-review', label: 'Supervisor Review Form', icon: 'EcsaEvaluationIcon' },
+          { key: 'upload-workplan', label: 'Upload Workplan', icon: 'EcsaImportIcon' }].
           map((tab) =>
           <button
             key={tab.key}
-            onClick={() => setActiveTab(tab.key as 'overview' | 'supervisor-review')}
+            onClick={() => setActiveTab(tab.key as 'overview' | 'supervisor-review' | 'upload-workplan')}
             className={`flex items-center gap-1.5 px-4 py-2 text-xs font-600 rounded-lg transition-all ${
             activeTab === tab.key ?
             'bg-white text-primary shadow-sm border border-border' :
@@ -667,10 +668,111 @@ export default function EvaluationReviewsPage() {
 
             <ReviewTable />
           </> :
-
+        activeTab === 'supervisor-review' ?
         <div className="bg-white rounded-xl border border-border shadow-card p-5">
             <SupervisorReviewForm />
+          </div> :
+
+        /* ── Upload Workplan Tab ── */
+        <div className="space-y-4">
+          {/* Header */}
+          <div className="bg-white rounded-xl border border-border shadow-card px-5 py-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Icon name="EcsaImportIcon" size={20} className="text-primary" />
+              </div>
+              <div>
+                <h2 className="text-sm font-700 text-foreground">Upload Workplan</h2>
+                <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                  Import your ECSA-HC Individual Performance Contract workplan data using the standard template
+                  (<span className="font-600 text-foreground/70">Performance_contract_Template</span>).
+                  Choose the format that matches your file.
+                </p>
+              </div>
+            </div>
           </div>
+
+          {/* Two full-width import cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Import Excel / CSV Card */}
+            <button
+              type="button"
+              onClick={() => setUploadModal('bulk-upload')}
+              className="group text-left bg-white rounded-xl border-2 border-emerald-200 hover:border-emerald-400 shadow-card hover:shadow-md transition-all active:scale-[0.99] p-6 flex flex-col gap-4"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200 group-hover:bg-emerald-100 flex items-center justify-center flex-shrink-0 transition-colors">
+                  <Icon name="EcsaImportIcon" size={28} className="text-emerald-600" />
+                </div>
+                <div>
+                  <p className="text-base font-700 text-foreground">Import Excel / CSV</p>
+                  <p className="text-xs text-emerald-700 font-600 mt-0.5">.xlsx · .xls · .csv</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Upload a spreadsheet file following the ECSA-HC Performance Contract template.
+                Bulk-import multiple staff objectives, KPIs, and targets in one step.
+                Ideal for HR administrators managing large teams.
+              </p>
+              <div className="flex flex-wrap gap-2 mt-auto">
+                {['Bulk import', 'Multiple staff', 'Objectives & KPIs', 'Auto-mapped columns'].map((tag) => (
+                  <span key={tag} className="text-[10px] font-600 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5 text-xs font-700 text-emerald-700 group-hover:gap-2.5 transition-all">
+                <Icon name="EcsaImportIcon" size={14} className="text-emerald-600" />
+                Click to upload Excel / CSV
+                <Icon name="EcsaChevronRightIcon" size={12} className="text-emerald-500 ml-auto" />
+              </div>
+            </button>
+
+            {/* Import Word / PDF Card */}
+            <button
+              type="button"
+              onClick={() => setUploadModal('doc-import')}
+              className="group text-left bg-white rounded-xl border-2 border-violet-200 hover:border-violet-400 shadow-card hover:shadow-md transition-all active:scale-[0.99] p-6 flex flex-col gap-4"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-violet-50 border border-violet-200 group-hover:bg-violet-100 flex items-center justify-center flex-shrink-0 transition-colors">
+                  <Icon name="EcsaDocIcon" size={28} className="text-violet-600" />
+                </div>
+                <div>
+                  <p className="text-base font-700 text-foreground">Import Word / PDF</p>
+                  <p className="text-xs text-violet-700 font-600 mt-0.5">.docx · .doc · .pdf</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Upload a Word document or PDF of the ECSA-HC Individual Performance Contract.
+                The system will auto-parse objectives and KPIs and pre-fill the appraisal form
+                for your review before saving.
+              </p>
+              <div className="flex flex-wrap gap-2 mt-auto">
+                {['Auto-parse', 'Pre-fill form', 'Review before save', 'Single staff'].map((tag) => (
+                  <span key={tag} className="text-[10px] font-600 px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5 text-xs font-700 text-violet-700 group-hover:gap-2.5 transition-all">
+                <Icon name="EcsaDocIcon" size={14} className="text-violet-600" />
+                Click to upload Word / PDF
+                <Icon name="EcsaChevronRightIcon" size={12} className="text-violet-500 ml-auto" />
+              </div>
+            </button>
+          </div>
+
+          {/* Format guidance note */}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
+            <Icon name="EcsaInfoIcon" size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-800 leading-relaxed">
+              <span className="font-700">Template required:</span> Files must follow the ECSA-HC Individual Performance Contract format
+              (<span className="font-600">Performance_contract_Template</span>). Columns and sections must match the standard template
+              for successful import. Contact HR for the latest template version.
+            </p>
+          </div>
+        </div>
         }
       </div>
     </AppLayout>);
