@@ -1571,33 +1571,6 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
                   <span className="hidden sm:inline">{s.label}</span>
                   <span className="sm:hidden">{i + 1}</span>
                 </button>
-                {/* Workplan Upload button — inserted between Staff & Supervisor (0) and Perspectives (1) */}
-                {i === 0 && (onImportExcel || onImportWord) && (
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    {onImportExcel && (
-                      <button
-                        type="button"
-                        onClick={onImportExcel}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-600 whitespace-nowrap transition-all bg-white border border-border text-muted-foreground hover:bg-emerald-50 hover:border-emerald-300 hover:text-emerald-700"
-                      >
-                        <Icon name="ArrowUpTrayIcon" size={11} />
-                        <span className="hidden sm:inline">Excel/CSV</span>
-                        <span className="sm:hidden">XLS</span>
-                      </button>
-                    )}
-                    {onImportWord && (
-                      <button
-                        type="button"
-                        onClick={onImportWord}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-600 whitespace-nowrap transition-all bg-white border border-border text-muted-foreground hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700"
-                      >
-                        <Icon name="DocumentArrowUpIcon" size={11} />
-                        <span className="hidden sm:inline">Word/PDF</span>
-                        <span className="sm:hidden">DOC</span>
-                      </button>
-                    )}
-                  </div>
-                )}
               </React.Fragment>
             ))}
           </div>
@@ -1632,6 +1605,37 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
             </div>
           )}
         </div>
+
+        {/* ── Workplan Upload Bar — always visible between stepper and progress bar ── */}
+        {(onImportExcel || onImportWord) && (
+          <div className="flex flex-wrap items-center gap-2 mb-2 px-1 py-2 bg-white border border-dashed border-primary/30 rounded-lg">
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <Icon name="ArrowUpTrayIcon" size={13} className="text-primary" />
+              <span className="text-[11px] font-700 text-primary">Upload Workplan:</span>
+            </div>
+            {onImportExcel && (
+              <button
+                type="button"
+                onClick={onImportExcel}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-600 whitespace-nowrap bg-emerald-50 border border-emerald-300 text-emerald-700 hover:bg-emerald-100 transition-colors"
+              >
+                <Icon name="EcsaImportIcon" size={12} className="text-emerald-600" />
+                Import Excel / CSV
+              </button>
+            )}
+            {onImportWord && (
+              <button
+                type="button"
+                onClick={onImportWord}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-600 whitespace-nowrap bg-violet-50 border border-violet-300 text-violet-700 hover:bg-violet-100 transition-colors"
+              >
+                <Icon name="EcsaDocIcon" size={12} className="text-violet-600" />
+                Import Word / PDF
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="mt-2 h-1 bg-border rounded-full overflow-hidden">
           <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${((activeStep + 1) / steps.length) * 100}%` }} />
         </div>
