@@ -689,9 +689,18 @@ function KPICombobox({ perspective, kpis, onAdd, onRemove, onUpdateTarget, hasEr
 interface WorkplanSettingFormProps {
   onClose: () => void;
   onSubmit?: () => void;
+  prefillData?: {
+    staffId: string;
+    staffName: string;
+    jobTitle: string;
+    supervisorId: string;
+    supervisorName: string;
+    fiscalYear: string;
+    perspectivesObjectives: PerspectiveRow[];
+  } | null;
 }
 
-export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSettingFormProps) {
+export default function WorkplanSettingForm({ onClose, onSubmit, prefillData }: WorkplanSettingFormProps) {
   const [activeStep, setActiveStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -726,20 +735,22 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     ? ['executive_director', 'deputy_director', 'hr_admin_officer', 'programme_manager', 'finance_manager', 'support_admin'].includes(profile.systemRole)
     : false;
 
-  const [form, setForm] = useState<WorkplanFormData>({
-    staffId: '',
-    staffName: '',
-    jobTitle: '',
-    supervisorId: '',
-    supervisorName: '',
-    fiscalYear: 'FY 2025-2026 (Jul–Jun)',
+  const [form, setForm] = useState<WorkplanFormData>(() => ({
+    staffId: prefillData?.staffId || '',
+    staffName: prefillData?.staffName || '',
+    jobTitle: prefillData?.jobTitle || '',
+    supervisorId: prefillData?.supervisorId || '',
+    supervisorName: prefillData?.supervisorName || '',
+    fiscalYear: prefillData?.fiscalYear || 'FY 2025-2026 (Jul–Jun)',
     reviewYear: 2026,
-    perspectivesObjectives: [makeRow()],
+    perspectivesObjectives: prefillData?.perspectivesObjectives?.length
+      ? prefillData.perspectivesObjectives
+      : [makeRow()],
     generalCompetencies: DEFAULT_GENERAL_COMPETENCIES.map((c) => ({ ...c })),
     customKpis: [],
     staffSignature: '',
     supervisorSignature: '',
-  });
+  }));
 
   // ── Autosave hook ────────────────────────────────────────────────────────
   const autosaveEnabled = !!form.staffId;

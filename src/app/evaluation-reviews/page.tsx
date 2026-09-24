@@ -9,6 +9,8 @@ import SelfEvaluationForm from './components/SelfEvaluationForm';
 import SupervisorReviewForm from './components/SupervisorReviewForm';
 import WorkflowProgressPanel from './components/WorkflowProgressPanel';
 import WorkplanListView from './components/WorkplanListView';
+import WorkplanBulkUpload from './components/WorkplanBulkUpload';
+import WorkplanDocumentImport from './components/WorkplanDocumentImport';
 import { Toaster, toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
@@ -37,6 +39,7 @@ interface WorkflowStageCounts {
 }
 
 type ActiveForm = null | 'workplan' | 'mid-year' | 'end-year';
+type UploadModal = null | 'bulk-upload' | 'doc-import';
 
 function mapStatus(dbStatus: string): string {
   const map: Record<string, string> = {
@@ -58,6 +61,16 @@ function computeProgress(status: string, selfRating: number, supervisorRating: n
 
 export default function EvaluationReviewsPage() {
   const [activeForm, setActiveForm] = useState<ActiveForm>(null);
+  const [uploadModal, setUploadModal] = useState<UploadModal>(null);
+  const [workplanPrefill, setWorkplanPrefill] = useState<{
+    staffId: string;
+    staffName: string;
+    jobTitle: string;
+    supervisorId: string;
+    supervisorName: string;
+    fiscalYear: string;
+    perspectivesObjectives: any[];
+  } | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'supervisor-review'>('overview');
   const [reviewsSummary, setReviewsSummary] = useState<ReviewSummary[]>([]);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -207,6 +220,7 @@ export default function EvaluationReviewsPage() {
 
   function handleFormSubmit() {
     setActiveForm(null);
+    setWorkplanPrefill(null);
     // Force-refresh stage counts after form submission
     fetchStageCounts(true);
     toast?.success('Saved successfully and routed for processing.');
@@ -322,15 +336,51 @@ export default function EvaluationReviewsPage() {
             <Icon name="EcsaNewIcon" size={14} className="text-white" />
             <span className="hidden sm:inline">New Appraisal Form</span>
           </button>
+          {/* Upload options dropdown */}
+          <div className="relative group">
+            <button className="flex items-center gap-1.5 text-xs font-600 text-foreground bg-white border border-border px-3 py-2 rounded-lg hover:bg-muted transition-colors">
+              <Icon name="EcsaDocIcon" size={14} />
+              <span className="hidden sm:inline">Import</span>
+              <Icon name="EcsaChevronDownIcon" size={12} />
+            </button>
+            <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-border rounded-xl shadow-lg z-30 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150">
+              <div className="p-1">
+                <button
+                  onClick={() => setUploadModal('bulk-upload')}
+                  className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-left"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Icon name="EcsaDocIcon" size={13} className="text-emerald-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-600 text-foreground">Excel / CSV Upload</p>
+                    <p className="text-[10px] text-muted-foreground">Bulk import multiple workplans</p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setUploadModal('doc-import')}
+                  className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-left"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Icon name="EcsaDocIcon" size={13} className="text-violet-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-600 text-foreground">Word / PDF Import</p>
+                    <p className="text-[10px] text-muted-foreground">Parse document & pre-fill form</p>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       }>
 
       <Toaster position="bottom-right" richColors />
 
-      {/* ── Form Modal ── */}
+      {/* ── Workplan Form Modal ── */}
       {activeForm &&
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setActiveForm(null)} />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setActiveForm(null); setWorkplanPrefill(null); }} />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col overflow-hidden animate-fade-in">
             {/* Modal header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-white">
@@ -344,7 +394,7 @@ export default function EvaluationReviewsPage() {
                 </div>
               </div>
               <button
-              onClick={() => setActiveForm(null)}
+              onClick={() => { setActiveForm(null); setWorkplanPrefill(null); }}
               className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
               aria-label="Close form">
 
@@ -354,7 +404,11 @@ export default function EvaluationReviewsPage() {
             {/* Form content */}
             <div className="flex-1 overflow-y-auto flex flex-col">
               {activeForm === 'workplan' &&
-            <WorkplanSettingForm onClose={() => setActiveForm(null)} onSubmit={handleFormSubmit} />
+            <WorkplanSettingForm
+              onClose={() => { setActiveForm(null); setWorkplanPrefill(null); }}
+              onSubmit={handleFormSubmit}
+              prefillData={workplanPrefill}
+            />
             }
               {(activeForm === 'mid-year' || activeForm === 'end-year') &&
             <SelfEvaluationForm
@@ -367,6 +421,40 @@ export default function EvaluationReviewsPage() {
           </div>
         </div>
       }
+
+      {/* ── Bulk Upload Modal ── */}
+      {uploadModal === 'bulk-upload' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setUploadModal(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col overflow-hidden animate-fade-in">
+            <WorkplanBulkUpload
+              onClose={() => setUploadModal(null)}
+              onComplete={() => {
+                setUploadModal(null);
+                fetchStageCounts(true);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Document Import Modal ── */}
+      {uploadModal === 'doc-import' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setUploadModal(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[95vh] flex flex-col overflow-hidden animate-fade-in">
+            <WorkplanDocumentImport
+              onClose={() => setUploadModal(null)}
+              onPrefill={(data) => {
+                setWorkplanPrefill(data);
+                setUploadModal(null);
+                setActiveForm('workplan');
+                toast.success('Document parsed — form pre-filled. Review and save.');
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="space-y-6">
         {/* Summary stats */}
