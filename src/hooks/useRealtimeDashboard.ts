@@ -96,7 +96,11 @@ export function useRealtimeDashboard({
           : 0;
 
       const now = new Date();
-      const timeStr = now.toISOString().slice(11, 19);
+      const timeStr = now.toLocaleTimeString('en-GB', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
 
       const stats: LiveStats = {
         totalReviews: total,

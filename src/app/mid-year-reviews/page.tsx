@@ -93,30 +93,10 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
 // ─── Timeline Banner ──────────────────────────────────────────────────────────
 
 function TimelineBanner({ timeline }: { timeline: ReviewTimeline | null }) {
-  const [mounted, setMounted] = React.useState(false);
-  const [daysLeft, setDaysLeft] = React.useState<number>(0);
-  const [formattedDeadline, setFormattedDeadline] = React.useState('');
-  const [otherDates, setOtherDates] = React.useState<{ label: string; date: string; formatted: string }[]>([]);
-
-  React.useEffect(() => {
-    if (!timeline) return;
-    const now = new Date();
-    const deadline = new Date(timeline.submission_deadline);
-    const diff = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    setDaysLeft(diff);
-    setFormattedDeadline(
-      deadline.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-    );
-    setOtherDates([
-      { label: 'Submissions Open', date: timeline.submission_open_date, formatted: new Date(timeline.submission_open_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) },
-      { label: 'Supervisor Review By', date: timeline.supervisor_review_deadline, formatted: new Date(timeline.supervisor_review_deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) },
-      { label: 'Final Approval By', date: timeline.approval_deadline, formatted: new Date(timeline.approval_deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) },
-    ]);
-    setMounted(true);
-  }, [timeline]);
-
-  if (!timeline || !mounted) return null;
-
+  if (!timeline) return null;
+  const now = new Date();
+  const deadline = new Date(timeline.submission_deadline);
+  const daysLeft = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
   const isOverdue = daysLeft < 0;
   const isUrgent = daysLeft >= 0 && daysLeft <= 7;
 
@@ -131,15 +111,19 @@ function TimelineBanner({ timeline }: { timeline: ReviewTimeline | null }) {
           {timeline.review_year} Mid-Year Review Period
         </p>
         <p className={`text-xs mt-0.5 ${isOverdue ? 'text-rose-600' : isUrgent ? 'text-amber-600' : 'text-blue-600'}`}>
-          Submission deadline: {formattedDeadline}
+          Submission deadline: {new Date(timeline.submission_deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
           {isOverdue ? ' — Deadline passed' : ` — ${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining`}
         </p>
       </div>
       <div className="flex gap-6 text-xs">
-        {otherDates.map(({ label, formatted }) => (
+        {[
+          { label: 'Submissions Open', date: timeline.submission_open_date },
+          { label: 'Supervisor Review By', date: timeline.supervisor_review_deadline },
+          { label: 'Final Approval By', date: timeline.approval_deadline },
+        ].map(({ label, date }) => (
           <div key={label} className="text-center">
             <p className="text-muted-foreground">{label}</p>
-            <p className="font-600 text-foreground">{formatted}</p>
+            <p className="font-600 text-foreground">{new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
           </div>
         ))}
       </div>
