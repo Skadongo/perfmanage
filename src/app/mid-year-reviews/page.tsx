@@ -6,6 +6,7 @@ import Icon from '@/components/ui/AppIcon';
 import { CardListSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
 import { roleCachedFetch, TTL_STAFF_LIST } from '@/lib/cache';
+import { formatDate, formatDateLong, formatDateShort } from '@/lib/dateUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -105,12 +106,12 @@ function TimelineBanner({ timeline }: { timeline: ReviewTimeline | null }) {
     const diff = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     setDaysLeft(diff);
     setFormattedDeadline(
-      deadline.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+      formatDateLong(deadline)
     );
     setOtherDates([
-      { label: 'Submissions Open', date: timeline.submission_open_date, formatted: new Date(timeline.submission_open_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) },
-      { label: 'Supervisor Review By', date: timeline.supervisor_review_deadline, formatted: new Date(timeline.supervisor_review_deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) },
-      { label: 'Final Approval By', date: timeline.approval_deadline, formatted: new Date(timeline.approval_deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) },
+      { label: 'Submissions Open', date: timeline.submission_open_date, formatted: formatDateShort(timeline.submission_open_date) },
+      { label: 'Supervisor Review By', date: timeline.supervisor_review_deadline, formatted: formatDateShort(timeline.supervisor_review_deadline) },
+      { label: 'Final Approval By', date: timeline.approval_deadline, formatted: formatDateShort(timeline.approval_deadline) },
     ]);
     setMounted(true);
   }, [timeline]);
@@ -255,7 +256,7 @@ function ReviewFormModal({ review, mode, onClose, onSave }: ReviewFormModalProps
               <StatusBadge status={review.review_status} />
               {review.submitted_at && (
                 <span className="text-xs text-muted-foreground">
-                  Submitted {new Date(review.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  Submitted {formatDate(review.submitted_at)}
                 </span>
               )}
               {review.supervisor && (
@@ -865,7 +866,7 @@ export default function MidYearReviewsPage() {
               {timeline && (
                 <div className="p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
                   <p className="font-600">Review Period: {timeline.review_year} {timeline.review_period}</p>
-                  <p className="mt-0.5">Deadline: {new Date(timeline.submission_deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                  <p className="mt-0.5">Deadline: {formatDateLong(timeline.submission_deadline)}</p>
                 </div>
               )}
             </div>

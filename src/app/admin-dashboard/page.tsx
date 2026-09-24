@@ -7,6 +7,7 @@ import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import * as XLSX from 'xlsx';
+import { formatDate } from '@/lib/dateUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -378,7 +379,7 @@ function StaffTab({ users, loading, onToggleActive, onForceReset, actionLoading 
                 </td>
                 <td className="px-4 py-3 hidden lg:table-cell">
                   <span className="text-xs text-muted-foreground">
-                    {user.last_sign_in ? new Date(user.last_sign_in).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'Never'}
+                    {user.last_sign_in ? formatDate(user.last_sign_in) : 'Never'}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center">

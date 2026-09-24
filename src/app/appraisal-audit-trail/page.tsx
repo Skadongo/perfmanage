@@ -6,6 +6,7 @@ import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { exportAuditToPDF, exportAuditToExcel } from './AuditComplianceExport';
 import RoleGuard from '@/components/RoleGuard';
+import { formatDate, formatDateTime } from '@/lib/dateUtils';
 
 interface AuditRecord {
   form_type: string;
@@ -27,26 +28,6 @@ interface AuditRecord {
 
 type FilterType = 'all' | 'workplan' | 'evaluation';
 type FilterStatus = 'all' | 'draft' | 'submitted' | 'approved' | 'rejected';
-
-function formatDate(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
-function formatDateTime(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 
 function getStatusBadge(status: string) {
   const map: Record<string, string> = {

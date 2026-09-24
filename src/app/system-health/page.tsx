@@ -5,6 +5,7 @@ import AppLayout from '@/components/AppLayout';
 import RoleGuard from '@/components/RoleGuard';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+import { formatTime } from '@/lib/dateUtils';
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, BarChart, Bar,
@@ -117,9 +118,7 @@ export default function SystemHealthPage() {
     const latencyMs = Math.round(performance.now() - start);
     const now = new Date();
     return {
-      timestamp: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      latencyMs,
-      queryType: 'SELECT (staff)',
+      timestamp: formatTime(now),
       success,
     };
   }, []);
@@ -134,7 +133,7 @@ export default function SystemHealthPage() {
     const latencyMs = Math.round(performance.now() - start);
     const now = new Date();
     return {
-      timestamp: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      timestamp: formatTime(now),
       latencyMs,
       event: 'getSession',
     };
@@ -153,7 +152,7 @@ export default function SystemHealthPage() {
     const elapsed = Math.round(performance.now() - start);
     const now = new Date();
     return {
-      timestamp: now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      timestamp: formatTime(now),
       activeConnections: Math.floor(Math.random() * 5) + 2, // estimated from parallel probes
       queryCount: queries.length,
       avgLatencyMs: Math.round(elapsed / queries.length),
@@ -237,7 +236,7 @@ export default function SystemHealthPage() {
           if (existing) {
             subStatusRef.current.set(channel, {
               ...existing,
-              lastEventAt: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              lastEventAt: formatTime(new Date()),
               eventCount: existing.eventCount + 1,
             });
           }
