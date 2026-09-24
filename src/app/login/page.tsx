@@ -227,7 +227,7 @@ function LoginForm() {
           {/* Footer */}
           <div className="px-8 py-4 bg-muted/30 border-t border-border text-center">
             <p className="text-[11px] text-muted-foreground">
-              © {new Date().getFullYear()} East, Central &amp; Southern Africa Health Community
+              © 2026 East, Central &amp; Southern Africa Health Community
             </p>
           </div>
         </div>
