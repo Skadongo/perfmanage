@@ -21,12 +21,6 @@ const dirIndex = args?.indexOf('--dir');
 const rootDir = dirIndex !== -1 ? args?.[dirIndex + 1] : 'src';
 
 // ─── Rule definitions ────────────────────────────────────────────────────────
-// Each rule has:
-//   id       – short identifier
-//   category – grouping label
-//   pattern  – RegExp to match against a single source line
-//   message  – human-readable description
-//   severity – 'error' | 'warning'
 const RULES = [
   // ── Dynamic dates ──────────────────────────────────────────────────────────
   {
@@ -219,7 +213,6 @@ function walkDir(dir, fileList = []) {
   for (const entry of entries) {
     const fullPath = path?.join(dir, entry?.name);
     if (entry?.isDirectory()) {
-      // skip node_modules, .next, out, dist
       if (['node_modules', '.next', 'out', 'dist', '.git']?.includes(entry?.name)) continue;
       walkDir(fullPath, fileList);
     } else if (/\.(tsx?|jsx?)$/?.test(entry?.name)) {
@@ -239,9 +232,7 @@ function scanFile(filePath) {
     const line = lines?.[i];
     const trimmed = line?.trim();
 
-    // Skip pure comment lines
     if (trimmed?.startsWith('//') || trimmed?.startsWith('*') || trimmed?.startsWith('/*')) continue;
-    // Skip import / require lines (they don't execute at render time)
     if (/^\s*(import|export)\s/?.test(line) && !line?.includes('(')) continue;
 
     for (const rule of RULES) {
@@ -286,7 +277,6 @@ function main() {
     return;
   }
 
-  // ── Pretty console output ──────────────────────────────────────────────────
   const RESET  = '\x1b[0m';
   const BOLD   = '\x1b[1m';
   const RED    = '\x1b[31m';
@@ -307,24 +297,21 @@ function main() {
     return;
   }
 
-  // Group by category for summary
   const categoryMap = {};
 
   for (const [file, findings] of Object.entries(results)) {
     console.log(`${BOLD}${file}${RESET}`);
     for (const f of findings) {
-      const icon   = f?.severity === 'error' ? `${RED}✖${RESET}` : `${YELLOW}⚠${RESET}`;
-      const sev    = f?.severity === 'error' ? `${RED}error${RESET}` : `${YELLOW}warn ${RESET}`;
-      const loc    = `${DIM}${String(f?.line)?.padStart(4)}:${String(f?.col)?.padEnd(4)}${RESET}`;
+      const icon = f?.severity === 'error' ? `${RED}✖${RESET}` : `${YELLOW}⚠${RESET}`;
+      const sev  = f?.severity === 'error' ? `${RED}error${RESET}` : `${YELLOW}warn ${RESET}`;
+      const loc  = `${DIM}${String(f?.line)?.padStart(4)}:${String(f?.col)?.padEnd(4)}${RESET}`;
       console.log(`  ${icon} ${loc} ${sev}  [${CYAN}${f?.rule}${RESET}]  ${f?.message}`);
       console.log(`         ${DIM}${f?.snippet}${RESET}`);
-
       categoryMap[f.category] = (categoryMap?.[f?.category] || 0) + 1;
     }
     console.log('');
   }
 
-  // Summary table
   console.log(`${BOLD}─── Summary by Category ───────────────────────────────${RESET}`);
   for (const [cat, count] of Object.entries(categoryMap)) {
     console.log(`  ${cat?.padEnd(25)} ${count} issue${count !== 1 ? 's' : ''}`);
