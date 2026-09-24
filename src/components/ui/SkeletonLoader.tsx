@@ -99,14 +99,38 @@ export function ChartSkeleton({ height = 240 }: { height?: number }) {
         <Pulse className="h-6 w-20 rounded-full" />
       </div>
       <div className="flex items-end gap-2" style={{ height }}>
-        {Array.from({ length: 8 }).map((_, i) => (
+        {[65, 40, 80, 55, 70, 45, 90, 60].map((h, i) => (
           <Pulse
             key={i}
             className="flex-1"
-            style={{ height: `${30 + Math.random() * 70}%` }}
+            style={{ height: `${h}%` }}
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── Staff card grid skeleton ───────────────────────────────────────────────
+export function StaffGridSkeleton({ count = 8 }: { count?: number }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="bg-white border border-border rounded-xl p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <Pulse className="w-10 h-10 rounded-full flex-shrink-0" />
+            <div className="flex-1 space-y-2">
+              <Pulse className="h-4 w-3/4" />
+              <Pulse className="h-3 w-1/2" />
+              <Pulse className="h-3 w-2/3" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Pulse className="h-5 w-20 rounded-full" />
+            <Pulse className="h-5 w-16 rounded-full" />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

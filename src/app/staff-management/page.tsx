@@ -1246,6 +1246,9 @@ export default function StaffManagementPage() {
   const [removeDeptTarget, setRemoveDeptTarget] = useState<StaffMember | null>(null);
   const [accessTarget, setAccessTarget] = useState<StaffMember | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 24;
 
   // Stable supabase client ref — prevents re-creation on every render
   const supabaseRef = useRef(createClient());
@@ -1363,6 +1366,25 @@ export default function StaffManagementPage() {
       return matchesSearch && matchesDept;
     });
   }, [staff, search, selectedDept]);
+
+  // Reset to page 1 when filters change
+  const prevSearch = useRef(search);
+  const prevDept = useRef(selectedDept);
+  useEffect(() => {
+    if (prevSearch.current !== search || prevDept.current !== selectedDept) {
+      setPage(1);
+      prevSearch.current = search;
+      prevDept.current = selectedDept;
+    }
+  }, [search, selectedDept]);
+
+  // Paginated slice for grid view
+  const paginatedStaff = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return filteredStaff.slice(start, start + PAGE_SIZE);
+  }, [filteredStaff, page]);
+
+  const totalPages = Math.ceil(filteredStaff.length / PAGE_SIZE);
 
   const staffByDepartment = useMemo(() => {
     const map: Record<string, { dept: Department; members: StaffMember[] }> = {};
@@ -1493,18 +1515,68 @@ export default function StaffManagementPage() {
           <p className="text-xs text-muted-foreground/70 mt-1">Try adjusting your search or filter</p>
         </div>
       ) : viewMode === 'grid' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredStaff.map((s) => (
-            <StaffCard
-              key={s.id}
-              staff={s}
-              onClick={setSelectedStaff}
-              onEdit={openEdit}
-              onRemoveDept={openRemoveDept}
-              onManageAccess={openManageAccess}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {paginatedStaff.map((s) => (
+              <StaffCard
+                key={s.id}
+                staff={s}
+                onClick={setSelectedStaff}
+                onEdit={openEdit}
+                onRemoveDept={openRemoveDept}
+                onManageAccess={openManageAccess}
+              />
+            ))}
+          </div>
+          {/* Pagination controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between mt-6 bg-white border border-border rounded-xl px-4 py-3">
+              <p className="text-xs text-muted-foreground">
+                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredStaff.length)} of {filteredStaff.length} staff
+              </p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  aria-label="Previous page"
+                >
+                  <Icon name="ChevronLeftIcon" size={16} />
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                  .reduce<(number | '...')[]>((acc, p, idx, arr) => {
+                    if (idx > 0 && (p as number) - (arr[idx - 1] as number) > 1) acc.push('...');
+                    acc.push(p);
+                    return acc;
+                  }, [])
+                  .map((p, idx) =>
+                    p === '...' ? (
+                      <span key={`ellipsis-${idx}`} className="px-1 text-xs text-muted-foreground">…</span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => setPage(p as number)}
+                        className={`w-7 h-7 rounded-lg text-xs font-600 transition-colors ${
+                          page === p ? 'bg-primary text-white' : 'hover:bg-muted text-muted-foreground'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  )}
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  aria-label="Next page"
+                >
+                  <Icon name="ChevronRightIcon" size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <div className="space-y-6">
           {staffByDepartment.map(({ dept, members }) => {

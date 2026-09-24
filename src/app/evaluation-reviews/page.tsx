@@ -12,7 +12,7 @@ import WorkplanListView from './components/WorkplanListView';
 import { Toaster, toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
-import { cachedFetch, TTL_WORKPLAN_LIST, TTL_DASHBOARD_METRICS } from '@/lib/cache';
+import { cachedFetch, swrFetch, TTL_WORKPLAN_LIST, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 
 interface ReviewSummary {
   id: string;
@@ -80,7 +80,7 @@ export default function EvaluationReviewsPage() {
   const fetchStageCounts = useCallback(async (forceRefresh = false) => {
     setStageLoading(true);
     try {
-      const data = await cachedFetch<{ workflow_stage: string }[]>(
+      const data = await swrFetch<{ workflow_stage: string }[]>(
         'eval-stage-counts',
         async () => {
           const { data: rows } = await supabase
@@ -90,31 +90,31 @@ export default function EvaluationReviewsPage() {
             .eq('status', 'signed');
           return rows ?? [];
         },
-        forceRefresh ? 0 : TTL_WORKPLAN_LIST
+        TTL_WORKPLAN_LIST,
+        30_000,
+        (fresh) => {
+          // Background revalidation — update counts silently
+          const counts: WorkflowStageCounts = {
+            workplanPending: 0, workplanApproved: 0,
+            midYearPending: 0, midYearApproved: 0,
+            endYearPending: 0, endYearApproved: 0,
+            total: fresh.length
+          };
+          for (const row of fresh) {
+            switch (row.workflow_stage) {
+              case 'workplan_pending': counts.workplanPending++; break;
+              case 'workplan_approved': counts.workplanApproved++; break;
+              case 'mid_year_pending': counts.midYearPending++; break;
+              case 'mid_year_approved': counts.midYearApproved++; break;
+              case 'end_year_pending': counts.endYearPending++; break;
+              case 'end_year_approved': counts.endYearApproved++; break;
+            }
+          }
+          if (isMounted.current) setStageCounts(counts);
+        }
       );
 
-      const counts: WorkflowStageCounts = {
-        workplanPending: 0,
-        workplanApproved: 0,
-        midYearPending: 0,
-        midYearApproved: 0,
-        endYearPending: 0,
-        endYearApproved: 0,
-        total: data.length
-      };
-
-      for (const row of data) {
-        switch (row.workflow_stage) {
-          case 'workplan_pending': counts.workplanPending++; break;
-          case 'workplan_approved': counts.workplanApproved++; break;
-          case 'mid_year_pending': counts.midYearPending++; break;
-          case 'mid_year_approved': counts.midYearApproved++; break;
-          case 'end_year_pending': counts.endYearPending++; break;
-          case 'end_year_approved': counts.endYearApproved++; break;
-        }
-      }
-
-      if (isMounted.current) setStageCounts(counts);
+      if (isMounted.current) setStageCounts(data);
     } catch (err) {
       console.error('Failed to fetch stage counts:', err);
     } finally {

@@ -13,7 +13,7 @@ import KPIStaffDrillDown from './components/KPIStaffDrillDown';
 import Icon from '@/components/ui/AppIcon';
 import { Toaster, toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
-import { cachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
+import { swrFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 import RoleGuard from '@/components/RoleGuard';
 
 const TABS = [
@@ -60,7 +60,7 @@ export default function AnalyticsReportsPage() {
 
     async function fetchSummary() {
       try {
-        const result = await cachedFetch<ReviewSummary>(
+        const result = await swrFetch<ReviewSummary>(
           'analytics-summary',
           async () => {
             const { data: reviews, error } = await supabaseRef.current
@@ -134,7 +134,11 @@ export default function AnalyticsReportsPage() {
 
             return { total, approved: approvedCount, submitted: submittedCount, avgScore, byRole };
           },
-          TTL_DASHBOARD_METRICS
+          TTL_DASHBOARD_METRICS,      // hard TTL: 2 min
+          30_000,                     // stale after: 30 s — refresh in background
+          (fresh) => {
+            if (isMounted.current) setSummary(fresh);
+          }
         );
 
         if (isMounted.current) setSummary(result);
