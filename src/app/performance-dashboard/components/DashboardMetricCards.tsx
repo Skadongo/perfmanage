@@ -59,8 +59,7 @@ async function fetchMetrics(
       if (staffId) {
         workplansQuery = workplansQuery.eq('staff_id', staffId);
       } else if (supervisorId) {
-        // For supervisorId scope: fetch direct reports once and reuse for both
-        // workplan filtering and staff count — avoids a redundant second query
+        // Get direct reports first
         const { data: directReports } = await supabase
           .from('staff')
           .select('id')
@@ -72,19 +71,19 @@ async function fetchMetrics(
         }
       }
 
-      // Staff count query — only needed for org-wide view; for supervisor scope
-      // we already have directReportIds from the query above
-      const staffCountQuery = (!supervisorId || staffId)
-        ? supabase
-            .from('staff')
-            .select('id', { count: 'exact', head: true })
-            .eq('employment_status', 'active')
-        : null;
-
-      const [reviewsResult, workplansResult, staffCountResult] = await Promise.all([
+      const [reviewsResult, staffCountResult, workplansResult] = await Promise.all([
         reviewsQuery,
+        supervisorId
+          ? supabase
+              .from('staff')
+              .select('id', { count: 'exact', head: true })
+              .eq('supervisor_id', supervisorId)
+              .eq('employment_status', 'active')
+          : supabase
+              .from('staff')
+              .select('id', { count: 'exact', head: true })
+              .eq('employment_status', 'active'),
         workplansQuery,
-        staffCountQuery ?? Promise.resolve({ count: directIds?.length ?? 0, error: null }),
       ]);
 
       const reviewList = reviewsResult.data || [];
