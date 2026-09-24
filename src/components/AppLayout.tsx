@@ -100,7 +100,8 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
               alt="ECSA-HC Logo"
               width={72}
               height={72}
-              className="object-contain h-10 sm:h-14 w-auto"
+              style={{ width: 'auto', height: 'auto' }}
+              className="object-contain h-10 sm:h-14"
               priority
             />
             <div className="hidden md:flex flex-col leading-tight">
@@ -200,7 +201,8 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                 alt="ECSA-HC Logo"
                 width={32}
                 height={32}
-                className="object-contain h-7 w-auto"
+                style={{ width: 'auto', height: 'auto' }}
+                className="object-contain h-7"
               />
               <div className="leading-tight">
                 <p className="text-xs font-700 text-foreground">ECSA-HC</p>

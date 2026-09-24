@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
@@ -56,6 +56,11 @@ interface SidebarProps {
 export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const { getDisplayName, getInitials, profile } = useAuth();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const roleLabel = profile?.systemRole
     ? profile.systemRole.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
@@ -73,6 +78,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
       />
 
       <aside
+        suppressHydrationWarning
         className={`
           fixed left-0 top-0 h-screen bg-white border-r border-border z-40
           flex flex-col transition-all duration-300 ease-in-out
@@ -180,23 +186,35 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
 
         {/* User */}
         <div className={`border-t border-border p-3 ${collapsed && !mobileOpen ? 'lg:flex lg:justify-center' : ''}`}>
-          {collapsed && !mobileOpen ? (
-            <div className="hidden lg:flex w-8 h-8 rounded-full bg-primary/10 items-center justify-center">
-              <span className="text-primary text-xs font-700">{getInitials()}</span>
+          {mounted ? (
+            <>
+              {collapsed && !mobileOpen ? (
+                <div className="hidden lg:flex w-8 h-8 rounded-full bg-primary/10 items-center justify-center">
+                  <span className="text-primary text-xs font-700">{getInitials()}</span>
+                </div>
+              ) : null}
+              <div className={`flex items-center gap-2 ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <span className="text-primary text-xs font-700">{getInitials()}</span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">{roleLabel}</p>
+                </div>
+                <button className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground transition-colors">
+                  <Icon name="EcsaSettingsIcon" size={15} />
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-primary/10 flex-shrink-0" />
+              <div className={`flex-1 min-w-0 ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
+                <div className="h-3 w-24 bg-muted rounded animate-pulse mb-1" />
+                <div className="h-2.5 w-16 bg-muted rounded animate-pulse" />
+              </div>
             </div>
-          ) : null}
-          <div className={`flex items-center gap-2 ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <span className="text-primary text-xs font-700">{getInitials()}</span>
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
-              <p className="text-[11px] text-muted-foreground truncate">{roleLabel}</p>
-            </div>
-            <button className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground transition-colors">
-              <Icon name="EcsaSettingsIcon" size={15} />
-            </button>
-          </div>
+          )}
         </div>
       </aside>
     </>
