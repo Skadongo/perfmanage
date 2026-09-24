@@ -140,8 +140,8 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                   <span className="text-primary text-xs font-700">{getInitials()}</span>
                 </div>
                 <div className="hidden md:flex flex-col items-start leading-tight">
-                  <span className="text-xs font-600 text-foreground max-w-[120px] truncate">{getDisplayName()}</span>
-                  <span className="text-[10px] text-muted-foreground max-w-[120px] truncate">{roleLabel}</span>
+                  <span suppressHydrationWarning className="text-xs font-600 text-foreground max-w-[120px] truncate">{getDisplayName()}</span>
+                  <span suppressHydrationWarning className="text-[10px] text-muted-foreground max-w-[120px] truncate">{roleLabel}</span>
                 </div>
                 <svg className="w-3.5 h-3.5 text-muted-foreground hidden md:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -152,9 +152,9 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                 <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-lg border border-border z-50 overflow-hidden">
                   {/* User info header */}
                   <div className="px-4 py-3 border-b border-border bg-muted/30">
-                    <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
-                    <p className="text-xs text-muted-foreground truncate">{profile?.email || ''}</p>
-                    <span className="inline-block mt-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-600">
+                    <p suppressHydrationWarning className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
+                    <p suppressHydrationWarning className="text-xs text-muted-foreground truncate">{profile?.email || ''}</p>
+                    <span suppressHydrationWarning className="inline-block mt-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-600">
                       {roleLabel}
                     </span>
                   </div>
