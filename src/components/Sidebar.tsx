@@ -78,7 +78,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
       )}
 
       <aside
-        suppressHydrationWarning
         className={`
           fixed left-0 top-0 h-screen bg-white border-r border-border z-40
           flex flex-col transition-all duration-300 ease-in-out
@@ -92,10 +91,10 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
         `}
       >
         {/* Brand accent top bar */}
-        <div suppressHydrationWarning className="h-1 bg-primary w-full flex-shrink-0" />
+        <div className="h-1 bg-primary w-full flex-shrink-0" />
 
         {/* Logo */}
-        <div suppressHydrationWarning className={`flex items-center border-b border-border h-[60px] px-3 ${collapsed ? 'lg:justify-center' : 'justify-between'}`}>
+        <div className={`flex items-center border-b border-border h-[60px] px-3 ${collapsed ? 'lg:justify-center' : 'justify-between'}`}>
           <div className="flex items-center gap-2 min-w-0">
             <AppLogo size={48} />
             {/* Always show label on mobile drawer; hide when collapsed on desktop */}
@@ -130,7 +129,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
         {/* Desktop collapse toggle when collapsed */}
         {collapsed && (
           <button
-            suppressHydrationWarning
             onClick={onToggle}
             className="hidden lg:flex mx-auto mt-2 p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
             aria-label="Expand sidebar"
@@ -140,7 +138,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
         )}
 
         {/* Nav */}
-        <nav suppressHydrationWarning className="flex-1 overflow-y-auto py-4 scrollbar-thin">
+        <nav className="flex-1 overflow-y-auto py-4 scrollbar-thin">
           {NAV_GROUPS.map((group) =>
           <div key={`group-${group.label}`} className="mb-4">
               {/* Show group label on mobile always; on desktop only when not collapsed */}
@@ -192,7 +190,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
         </nav>
 
         {/* User */}
-        <div suppressHydrationWarning className={`border-t border-border p-3 ${collapsed && !mobileOpen ? 'lg:flex lg:justify-center' : ''}`}>
+        <div className={`border-t border-border p-3 ${collapsed && !mobileOpen ? 'lg:flex lg:justify-center' : ''}`}>
           {collapsed && !mobileOpen ? (
             <div className="hidden lg:flex w-8 h-8 rounded-full bg-primary/10 items-center justify-center">
               <span className="text-primary text-xs font-700">{getInitials()}</span>
