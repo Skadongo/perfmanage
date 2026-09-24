@@ -73,7 +73,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
       )}
 
       <aside
-        suppressHydrationWarning
         className={`
           fixed left-0 top-0 h-screen bg-white border-r border-border z-40
           flex flex-col transition-all duration-300 ease-in-out
