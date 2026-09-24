@@ -87,10 +87,10 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
         `}
       >
         {/* Brand accent top bar */}
-        <div className="h-1 bg-primary w-full flex-shrink-0" />
+        <div suppressHydrationWarning className="h-1 bg-primary w-full flex-shrink-0" />
 
         {/* Logo */}
-        <div className={`flex items-center border-b border-border h-[60px] px-3 ${collapsed ? 'lg:justify-center' : 'justify-between'}`}>
+        <div suppressHydrationWarning className={`flex items-center border-b border-border h-[60px] px-3 ${collapsed ? 'lg:justify-center' : 'justify-between'}`}>
           <div className="flex items-center gap-2 min-w-0">
             <AppLogo size={48} />
             {/* Always show label on mobile drawer; hide when collapsed on desktop */}
