@@ -62,6 +62,7 @@ function computeProgress(status: string, selfRating: number, supervisorRating: n
 export default function EvaluationReviewsPage() {
   const [activeForm, setActiveForm] = useState<ActiveForm>(null);
   const [uploadModal, setUploadModal] = useState<UploadModal>(null);
+  const [importDropdownOpen, setImportDropdownOpen] = useState(false);
   const [workplanPrefill, setWorkplanPrefill] = useState<{
     staffId: string;
     staffName: string;
@@ -337,40 +338,48 @@ export default function EvaluationReviewsPage() {
             <span className="hidden sm:inline">New Appraisal Form</span>
           </button>
           {/* Upload options dropdown */}
-          <div className="relative group">
-            <button className="flex items-center gap-1.5 text-xs font-600 text-foreground bg-white border border-border px-3 py-2 rounded-lg hover:bg-muted transition-colors">
+          <div className="relative">
+            <button
+              onClick={() => setImportDropdownOpen((prev) => !prev)}
+              className="flex items-center gap-1.5 text-xs font-600 text-foreground bg-white border border-border px-3 py-2 rounded-lg hover:bg-muted transition-colors"
+            >
               <Icon name="EcsaDocIcon" size={14} />
               <span className="hidden sm:inline">Import</span>
               <Icon name="EcsaChevronDownIcon" size={12} />
             </button>
-            <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-border rounded-xl shadow-lg z-30 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150">
-              <div className="p-1">
-                <button
-                  onClick={() => setUploadModal('bulk-upload')}
-                  className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-left"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Icon name="EcsaDocIcon" size={13} className="text-emerald-600" />
+            {importDropdownOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setImportDropdownOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-border rounded-xl shadow-lg z-30">
+                  <div className="p-1">
+                    <button
+                      onClick={() => { setUploadModal('bulk-upload'); setImportDropdownOpen(false); }}
+                      className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-left"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <Icon name="EcsaDocIcon" size={13} className="text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-600 text-foreground">Excel / CSV Upload</p>
+                        <p className="text-[10px] text-muted-foreground">Bulk import multiple workplans</p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => { setUploadModal('doc-import'); setImportDropdownOpen(false); }}
+                      className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-left"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <Icon name="EcsaDocIcon" size={13} className="text-violet-600" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-600 text-foreground">Word / PDF Import</p>
+                        <p className="text-[10px] text-muted-foreground">Parse document &amp; pre-fill form</p>
+                      </div>
+                    </button>
                   </div>
-                  <div>
-                    <p className="text-xs font-600 text-foreground">Excel / CSV Upload</p>
-                    <p className="text-[10px] text-muted-foreground">Bulk import multiple workplans</p>
-                  </div>
-                </button>
-                <button
-                  onClick={() => setUploadModal('doc-import')}
-                  className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-left"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Icon name="EcsaDocIcon" size={13} className="text-violet-600" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-600 text-foreground">Word / PDF Import</p>
-                    <p className="text-[10px] text-muted-foreground">Parse document & pre-fill form</p>
-                  </div>
-                </button>
-              </div>
-            </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       }>
