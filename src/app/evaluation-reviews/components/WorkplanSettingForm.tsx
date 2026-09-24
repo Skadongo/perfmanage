@@ -722,6 +722,8 @@ interface WorkplanSettingFormProps {
   onClose: () => void;
   onSubmit?: () => void;
   onWorkplanReady?: (staffId: string, fiscalYear: string) => void;
+  onImportExcel?: () => void;
+  onImportWord?: () => void;
   prefillData?: {
     staffId: string;
     staffName: string;
@@ -733,7 +735,7 @@ interface WorkplanSettingFormProps {
   } | null;
 }
 
-export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady, prefillData }: WorkplanSettingFormProps) {
+export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady, onImportExcel, onImportWord, prefillData }: WorkplanSettingFormProps) {
   const [activeStep, setActiveStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -1788,15 +1790,44 @@ export default function WorkplanSettingForm({ onClose, onSubmit, onWorkplanReady
               <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                 <span className="text-xs font-800 text-primary">2</span>
               </div>
-              <div>
-                <h3 className="text-sm font-700 text-foreground">Part 1: Scorecard Performance <span className="text-xs font-500 text-muted-foreground ml-1">(80% of total score)</span></h3>
-                <p className="text-xs text-muted-foreground mt-0.5">Achievement for each KPI will be multiplied by its weight (1–5) to calculate the weighted score</p>
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {Object.entries(PERSPECTIVE_ROW_COUNTS).map(([p, count]) => (
-                    <span key={p} className="text-[10px] font-600 px-2 py-0.5 rounded-full bg-muted border border-border text-muted-foreground">
-                      {p.split('/')[0]}: {count} row{count > 1 ? 's' : ''}
-                    </span>
-                  ))}
+              <div className="flex-1">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-700 text-foreground">Part 1: Scorecard Performance <span className="text-xs font-500 text-muted-foreground ml-1">(80% of total score)</span></h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">Achievement for each KPI will be multiplied by its weight (1–5) to calculate the weighted score</p>
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {Object.entries(PERSPECTIVE_ROW_COUNTS).map(([p, count]) => (
+                        <span key={p} className="text-[10px] font-600 px-2 py-0.5 rounded-full bg-muted border border-border text-muted-foreground">
+                          {p.split('/')[0]}: {count} row{count > 1 ? 's' : ''}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Import buttons — visible on the perspectives/scorecard step */}
+                  {(onImportExcel || onImportWord) && (
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {onImportExcel && (
+                        <button
+                          type="button"
+                          onClick={onImportExcel}
+                          className="flex items-center gap-1.5 text-xs font-600 text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
+                        >
+                          <Icon name="EcsaDocIcon" size={13} className="text-emerald-600" />
+                          Import Excel / CSV
+                        </button>
+                      )}
+                      {onImportWord && (
+                        <button
+                          type="button"
+                          onClick={onImportWord}
+                          className="flex items-center gap-1.5 text-xs font-600 text-violet-700 bg-violet-50 border border-violet-200 px-3 py-1.5 rounded-lg hover:bg-violet-100 transition-colors"
+                        >
+                          <Icon name="EcsaDocIcon" size={13} className="text-violet-600" />
+                          Import Word / PDF
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
