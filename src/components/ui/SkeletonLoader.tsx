@@ -92,6 +92,8 @@ export function FormSkeleton() {
 
 // ── Chart skeleton ─────────────────────────────────────────────────────────
 export function ChartSkeleton({ height = 240 }: { height?: number }) {
+  // Pre-computed stable bar heights to avoid Math.random() in render (hydration-safe)
+  const barHeights = [45, 72, 58, 88, 35, 65, 80, 50];
   return (
     <div className="bg-white border border-border rounded-xl p-5 space-y-3">
       <div className="flex items-center justify-between">
@@ -99,11 +101,11 @@ export function ChartSkeleton({ height = 240 }: { height?: number }) {
         <Pulse className="h-6 w-20 rounded-full" />
       </div>
       <div className="flex items-end gap-2" style={{ height }}>
-        {Array.from({ length: 8 }).map((_, i) => (
+        {barHeights.map((h, i) => (
           <Pulse
             key={i}
             className="flex-1"
-            style={{ height: `${30 + Math.random() * 70}%` }}
+            style={{ height: `${h}%` }}
           />
         ))}
       </div>

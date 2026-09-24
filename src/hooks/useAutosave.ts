@@ -31,23 +31,48 @@ export function useAutosave({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const supabaseRef = useRef(createClient());
 
+  // Always-current refs so the debounced callback never captures stale values
+  const formDataRef = useRef(formData);
+  const activeStepRef = useRef(activeStep);
+  const staffIdRef = useRef(staffId);
+  const workplanIdRef = useRef(workplanId);
+  const enabledRef = useRef(enabled);
+  const reviewPeriodRef = useRef(reviewPeriod);
+
+  // Keep refs in sync on every render
+  formDataRef.current = formData;
+  activeStepRef.current = activeStep;
+  staffIdRef.current = staffId;
+  workplanIdRef.current = workplanId;
+  enabledRef.current = enabled;
+  reviewPeriodRef.current = reviewPeriod;
+
   const saveDraft = useCallback(
     async (silent = false) => {
-      if (!enabled || !staffId) return;
+      // Read from refs so we always have the latest values
+      const currentEnabled = enabledRef.current;
+      const currentStaffId = staffIdRef.current;
+      const currentWorkplanId = workplanIdRef.current;
+      const currentFormData = formDataRef.current;
+      const currentActiveStep = activeStepRef.current;
+      const currentReviewPeriod = reviewPeriodRef.current;
+
+      if (!currentEnabled || !currentStaffId) return;
       if (!silent) onStatusChange('saving');
+
       try {
         const supabase = supabaseRef.current;
 
-        if (workplanId) {
+        if (currentWorkplanId) {
           // Has a real workplan ID — upsert with workplan_id
           const { error } = await supabase.from('appraisal_drafts').upsert(
             {
-              staff_id: staffId,
-              workplan_id: workplanId,
+              staff_id: currentStaffId,
+              workplan_id: currentWorkplanId,
               draft_type: draftType,
-              review_period: reviewPeriod,
-              form_data: formData,
-              active_step: activeStep,
+              review_period: currentReviewPeriod,
+              form_data: currentFormData,
+              active_step: currentActiveStep,
               last_saved_at: new Date().toISOString(),
             },
             { onConflict: 'staff_id,workplan_id,draft_type,review_period' }
@@ -60,46 +85,54 @@ export function useAutosave({
             onStatusChange('error');
           }
         } else {
-          // No real workplan ID yet (new workplan form) — use staff_id-only draft
-          // First try to update an existing draft row
-          const { data: existing } = await supabase
+          // No real workplan ID yet — upsert using staff_id + draft_type + review_period
+          // Use a two-step approach: try upsert on the unique partial index
+          // First check if a null-workplan draft exists, then update or insert
+          const { data: existing, error: selectErr } = await supabase
             .from('appraisal_drafts')
             .select('id')
-            .eq('staff_id', staffId)
+            .eq('staff_id', currentStaffId)
             .eq('draft_type', draftType)
-            .eq('review_period', reviewPeriod)
+            .eq('review_period', currentReviewPeriod)
             .is('workplan_id', null)
             .maybeSingle();
 
-          let error: any = null;
-          if (existing?.id) {
-            const res = await supabase
-              .from('appraisal_drafts')
-              .update({
-                form_data: formData,
-                active_step: activeStep,
-                last_saved_at: new Date().toISOString(),
-              })
-              .eq('id', existing.id);
-            error = res.error;
-          } else {
-            const res = await supabase.from('appraisal_drafts').insert({
-              staff_id: staffId,
-              workplan_id: null,
-              draft_type: draftType,
-              review_period: reviewPeriod,
-              form_data: formData,
-              active_step: activeStep,
-              last_saved_at: new Date().toISOString(),
-            });
-            error = res.error;
+          if (selectErr) {
+            console.error('Autosave select error:', selectErr.message);
+            onStatusChange('error');
+            return;
           }
 
-          if (!error) {
+          const updatePayload = {
+            form_data: currentFormData,
+            active_step: currentActiveStep,
+            last_saved_at: new Date().toISOString(),
+          };
+
+          let saveError: any = null;
+
+          if (existing?.id) {
+            const { error } = await supabase
+              .from('appraisal_drafts')
+              .update(updatePayload)
+              .eq('id', existing.id);
+            saveError = error;
+          } else {
+            const { error } = await supabase.from('appraisal_drafts').insert({
+              staff_id: currentStaffId,
+              workplan_id: null,
+              draft_type: draftType,
+              review_period: currentReviewPeriod,
+              ...updatePayload,
+            });
+            saveError = error;
+          }
+
+          if (!saveError) {
             onStatusChange('saved');
             setTimeout(() => onStatusChange('idle'), 3000);
           } else {
-            console.error('Autosave error (no workplan):', error.message);
+            console.error('Autosave error (no workplan):', saveError.message);
             onStatusChange('error');
           }
         }
@@ -108,11 +141,12 @@ export function useAutosave({
         onStatusChange('error');
       }
     },
+    // draftType is stable; everything else is read from refs
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [enabled, staffId, workplanId, draftType, reviewPeriod, activeStep, JSON.stringify(formData)]
+    [draftType, onStatusChange]
   );
 
-  // Debounced auto-save on form data change
+  // Debounced auto-save: triggers whenever formData or activeStep changes
   useEffect(() => {
     if (!enabled || !staffId) return;
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -184,7 +218,7 @@ export function autosaveStatusLabel(status: AutosaveStatus): string {
   switch (status) {
     case 'saving': return 'Saving draft…';
     case 'saved': return 'Draft saved';
-    case 'error': return 'Save failed';
+    case 'error': return 'Save failed — will retry';
     default: return 'Auto-save on';
   }
 }
