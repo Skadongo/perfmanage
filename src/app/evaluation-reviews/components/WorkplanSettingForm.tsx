@@ -354,13 +354,9 @@ const selectErrCls = inputErrCls + ' cursor-pointer';
 const textareaCls = inputCls + ' resize-none';
 const textareaErrCls = inputErrCls + ' resize-none';
 
-let _rowCounter = 0;
-let _kpiCounter = 0;
-let _ckpiCounter = 0;
-
 function makeRow(): PerspectiveRow {
   return {
-    id: `p-${++_rowCounter}`,
+    id: `p-${Date.now()}-${Math.random()}`,
     perspective: '',
     objective: '',
     kpis: [],
@@ -547,7 +543,7 @@ function KPICombobox({ perspective, kpis, onAdd, onRemove, onUpdateTarget, hasEr
     const trimmed = label.trim();
     if (!trimmed) return;
     if (addedLabels.has(trimmed.toLowerCase())) return;
-    onAdd({ id: `kpi-${++_kpiCounter}`, label: trimmed, target: '' });
+    onAdd({ id: `kpi-${Date.now()}-${Math.random()}`, label: trimmed, target: '' });
     setInputValue('');
     setOpen(false);
     inputRef.current?.focus();
@@ -1043,7 +1039,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
 
   function addCustomKPI() {
     const newEntry: CustomKPIEntry = {
-      id: `ckpi-${++_ckpiCounter}`,
+      id: `ckpi-${Date.now()}-${Math.random()}`,
       label: '',
       target: '',
       weight: 0,

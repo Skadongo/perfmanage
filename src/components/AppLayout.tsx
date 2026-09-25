@@ -1,13 +1,13 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import Sidebar from './Sidebar';
 import Icon from '@/components/ui/AppIcon';
 import Image from 'next/image';
 import NotificationCenter from './NotificationCenter';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useServiceWorker } from '@/hooks/useServiceWorker';
-import Sidebar from './Sidebar';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -30,13 +30,11 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [currentYear, setCurrentYear] = useState<number>(2026);
-  const [mounted, setMounted] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    setMounted(true);
     setCurrentYear(new Date().getFullYear());
   }, []);
 
@@ -70,25 +68,22 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
 
   return (
     <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
-      {/* Sidebar — only rendered client-side to avoid SSR/hydration tree mismatch */}
-      {mounted && (
-        <Sidebar
-          collapsed={collapsed}
-          onToggle={() => setCollapsed(!collapsed)}
-          mobileOpen={mobileOpen}
-          onMobileClose={() => setMobileOpen(false)}
-        />
-      )}
+      {/* Sidebar — handles its own mobile overlay internally */}
+      <Sidebar
+        collapsed={collapsed}
+        onToggle={() => setCollapsed(!collapsed)}
+        mobileOpen={mobileOpen}
+        onMobileClose={() => setMobileOpen(false)}
+      />
 
       {/* Main content — offset by sidebar width on desktop */}
       <div
-        suppressHydrationWarning
         className={`flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-300 ease-in-out ml-0 ${
           collapsed ? 'lg:ml-16' : 'lg:ml-60'
         }`}
       >
         {/* Topbar */}
-        <header suppressHydrationWarning className="h-14 sm:h-16 bg-white border-b border-border border-t-2 border-t-primary flex items-center px-3 sm:px-4 lg:px-6 gap-2 sm:gap-4 sticky top-0 z-20">
+        <header className="h-14 sm:h-16 bg-white border-b border-border border-t-2 border-t-primary flex items-center px-3 sm:px-4 lg:px-6 gap-2 sm:gap-4 sticky top-0 z-20">
           {/* Mobile hamburger */}
           <button
             className="lg:hidden p-2 rounded-md hover:bg-muted text-muted-foreground flex-shrink-0"
@@ -191,12 +186,12 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
         </header>
 
         {/* Page content */}
-        <main suppressHydrationWarning className="flex-1 p-3 sm:p-4 lg:p-6 xl:p-8 w-full max-w-screen-2xl mx-auto overflow-x-hidden">
+        <main className="flex-1 p-3 sm:p-4 lg:p-6 xl:p-8 w-full max-w-screen-2xl mx-auto overflow-x-hidden">
           {children}
         </main>
 
         {/* Footer */}
-        <footer suppressHydrationWarning className="border-t border-border bg-white mt-auto">
+        <footer className="border-t border-border bg-white mt-auto">
           <div className="h-1 bg-primary w-full" />
           <div className="px-3 sm:px-4 lg:px-6 py-3 sm:py-4 flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-3">
             <div className="flex items-center gap-2.5">
@@ -212,7 +207,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                 <p className="text-[10px] text-muted-foreground">Performance Management System</p>
               </div>
             </div>
-            <p suppressHydrationWarning className="text-[11px] text-muted-foreground text-center">
+            <p className="text-[11px] text-muted-foreground text-center">
               © {currentYear} East, Central &amp; Southern Africa Health Community. All rights reserved.
             </p>
             <div className="hidden sm:flex items-center gap-4">

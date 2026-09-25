@@ -6,7 +6,6 @@ import Icon from '@/components/ui/AppIcon';
 import { TableSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
 import { cachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
-import { formatDateShort, formatDateLong } from '@/lib/dateUtils';
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -290,7 +289,7 @@ function ReviewDetailModal({ review, onClose, onSave }: ReviewDetailModalProps) 
               {review.submitted_at && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Icon name="ClockIcon" size={13} />
-                  Submitted on {formatDateLong(review.submitted_at)}
+                  Submitted on {new Date(review.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </div>
               )}
 
@@ -452,7 +451,7 @@ function ReviewDetailModal({ review, onClose, onSave }: ReviewDetailModalProps) 
                     <div>
                       <p className="text-[10px] text-muted-foreground mb-1">Reviewed On</p>
                       <p className="text-xs font-600 text-foreground">
-                        {formatDateShort(review.supervisor_reviewed_at)}
+                        {new Date(review.supervisor_reviewed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </p>
                     </div>
                     {review.supervisor_comments && (
@@ -540,7 +539,7 @@ function ReviewDetailModal({ review, onClose, onSave }: ReviewDetailModalProps) 
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                   <p className="text-xs font-700 text-emerald-700 mb-1 flex items-center gap-1.5">
                     <Icon name="CheckCircleIcon" size={13} />
-                    Approved — {review.approved_at ? formatDateShort(review.approved_at) : ''}
+                    Approved — {review.approved_at ? new Date(review.approved_at).toLocaleDateString('en-GB') : ''}
                   </p>
                   <p className="text-xs text-emerald-800">{review.approval_comments}</p>
                 </div>
@@ -913,7 +912,7 @@ export default function ManagerReviewPage() {
                       </td>
                       <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                         {review.submitted_at
-                          ? formatDateShort(review.submitted_at)
+                          ? new Date(review.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
                           : '—'}
                       </td>
                       <td className="px-4 py-3">

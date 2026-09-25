@@ -132,12 +132,9 @@ const FISCAL_YEARS = [
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
-let _rowCounter = 0;
-let _uidCounter = 0;
-
 function makeRow(perspective = ''): PerspectiveRow {
   return {
-    id: `row-${++_rowCounter}`,
+    id: `row-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     perspective,
     objective: '',
     keyActivities: '',
@@ -147,7 +144,7 @@ function makeRow(perspective = ''): PerspectiveRow {
 }
 
 function uid() {
-  return `id-${++_uidCounter}`;
+  return `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────

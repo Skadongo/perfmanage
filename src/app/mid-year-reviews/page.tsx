@@ -6,7 +6,6 @@ import Icon from '@/components/ui/AppIcon';
 import { CardListSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
 import { roleCachedFetch, TTL_STAFF_LIST } from '@/lib/cache';
-import { formatDateLong, formatDateShort, formatDateMonthDay } from '@/lib/dateUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -112,7 +111,7 @@ function TimelineBanner({ timeline }: { timeline: ReviewTimeline | null }) {
           {timeline.review_year} Mid-Year Review Period
         </p>
         <p className={`text-xs mt-0.5 ${isOverdue ? 'text-rose-600' : isUrgent ? 'text-amber-600' : 'text-blue-600'}`}>
-          Submission deadline: {formatDateLong(timeline.submission_deadline)}
+          Submission deadline: {new Date(timeline.submission_deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
           {isOverdue ? ' — Deadline passed' : ` — ${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining`}
         </p>
       </div>
@@ -124,7 +123,7 @@ function TimelineBanner({ timeline }: { timeline: ReviewTimeline | null }) {
         ].map(({ label, date }) => (
           <div key={label} className="text-center">
             <p className="text-muted-foreground">{label}</p>
-            <p className="font-600 text-foreground">{formatDateMonthDay(date)}</p>
+            <p className="font-600 text-foreground">{new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>
           </div>
         ))}
       </div>
@@ -240,7 +239,7 @@ function ReviewFormModal({ review, mode, onClose, onSave }: ReviewFormModalProps
               <StatusBadge status={review.review_status} />
               {review.submitted_at && (
                 <span className="text-xs text-muted-foreground">
-                  Submitted {formatDateShort(review.submitted_at)}
+                  Submitted {new Date(review.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </span>
               )}
               {review.supervisor && (
@@ -850,7 +849,7 @@ export default function MidYearReviewsPage() {
               {timeline && (
                 <div className="p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
                   <p className="font-600">Review Period: {timeline.review_year} {timeline.review_period}</p>
-                  <p className="mt-0.5">Deadline: {formatDateLong(timeline.submission_deadline)}</p>
+                  <p className="mt-0.5">Deadline: {new Date(timeline.submission_deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
                 </div>
               )}
             </div>

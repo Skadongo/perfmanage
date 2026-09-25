@@ -19,7 +19,6 @@ function ChangePasswordContent() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [currentYear, setCurrentYear] = useState(2026);
 
   // Determine if this is a forced first-login change or a voluntary change
   const isForced = profile?.mustChangePassword === true;
@@ -33,10 +32,6 @@ function ChangePasswordContent() {
       // Voluntary changes (from avatar menu) should always be accessible
     }
   }, [user, loading, router]);
-
-  useEffect(() => {
-    setCurrentYear(new Date().getFullYear());
-  }, []);
 
   const validatePassword = (pw: string): string | null => {
     if (pw.length < 8) return 'Password must be at least 8 characters.';
@@ -323,8 +318,8 @@ function ChangePasswordContent() {
           </div>
 
           <div className="px-8 py-4 bg-muted/30 border-t border-border text-center">
-            <p className="text-[11px] text-muted-foreground" suppressHydrationWarning>
-              © {currentYear} East, Central &amp; Southern Africa Health Community
+            <p className="text-[11px] text-muted-foreground">
+              © {new Date().getFullYear()} East, Central &amp; Southern Africa Health Community
             </p>
           </div>
         </div>

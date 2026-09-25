@@ -5,7 +5,6 @@ import Icon from '@/components/ui/AppIcon';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import { formatDateShort } from '@/lib/dateUtils';
 
 interface SubmittedReview {
   id: string;
@@ -394,7 +393,7 @@ export default function SupervisorReviewForm() {
                   {/* Submitted date */}
                   {review.submittedAt && (
                     <p className="hidden lg:block text-[11px] text-muted-foreground whitespace-nowrap">
-                      {formatDateShort(review.submittedAt)}
+                      {new Date(review.submittedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                     </p>
                   )}
 
