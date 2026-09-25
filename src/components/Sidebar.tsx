@@ -67,6 +67,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
       {/* Mobile overlay backdrop */}
       {mobileOpen && (
         <div
+          suppressHydrationWarning
           className="fixed inset-0 bg-black/40 z-30 lg:hidden"
           onClick={onMobileClose}
           aria-hidden="true"
@@ -78,11 +79,8 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
         className={`
           fixed left-0 top-0 h-screen bg-white border-r border-border z-40
           flex flex-col transition-all duration-300 ease-in-out
-          /* Desktop: always visible, width controlled by collapsed */
           lg:translate-x-0
-          /* Mobile: slide in/out as drawer */
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-          /* Width: full on mobile drawer, icon-only or full on desktop */
           w-72 sm:w-64 lg:w-auto
           ${collapsed ? 'lg:w-16' : 'lg:w-60'}
         `}
@@ -92,19 +90,19 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
 
         {/* Logo */}
         <div suppressHydrationWarning className={`flex items-center border-b border-border h-[60px] px-3 ${collapsed ? 'lg:justify-center' : 'justify-between'}`}>
-          <div className="flex items-center gap-2 min-w-0">
+          <div suppressHydrationWarning className="flex items-center gap-2 min-w-0">
             <AppLogo size={48} />
-            {/* Always show label on mobile drawer; hide when collapsed on desktop */}
-            <span className={`font-sans font-700 text-sm text-foreground truncate leading-tight ${collapsed ? 'lg:hidden' : ''}`}>
+            <span suppressHydrationWarning className={`font-sans font-700 text-sm text-foreground truncate leading-tight ${collapsed ? 'lg:hidden' : ''}`}>
               ECSA-HC
-              <span className="block text-[10px] font-400 text-muted-foreground">PMS</span>
+              <span suppressHydrationWarning className="block text-[10px] font-400 text-muted-foreground">PMS</span>
             </span>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div suppressHydrationWarning className="flex items-center gap-1">
             {/* Desktop collapse toggle */}
             {!collapsed && (
               <button
+                suppressHydrationWarning
                 onClick={onToggle}
                 className="hidden lg:flex p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                 aria-label="Collapse sidebar"
@@ -114,6 +112,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
             )}
             {/* Mobile close button */}
             <button
+              suppressHydrationWarning
               onClick={onMobileClose}
               className="lg:hidden p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
               aria-label="Close menu"
@@ -138,15 +137,15 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
         {/* Nav */}
         <nav suppressHydrationWarning className="flex-1 overflow-y-auto py-4 scrollbar-thin">
           {NAV_GROUPS.map((group) =>
-          <div key={`group-${group.label}`} className="mb-4">
+          <div suppressHydrationWarning key={`group-${group.label}`} className="mb-4">
               {/* Show group label on mobile always; on desktop only when not collapsed */}
               {(!collapsed || mobileOpen) && (
-                <p className="px-4 mb-1 text-[10px] font-600 uppercase tracking-widest text-primary/60 lg:block">
+                <p suppressHydrationWarning className="px-4 mb-1 text-[10px] font-600 uppercase tracking-widest text-primary/60 lg:block">
                   {group.label}
                 </p>
               )}
               {collapsed && !mobileOpen && (
-                <p className="hidden lg:block px-4 mb-1 text-[10px] font-600 uppercase tracking-widest text-primary/60 opacity-0 select-none">
+                <p suppressHydrationWarning className="hidden lg:block px-4 mb-1 text-[10px] font-600 uppercase tracking-widest text-primary/60 opacity-0 select-none">
                   {group.label}
                 </p>
               )}
@@ -154,6 +153,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
               const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
               return (
                 <Link
+                  suppressHydrationWarning
                   key={`nav-${item.href}`}
                   href={item.href}
                   title={collapsed && !mobileOpen ? item.label : undefined}
@@ -172,11 +172,11 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
                     className={isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground'} />
 
                     {/* Show label on mobile always; on desktop only when not collapsed */}
-                    <span className={`flex-1 truncate ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
+                    <span suppressHydrationWarning className={`flex-1 truncate ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
                       {item.label}
                     </span>
                     {item.badge && (
-                      <span className={`${collapsed && !mobileOpen ? 'lg:absolute lg:top-1 lg:right-1 lg:w-4 lg:h-4 lg:flex lg:items-center lg:justify-center' : 'ml-auto'} bg-primary text-white text-[10px] font-700 rounded-full px-1.5 py-0.5 leading-none tabular-nums`}>
+                      <span suppressHydrationWarning className={`${collapsed && !mobileOpen ? 'lg:absolute lg:top-1 lg:right-1 lg:w-4 lg:h-4 lg:flex lg:items-center lg:justify-center' : 'ml-auto'} bg-primary text-white text-[10px] font-700 rounded-full px-1.5 py-0.5 leading-none tabular-nums`}>
                         {item.badge}
                       </span>
                     )}
@@ -189,19 +189,19 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
         {/* User */}
         <div suppressHydrationWarning className={`border-t border-border p-3 ${collapsed && !mobileOpen ? 'lg:flex lg:justify-center' : ''}`}>
           {collapsed && !mobileOpen ? (
-            <div className="hidden lg:flex w-8 h-8 rounded-full bg-primary/10 items-center justify-center">
-              <span className="text-primary text-xs font-700">{getInitials()}</span>
+            <div suppressHydrationWarning className="hidden lg:flex w-8 h-8 rounded-full bg-primary/10 items-center justify-center">
+              <span suppressHydrationWarning className="text-primary text-xs font-700">{getInitials()}</span>
             </div>
           ) : null}
-          <div className={`flex items-center gap-2 ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <span className="text-primary text-xs font-700">{getInitials()}</span>
+          <div suppressHydrationWarning className={`flex items-center gap-2 ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
+            <div suppressHydrationWarning className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <span suppressHydrationWarning className="text-primary text-xs font-700">{getInitials()}</span>
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
-              <p className="text-[11px] text-muted-foreground truncate">{roleLabel}</p>
+            <div suppressHydrationWarning className="min-w-0">
+              <p suppressHydrationWarning className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
+              <p suppressHydrationWarning className="text-[11px] text-muted-foreground truncate">{roleLabel}</p>
             </div>
-            <button className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground transition-colors">
+            <button suppressHydrationWarning className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground transition-colors">
               <Icon name="EcsaSettingsIcon" size={15} />
             </button>
           </div>
