@@ -13,7 +13,7 @@ const NAV_GROUPS = [
   items: [
   { label: 'Performance Dashboard', href: '/performance-dashboard', icon: 'EcsaPerformanceIcon', badge: null },
   { label: 'My Workplan', href: '/my-workplan', icon: 'ClipboardDocumentListIcon', badge: null },
-  { label: 'Evaluation & Reviews', href: '/evaluation-reviews', icon: 'EcsaEvaluationIcon', badge: null },
+  { label: 'Workplans', href: '/evaluation-reviews', icon: 'ClipboardDocumentCheckIcon', badge: null },
   { label: 'Mid-Year Reviews', href: '/mid-year-reviews', icon: 'EcsaMidYearIcon', badge: null },
   { label: 'Self-Assessment', href: '/self-assessment', icon: 'ClipboardDocumentListIcon', badge: null },
   { label: 'Manager Review', href: '/manager-review', icon: 'ClipboardDocumentCheckIcon', badge: null }]
