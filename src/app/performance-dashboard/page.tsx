@@ -1,9 +1,9 @@
 'use client';
 
-// Static imports only — no React.lazy, no next/dynamic, no Suspense
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, lazy, Suspense } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
+import { ChartSkeleton, MetricCardSkeleton, TableSkeleton } from '@/components/ui/SkeletonLoader';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRealtimeDashboard, type LiveStats } from '@/hooks/useRealtimeDashboard';
 import { useServiceWorker } from '@/hooks/useServiceWorker';
@@ -13,14 +13,16 @@ import {
   type RoleDashboardConfig,
 } from './config/roleDashboardConfig';
 import type { DrillDownFilter } from './components/StaffDrillDownModal';
-import DashboardMetricCards from './components/DashboardMetricCards';
-import BSCPerspectiveChart from './components/BSCPerspectiveChart';
-import KPITrendChart from './components/KPITrendChart';
-import FrameworkIndicators from './components/FrameworkIndicators';
-import AtRiskStaffTable from './components/AtRiskStaffTable';
-import ActivityFeed from './components/ActivityFeed';
-import StaffDrillDownModal from './components/StaffDrillDownModal';
-import StrategicPlanSection from './components/StrategicPlanSection';
+
+// ── Lazy-load heavy dashboard widgets ──────────────────────────────────────
+const DashboardMetricCards  = lazy(() => import('./components/DashboardMetricCards'));
+const BSCPerspectiveChart   = lazy(() => import('./components/BSCPerspectiveChart'));
+const KPITrendChart         = lazy(() => import('./components/KPITrendChart'));
+const FrameworkIndicators   = lazy(() => import('./components/FrameworkIndicators'));
+const AtRiskStaffTable      = lazy(() => import('./components/AtRiskStaffTable'));
+const ActivityFeed          = lazy(() => import('./components/ActivityFeed'));
+const StaffDrillDownModal   = lazy(() => import('./components/StaffDrillDownModal'));
+const StrategicPlanSection  = lazy(() => import('./components/StrategicPlanSection'));
 
 // ── Live strip metric definitions ──────────────────────────────────────────
 interface StripItem {
@@ -81,7 +83,7 @@ const ALL_STRIP_ITEMS: StripItem[] = [
   },
 ];
 
-// ── Role notification banners ───────────────────────────────────────────────
+// ── Role notification banner ────────────────────────────────────────────────
 function RoleChangeBanner({ onDismiss }: { onDismiss: () => void }) {
   return (
     <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
@@ -117,6 +119,10 @@ export default function PerformanceDashboardPage() {
   const roleBucket = resolveRoleBucket(systemRole);
   const config: RoleDashboardConfig = getRoleDashboardConfig(roleBucket);
 
+  // Scope data based on role:
+  // - staff_member → filter by own staffId
+  // - supervisor   → filter by supervisorId (their staffId is the supervisor_id on reports)
+  // - director/admin/hr → no filter (org-wide)
   const scopedStaffId = config.dataScope === 'self' ? (profile?.staffId ?? null) : null;
   const supervisorStaffId = config.dataScope === 'direct' ? (profile?.staffId ?? null) : null;
 
@@ -143,7 +149,7 @@ export default function PerformanceDashboardPage() {
   const handleDrillDown = (filter: DrillDownFilter) => setDrillFilter(filter);
   const handleCloseModal = () => setDrillFilter(null);
 
-  const stripItems = ALL_STRIP_ITEMS.filter((item) =>
+  const stripItems = ALL_STRIP_ITEMS.filter(item =>
     config.liveStripMetrics.includes(item.key as typeof config.liveStripMetrics[number])
   );
 
@@ -153,6 +159,7 @@ export default function PerformanceDashboardPage() {
       pageSubtitle={config.dashboardSubtitle}
       actions={
         <div className="flex items-center gap-2">
+          {/* Offline indicator */}
           {!isOnline && (
             <span className="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-amber-700 bg-amber-50 border-amber-200">
               <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
@@ -226,35 +233,39 @@ export default function PerformanceDashboardPage() {
           </div>
         )}
 
-        {/* Strategic Plan Section */}
+        {/* Strategic Plan — lazy loaded */}
         {config.showStrategicPlan && (
           <section>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xs font-600 uppercase tracking-wider text-muted-foreground">Strategic Plan 2024–2034</h2>
               <span className="text-[11px] text-muted-foreground">ECSA-HC · 10-Year Roadmap</span>
             </div>
-            <StrategicPlanSection />
+            <Suspense fallback={<div className="animate-pulse bg-muted/40 rounded-xl h-32" />}>
+              <StrategicPlanSection />
+            </Suspense>
           </section>
         )}
 
-        {/* Hero Metrics */}
+        {/* Hero Metrics — each widget loads independently */}
         <section>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xs font-600 uppercase tracking-wider text-muted-foreground">Key Performance Indicators</h2>
             <span className="text-[11px] text-muted-foreground">FY 2025–2026 · Balanced Scorecard</span>
           </div>
-          <DashboardMetricCards
-            onMetricClick={handleDrillDown}
-            visibleMetricIds={config.visibleMetrics}
-            showHeroMetric={config.showHeroMetric}
-            staffId={scopedStaffId}
-            supervisorId={supervisorStaffId}
-            systemRole={systemRole}
-            key={`metrics-${refreshKey}`}
-          />
+          <Suspense fallback={<MetricCardSkeleton count={config.showHeroMetric ? 6 : 4} />}>
+            <DashboardMetricCards
+              onMetricClick={handleDrillDown}
+              visibleMetricIds={config.visibleMetrics}
+              showHeroMetric={config.showHeroMetric}
+              staffId={scopedStaffId}
+              supervisorId={supervisorStaffId}
+              systemRole={systemRole}
+              key={`metrics-${refreshKey}`}
+            />
+          </Suspense>
         </section>
 
-        {/* Charts */}
+        {/* Charts — each loads independently */}
         {(config.showKPITrendChart || config.showBSCChart) && (
           <section>
             <div className="flex items-center justify-between mb-3">
@@ -266,27 +277,33 @@ export default function PerformanceDashboardPage() {
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {config.showKPITrendChart && (
-                <KPITrendChart onPointClick={handleDrillDown} key={`kpi-${refreshKey}`} />
+                <Suspense fallback={<ChartSkeleton height={240} />}>
+                  <KPITrendChart onPointClick={handleDrillDown} key={`kpi-${refreshKey}`} />
+                </Suspense>
               )}
               {config.showBSCChart && (
-                <BSCPerspectiveChart onBarClick={handleDrillDown} key={`bsc-${refreshKey}`} />
+                <Suspense fallback={<ChartSkeleton height={240} />}>
+                  <BSCPerspectiveChart onBarClick={handleDrillDown} key={`bsc-${refreshKey}`} />
+                </Suspense>
               )}
             </div>
           </section>
         )}
 
-        {/* Framework Indicators */}
+        {/* Framework Indicators — lazy loaded */}
         {config.showFrameworkIndicators && (
           <section>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-xs font-600 uppercase tracking-wider text-muted-foreground">External Framework Indicators</h2>
               <span className="text-[11px] text-muted-foreground">HEPRR-MPA · World Bank · JEE/SPAR</span>
             </div>
-            <FrameworkIndicators />
+            <Suspense fallback={<ChartSkeleton height={180} />}>
+              <FrameworkIndicators />
+            </Suspense>
           </section>
         )}
 
-        {/* At-Risk Table + Activity Feed */}
+        {/* At-Risk Table + Activity Feed — each loads independently */}
         {(config.showAtRiskTable || config.showActivityFeed) && (
           <section>
             <div className={`grid gap-4 ${
@@ -294,19 +311,23 @@ export default function PerformanceDashboardPage() {
             }`}>
               {config.showAtRiskTable && (
                 <div className={config.showActivityFeed ? 'xl:col-span-2' : ''}>
-                  <AtRiskStaffTable
-                    supervisorId={supervisorStaffId}
-                    key={`risk-${refreshKey}`}
-                  />
+                  <Suspense fallback={<TableSkeleton rows={5} cols={5} />}>
+                    <AtRiskStaffTable
+                      supervisorId={supervisorStaffId}
+                      key={`risk-${refreshKey}`}
+                    />
+                  </Suspense>
                 </div>
               )}
               {config.showActivityFeed && (
                 <div>
-                  <ActivityFeed
-                    staffId={scopedStaffId}
-                    supervisorId={supervisorStaffId}
-                    key={`feed-${refreshKey}`}
-                  />
+                  <Suspense fallback={<div className="animate-pulse bg-muted/40 rounded-xl h-64" />}>
+                    <ActivityFeed
+                      staffId={scopedStaffId}
+                      supervisorId={supervisorStaffId}
+                      key={`feed-${refreshKey}`}
+                    />
+                  </Suspense>
                 </div>
               )}
             </div>
@@ -314,8 +335,11 @@ export default function PerformanceDashboardPage() {
         )}
       </div>
 
+      {/* Staff Drill-Down Modal — only rendered when needed */}
       {drillFilter && (
-        <StaffDrillDownModal filter={drillFilter} onClose={handleCloseModal} />
+        <Suspense fallback={null}>
+          <StaffDrillDownModal filter={drillFilter} onClose={handleCloseModal} />
+        </Suspense>
       )}
     </AppLayout>
   );
