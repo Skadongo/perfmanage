@@ -1,13 +1,15 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import Sidebar from './Sidebar';
+import dynamic from 'next/dynamic';
 import Icon from '@/components/ui/AppIcon';
 import Image from 'next/image';
 import NotificationCenter from './NotificationCenter';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useServiceWorker } from '@/hooks/useServiceWorker';
+
+const Sidebar = dynamic(() => import('./Sidebar'), { ssr: false });
 
 interface AppLayoutProps {
   children: React.ReactNode;
