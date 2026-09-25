@@ -5,6 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend,
 } from 'recharts';
 import Icon from '@/components/ui/AppIcon';
+import { ROLE_DEPT_MAP, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants';
 
 interface ReviewRecord {
   id: string;
@@ -21,34 +22,6 @@ interface ReviewRecord {
 interface ReviewStatsDashboardProps {
   reviews: ReviewRecord[];
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  approved: '#10b981',
-  submitted: '#3b82f6',
-  'in-progress': '#f59e0b',
-  pending: '#94a3b8',
-  overdue: '#ef4444',
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  approved: 'Approved',
-  submitted: 'Submitted',
-  'in-progress': 'In Progress',
-  pending: 'Pending',
-  overdue: 'Overdue',
-};
-
-const ROLE_DEPT_MAP: Record<string, string> = {
-  'Director General': 'Executive Office',
-  'Director of Finance': 'Finance & Admin',
-  'Finance Officer': 'Finance & Admin',
-  'HR & Admin Officer': 'Finance & Admin',
-  'Receptionist': 'Finance & Admin',
-  'Driver': 'Finance & Admin',
-  'Director of Programs': 'Programmes',
-  'Senior ICT Officer': 'ICT',
-  'DoID': 'Institutional Development',
-};
 
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) => {
   if (active && payload && payload.length) {

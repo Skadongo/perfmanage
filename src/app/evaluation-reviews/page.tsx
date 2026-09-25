@@ -13,6 +13,7 @@ import { Toaster, toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { cachedFetch, TTL_WORKPLAN_LIST, TTL_DASHBOARD_METRICS } from '@/lib/cache';
+import { mapStatus, computeProgress } from '@/lib/constants';
 
 interface ReviewSummary {
   id: string;
@@ -37,24 +38,6 @@ interface WorkflowStageCounts {
 }
 
 type ActiveForm = null | 'workplan' | 'mid-year' | 'end-year';
-
-function mapStatus(dbStatus: string): string {
-  const map: Record<string, string> = {
-    draft: 'pending',
-    submitted: 'submitted',
-    reviewed: 'in-progress',
-    approved: 'approved',
-    rejected: 'overdue'
-  };
-  return map[dbStatus] ?? 'pending';
-}
-
-function computeProgress(status: string, selfRating: number, supervisorRating: number): number {
-  if (status === 'approved') return 100;
-  if (status === 'submitted' && selfRating > 0) return 75;
-  if (status === 'in-progress' && selfRating > 0) return 50;
-  return 0;
-}
 
 export default function EvaluationReviewsPage() {
   const [activeForm, setActiveForm] = useState<ActiveForm>(null);

@@ -15,6 +15,7 @@ import { Toaster, toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { cachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 import RoleGuard from '@/components/RoleGuard';
+import { ROLE_LABELS } from '@/lib/constants';
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: 'EcsaPerformanceIcon' },
@@ -31,18 +32,6 @@ interface ReviewSummary {
   avgScore: number;
   byRole: Record<string, { avgSup: number; avgSelf: number; submissionRate: number; approvalRate: number; count: number }>;
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  executive_director: 'Executive Director',
-  deputy_director: 'Deputy Director',
-  programme_manager: 'Programme Manager',
-  finance_manager: 'Finance Manager',
-  hr_admin_officer: 'HR & Admin Officer',
-  programme_officer: 'Programme Officer',
-  finance_officer: 'Finance Officer',
-  admin_officer: 'Admin Officer',
-  project_coordinator: 'Project Coordinator',
-};
 
 export default function AnalyticsReportsPage() {
   const [activeTab, setActiveTab] = useState('overview');

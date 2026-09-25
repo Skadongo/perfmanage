@@ -5,6 +5,7 @@ import Icon from '@/components/ui/AppIcon';
 import ProgressBar from '@/components/ui/ProgressBar';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { ROLE_LABELS, FULL_ACCESS_ROLES } from '@/lib/constants';
 
 interface KPIStaffDrillDownProps {
   metric: {
@@ -33,21 +34,6 @@ interface StaffDetail {
 
 type TrendFilter = 'all' | 'submitted' | 'approved' | 'draft' | 'at-risk';
 type CompareMode = 'self-vs-supervisor' | 'by-department' | 'by-role';
-
-// Roles that can see all staff data
-const FULL_ACCESS_ROLES = ['executive_director', 'deputy_director', 'hr_admin_officer'];
-
-const ROLE_LABELS: Record<string, string> = {
-  executive_director: 'Director General',
-  deputy_director: 'Director of Operations and Institutional Development',
-  programme_manager: 'Programme Manager',
-  finance_manager: 'Finance Manager',
-  hr_admin_officer: 'HR & Admin Officer',
-  programme_officer: 'Programme Officer',
-  finance_officer: 'Finance Officer',
-  admin_officer: 'Admin Officer',
-  project_coordinator: 'Project Coordinator',
-};
 
 type ViewScope = 'full' | 'team' | 'self';
 

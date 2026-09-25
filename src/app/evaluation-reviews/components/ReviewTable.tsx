@@ -10,6 +10,7 @@ import EvaluationComparisonModal from './EvaluationComparisonModal';
 import ApprovalModal, { ApprovalAction } from './ApprovalModal';
 import { exportToCSV, exportToPDF, exportAppraisalPDF } from './ExportUtils';
 import { createClient } from '@/lib/supabase/client';
+import { mapStatus, computeProgress } from '@/lib/constants';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type ReviewStatus = 'pending' | 'in-progress' | 'submitted' | 'approved' | 'overdue' | 'draft' | 'reviewed' | 'rejected';
@@ -48,28 +49,6 @@ interface Review {
   bscScores: BscScore[];
   kpiDetails: KpiDetail[];
   comments: string;
-}
-
-// Map DB review_status → UI status
-function mapStatus(dbStatus: string): ReviewStatus {
-  const map: Record<string, ReviewStatus> = {
-    draft: 'pending',
-    submitted: 'submitted',
-    reviewed: 'in-progress',
-    approved: 'approved',
-    rejected: 'overdue',
-  };
-  return map[dbStatus] ?? 'pending';
-}
-
-// Compute overall progress from status
-function computeProgress(status: ReviewStatus, selfRating: number, supervisorRating: number): number {
-  if (status === 'approved') return 100;
-  if (status === 'submitted' && selfRating > 0) return 75;
-  if (status === 'in-progress' && selfRating > 0) return 50;
-  if (status === 'pending' || status === 'draft') return 0;
-  if (status === 'overdue') return 0;
-  return 0;
 }
 
 export default function ReviewTable() {

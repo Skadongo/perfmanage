@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import ProgressBar from '@/components/ui/ProgressBar';
 import { createClient } from '@/lib/supabase/client';
+import { ROLE_LABELS } from '@/lib/constants';
 
 interface ScorecardRow {
   role: string;
@@ -19,19 +20,6 @@ const CELL_COLOR = (score: number) => {
   if (score >= 75)  return 'bg-sky-50 text-sky-800';
   if (score >= 50)  return 'bg-amber-50 text-amber-800';
   return 'bg-red-50 text-red-800';
-};
-
-// Map system_role enum to display label
-const ROLE_LABELS: Record<string, string> = {
-  executive_director: 'Executive Director',
-  deputy_director: 'Deputy Director',
-  programme_manager: 'Programme Manager',
-  finance_manager: 'Finance Manager',
-  hr_admin_officer: 'HR & Admin Officer',
-  programme_officer: 'Programme Officer',
-  finance_officer: 'Finance Officer',
-  admin_officer: 'Admin Officer',
-  project_coordinator: 'Project Coordinator',
 };
 
 // BSC perspective weights derived from review data
