@@ -42,12 +42,16 @@ export function useRealtimeDashboard({
   const [refreshKey, setRefreshKey] = useState(0);
   const isMounted = useRef(true);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFetching = useRef(false);
   // Stable client ref — never recreated
   const supabaseRef = useRef(createClient());
 
   const cacheKey = `live-stats:${staffId ?? 'org'}`;
 
   const fetchLiveStats = useCallback(async (forceRefresh = false) => {
+    // Prevent concurrent fetches that cause Supabase auth lock contention
+    if (isFetching.current) return;
+
     const supabase = supabaseRef.current;
 
     // Return cached value immediately if available and not forcing refresh
@@ -59,6 +63,7 @@ export function useRealtimeDashboard({
       }
     }
 
+    isFetching.current = true;
     try {
       // Run both queries in parallel, select only needed columns
       const [reviewsResult, staffResult] = await Promise.all([
@@ -96,11 +101,11 @@ export function useRealtimeDashboard({
           : 0;
 
       const now = new Date();
-      const timeStr = now.toLocaleTimeString('en-GB', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      });
+      // Use fixed locale to avoid SSR/client hydration mismatch
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      const s = String(now.getSeconds()).padStart(2, '0');
+      const timeStr = `${h}:${m}:${s}`;
 
       const stats: LiveStats = {
         totalReviews: total,
@@ -113,9 +118,11 @@ export function useRealtimeDashboard({
       };
 
       cacheSet(cacheKey, stats, CACHE_TTL);
-      setLiveStats(stats);
+      if (isMounted.current) setLiveStats(stats);
     } catch {
       // silently fail — keep previous stats
+    } finally {
+      isFetching.current = false;
     }
   }, [staffId, cacheKey]);
 
