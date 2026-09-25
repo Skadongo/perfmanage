@@ -1,15 +1,13 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import dynamic from 'next/dynamic';
 import Icon from '@/components/ui/AppIcon';
 import Image from 'next/image';
 import NotificationCenter from './NotificationCenter';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useServiceWorker } from '@/hooks/useServiceWorker';
-
-const Sidebar = dynamic(() => import('./Sidebar'), { ssr: false });
+import Sidebar from './Sidebar';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -32,11 +30,13 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [currentYear, setCurrentYear] = useState<number>(2026);
+  const [mounted, setMounted] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
+    setMounted(true);
     setCurrentYear(new Date().getFullYear());
   }, []);
 
@@ -69,18 +69,19 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const roleLabel = getRoleLabel(profile?.systemRole);
 
   return (
-    <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
-      {/* Sidebar — handles its own mobile overlay internally */}
-      <Sidebar
-        collapsed={collapsed}
-        onToggle={() => setCollapsed(!collapsed)}
-        mobileOpen={mobileOpen}
-        onMobileClose={() => setMobileOpen(false)}
-      />
+    <div className="min-h-screen bg-background flex overflow-x-hidden">
+      {/* Sidebar — only rendered client-side to avoid SSR/hydration tree mismatch */}
+      {mounted && (
+        <Sidebar
+          collapsed={collapsed}
+          onToggle={() => setCollapsed(!collapsed)}
+          mobileOpen={mobileOpen}
+          onMobileClose={() => setMobileOpen(false)}
+        />
+      )}
 
       {/* Main content — offset by sidebar width on desktop */}
       <div
-        suppressHydrationWarning
         className={`flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-300 ease-in-out ml-0 ${
           collapsed ? 'lg:ml-16' : 'lg:ml-60'
         }`}
@@ -210,7 +211,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                 <p className="text-[10px] text-muted-foreground">Performance Management System</p>
               </div>
             </div>
-            <p className="text-[11px] text-muted-foreground text-center">
+            <p suppressHydrationWarning className="text-[11px] text-muted-foreground text-center">
               © {currentYear} East, Central &amp; Southern Africa Health Community. All rights reserved.
             </p>
             <div className="hidden sm:flex items-center gap-4">
