@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
+import { CardListSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
+import { roleCachedFetch, TTL_WORKPLAN_LIST } from '@/lib/cache';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -189,7 +191,8 @@ function StepIndicator({ steps, active }: { steps: { label: string; icon: string
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SelfAssessmentPage() {
-  const supabase = createClient();
+  // Stable supabase client — created once, never recreated on re-render
+  const supabaseRef = useRef(createClient());
 
   const [activeStep, setActiveStep] = useState(0);
   const [workplans, setWorkplans] = useState<WorkplanOption[]>([]);
@@ -213,7 +216,7 @@ export default function SelfAssessmentPage() {
   const [submitted, setSubmitted] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [draftRecovered, setDraftRecovered] = useState(false);
-  const autoSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const steps = [
     { label: 'Select Workplan', icon: 'DocumentTextIcon' },
@@ -227,20 +230,29 @@ export default function SelfAssessmentPage() {
   // Load workplans
   useEffect(() => {
     async function load() {
+      const supabase = supabaseRef.current;
       setLoadingWorkplans(true);
       try {
-        const { data, error } = await supabase
-          .from('workplan_settings')
-          .select(`
-            id, fiscal_year, review_year, workflow_stage,
-            perspectives_objectives, general_competencies,
-            staff:staff_id ( id, full_name ),
-            supervisor:supervisor_id ( id, full_name )
-          `)
-          .eq('status', 'signed')
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
+        // Cache workplan list for 2 minutes — rarely changes mid-session, scoped by role
+        const data = await roleCachedFetch(
+          'workplan-signed-list',
+          'all',
+          async () => {
+            const { data: rows, error } = await supabase
+              .from('workplan_settings')
+              .select(`
+                id, fiscal_year, review_year, workflow_stage,
+                perspectives_objectives, general_competencies,
+                staff:staff_id ( id, full_name ),
+                supervisor:supervisor_id ( id, full_name )
+              `)
+              .eq('status', 'signed')
+              .order('created_at', { ascending: false });
+            if (error) throw error;
+            return rows;
+          },
+          TTL_WORKPLAN_LIST
+        );
 
         const mapped: WorkplanOption[] = (data ?? []).map((row: any) => ({
           id: row.id,
@@ -281,7 +293,7 @@ export default function SelfAssessmentPage() {
         overallSelfRating,
         staffSignature,
       };
-      const { error } = await supabase.from('appraisal_drafts').upsert(
+      const { error } = await supabaseRef.current.from('appraisal_drafts').upsert(
         {
           staff_id: selectedWorkplan.staff_id || null,
           workplan_id: selectedWorkplan.id,
@@ -318,7 +330,7 @@ export default function SelfAssessmentPage() {
   // ── Recover draft when workplan selected ────────────────────────────────
   async function recoverDraft(workplanId: string, staffId: string, period: string) {
     try {
-      const { data } = await supabase
+      const { data } = await supabaseRef.current
         .from('appraisal_drafts')
         .select('*')
         .eq('workplan_id', workplanId)
@@ -460,13 +472,13 @@ export default function SelfAssessmentPage() {
         submitted_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase.from('mid_year_reviews').insert(payload);
+      const { error } = await supabaseRef.current.from('mid_year_reviews').insert(payload);
       if (error) { setSaveError(error.message || 'Failed to save. Please try again.'); return; }
 
       const pendingStage = reviewPeriod === 'mid-year' ? 'mid_year_pending' : 'end_year_pending';
-      await supabase.from('workplan_settings').update({ workflow_stage: pendingStage }).eq('id', selectedWorkplan.id);
+      await supabaseRef.current.from('workplan_settings').update({ workflow_stage: pendingStage }).eq('id', selectedWorkplan.id);
 
-      await supabase.from('activity_logs').insert({
+      await supabaseRef.current.from('activity_logs').insert({
         activity_type: `${reviewPeriod}_self_assessment_submitted`,
         actor_name: selectedWorkplan.staff_name,
         action_description: `submitted ${reviewPeriod === 'mid-year' ? 'Mid-Year' : 'End-Year'} self-assessment — awaiting supervisor review`,
@@ -479,7 +491,7 @@ export default function SelfAssessmentPage() {
 
       // Notify supervisor that appraisal is ready for review
       if (selectedWorkplan.supervisor_id) {
-        await supabase.from('notifications').insert({
+        await supabaseRef.current.from('notifications').insert({
           recipient_staff_id: selectedWorkplan.supervisor_id,
           type: 'appraisal_submitted',
           title: 'Appraisal Ready for Review',
@@ -491,7 +503,7 @@ export default function SelfAssessmentPage() {
 
       // Clear the draft after successful submission
       if (selectedWorkplan.staff_id) {
-        await supabase.from('appraisal_drafts')
+        await supabaseRef.current.from('appraisal_drafts')
           .delete()
           .eq('workplan_id', selectedWorkplan.id)
           .eq('staff_id', selectedWorkplan.staff_id)
@@ -626,10 +638,7 @@ export default function SelfAssessmentPage() {
             />
 
             {loadingWorkplans ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin mr-3" />
-                <span className="text-sm text-muted-foreground">Loading workplans…</span>
-              </div>
+              <CardListSkeleton count={3} />
             ) : workplans.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">

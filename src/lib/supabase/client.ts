@@ -2,6 +2,25 @@ import { createBrowserClient } from '@supabase/ssr';
 
 const PFX = 'sb_';
 
+// ── Disable native Web Locks API for this page ──────────────────────────────
+// GoTrue (Supabase auth) uses navigator.locks to serialize token refreshes.
+// When React Strict Mode double-mounts or rapid navigation orphans a lock,
+// a competing request steals it and throws:
+//   AbortError: Lock broken by another request with the 'steal' option
+// Removing navigator.locks forces GoTrue to use our custom promise-based
+// mutex (passed via the `auth.lock` option below) which never steals locks.
+if (typeof window !== 'undefined' && 'locks' in navigator) {
+  try {
+    Object.defineProperty(navigator, 'locks', {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    });
+  } catch {
+    // Some browsers don't allow redefining navigator.locks — ignore
+  }
+}
+
 const canUseCookies = (() => {
   let cache: boolean | null = null;
   return () => {
@@ -78,11 +97,64 @@ if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
   };
 }
 
+// Singleton instance to prevent multiple clients competing for the auth token lock
+let browserClientInstance: ReturnType<typeof createBrowserClient> | null = null;
+
+/**
+ * Custom lock implementation that replaces the Web Locks API used by GoTrue.
+ * The Web Locks API can cause AbortError("Lock broken by another request with the 'steal' option")
+ * when locks are orphaned by React Strict Mode double-mounts or rapid navigation.
+ * This simple promise-based mutex avoids that issue entirely.
+ */
+function buildCustomLock() {
+  const locks: Record<string, Promise<void>> = {};
+
+  return async function acquireLock<T>(
+    name: string,
+    acquireTimeout: number,
+    fn: () => Promise<T>
+  ): Promise<T> {
+    // Wait for any existing lock on this name to release, with a timeout
+    if (locks[name]) {
+      const timeout = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error(`Lock "${name}" timed out after ${acquireTimeout}ms`)), acquireTimeout)
+      );
+      try {
+        await Promise.race([locks[name], timeout]);
+      } catch {
+        // Timeout or error — proceed anyway to avoid deadlock
+      }
+    }
+
+    let releaseLock!: () => void;
+    locks[name] = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+
+    try {
+      return await fn();
+    } finally {
+      releaseLock();
+      // Clean up the lock entry if it's the one we set
+      if (locks[name]) {
+        delete locks[name];
+      }
+    }
+  };
+}
+
 export function createClient() {
-  return createBrowserClient(
+  if (typeof window !== 'undefined' && browserClientInstance) {
+    return browserClientInstance;
+  }
+
+  const client = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      auth: {
+        lock: buildCustomLock(),
+      },
       cookies: {
         getAll: () => canUseCookies() ? fromCookies() : fromStorage(),
         setAll(cookiesToSet) {
@@ -105,4 +177,10 @@ export function createClient() {
       },
     }
   );
+
+  if (typeof window !== 'undefined') {
+    browserClientInstance = client;
+  }
+
+  return client;
 }

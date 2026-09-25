@@ -3,7 +3,7 @@
  * Controls which hero metrics, charts, and sections are visible per system role.
  */
 
-export type DashboardRole = 'staff_member' | 'hr_officer' | 'director' | 'admin' | 'default';
+export type DashboardRole = 'staff_member' | 'supervisor' | 'hr_officer' | 'director' | 'admin' | 'default';
 
 export interface RoleDashboardConfig {
   /** Human-readable label shown in the dashboard header */
@@ -32,6 +32,11 @@ export interface RoleDashboardConfig {
   dashboardSubtitle: string;
   /** Live strip metric labels to show (subset of all strip items) */
   liveStripMetrics: Array<'totalReviews' | 'submitted' | 'approved' | 'avgRating' | 'totalStaff' | 'pendingReviews'>;
+  /**
+   * Data scope:
+   * - 'self'       → only the logged-in staff member's own records * -'direct'→ only direct reports of the logged-in supervisor * -'org'        → full organisation view
+   */
+  dataScope: 'self' | 'direct' | 'org';
 }
 
 /** Map from systemRole string → DashboardRole bucket */
@@ -40,32 +45,52 @@ export function resolveRoleBucket(systemRole: string): DashboardRole {
   if (['hr_admin_officer'].includes(systemRole)) return 'hr_officer';
   if (['admin'].includes(systemRole)) return 'admin';
   if (['staff_member', 'project_coordinator', 'admin_officer'].includes(systemRole)) return 'staff_member';
-  // programme_manager, finance_manager, programme_officer, finance_officer → director-lite
-  if (
-    ['programme_manager', 'finance_manager', 'programme_officer', 'finance_officer'].includes(
-      systemRole
-    )
-  )
-    return 'director';
+  // programme_manager, finance_manager → supervisor (direct-reports view)
+  if (['programme_manager', 'finance_manager'].includes(systemRole)) return 'supervisor';
+  // programme_officer, finance_officer → staff view
+  if (['programme_officer', 'finance_officer'].includes(systemRole)) return 'staff_member';
   return 'default';
 }
 
 const CONFIGS: Record<DashboardRole, RoleDashboardConfig> = {
-  /** ── Staff Member ── sees only their own performance data */
+  /** ── Staff Member ── sees ONLY their own KPIs and feedback */
   staff_member: {
     roleLabel: 'My Performance',
     roleBadgeClass: 'text-sky-700 bg-sky-50 border-sky-200',
     visibleMetrics: ['metric-review-completion', 'metric-avg-rating'],
     showHeroMetric: false,
     showKPITrendChart: true,
-    showBSCChart: true,
+    showBSCChart: false,
     showFrameworkIndicators: false,
     showAtRiskTable: false,
     showActivityFeed: true,
-    showStrategicPlan: true,
+    showStrategicPlan: false,
     showLiveStrip: true,
     dashboardSubtitle: 'Your personal performance overview · FY 2025–2026',
     liveStripMetrics: ['submitted', 'approved', 'avgRating', 'pendingReviews'],
+    dataScope: 'self',
+  },
+
+  /** ── Supervisor / Manager ── sees direct reports only */
+  supervisor: {
+    roleLabel: 'Team Performance',
+    roleBadgeClass: 'text-indigo-700 bg-indigo-50 border-indigo-200',
+    visibleMetrics: [
+      'metric-review-completion',
+      'metric-avg-rating',
+      'metric-cpd-completion',
+    ],
+    showHeroMetric: true,
+    showKPITrendChart: true,
+    showBSCChart: true,
+    showFrameworkIndicators: false,
+    showAtRiskTable: true,
+    showActivityFeed: true,
+    showStrategicPlan: false,
+    showLiveStrip: true,
+    dashboardSubtitle: 'Your direct reports · Supervisor Dashboard',
+    liveStripMetrics: ['submitted', 'approved', 'avgRating', 'pendingReviews'],
+    dataScope: 'direct',
   },
 
   /** ── HR Officer ── full org-wide view, staff management focus */
@@ -89,9 +114,10 @@ const CONFIGS: Record<DashboardRole, RoleDashboardConfig> = {
     showLiveStrip: true,
     dashboardSubtitle: 'Organisation-wide performance · HR Officer Dashboard',
     liveStripMetrics: ['totalReviews', 'submitted', 'approved', 'avgRating'],
+    dataScope: 'org',
   },
 
-  /** ── Director ── strategic view with all sections */
+  /** ── Director ── strategic view with all sections, org-wide health */
   director: {
     roleLabel: 'Director View',
     roleBadgeClass: 'text-emerald-700 bg-emerald-50 border-emerald-200',
@@ -110,8 +136,9 @@ const CONFIGS: Record<DashboardRole, RoleDashboardConfig> = {
     showActivityFeed: true,
     showStrategicPlan: true,
     showLiveStrip: true,
-    dashboardSubtitle: 'Strategic performance overview · Executive Dashboard',
-    liveStripMetrics: ['totalReviews', 'submitted', 'approved', 'avgRating'],
+    dashboardSubtitle: 'Organisation-wide health · Executive Dashboard',
+    liveStripMetrics: ['totalReviews', 'submitted', 'approved', 'avgRating', 'totalStaff', 'pendingReviews'],
+    dataScope: 'org',
   },
 
   /** ── Admin ── full access identical to director + system metrics */
@@ -134,7 +161,8 @@ const CONFIGS: Record<DashboardRole, RoleDashboardConfig> = {
     showStrategicPlan: true,
     showLiveStrip: true,
     dashboardSubtitle: 'Full system overview · Administrator Dashboard',
-    liveStripMetrics: ['totalReviews', 'submitted', 'approved', 'avgRating'],
+    liveStripMetrics: ['totalReviews', 'submitted', 'approved', 'avgRating', 'totalStaff', 'pendingReviews'],
+    dataScope: 'org',
   },
 
   /** ── Default (fallback) ── same as HR Officer */
@@ -158,6 +186,7 @@ const CONFIGS: Record<DashboardRole, RoleDashboardConfig> = {
     showLiveStrip: true,
     dashboardSubtitle: 'Q1 2026 · Last updated 25 Mar 2026, 08:14 EAT',
     liveStripMetrics: ['totalReviews', 'submitted', 'approved', 'avgRating'],
+    dataScope: 'org',
   },
 };
 

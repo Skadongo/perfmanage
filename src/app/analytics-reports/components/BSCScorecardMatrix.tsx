@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import ProgressBar from '@/components/ui/ProgressBar';
 import { createClient } from '@/lib/supabase/client';
+import { ROLE_LABELS } from '@/lib/constants';
 
 interface ScorecardRow {
   role: string;
@@ -15,23 +16,10 @@ interface ScorecardRow {
 }
 
 const CELL_COLOR = (score: number) => {
-  if (score >= 85) return 'bg-emerald-100 text-emerald-800';
-  if (score >= 70) return 'bg-sky-50 text-sky-800';
-  if (score >= 55) return 'bg-amber-50 text-amber-800';
+  if (score >= 100) return 'bg-emerald-100 text-emerald-800';
+  if (score >= 75)  return 'bg-sky-50 text-sky-800';
+  if (score >= 50)  return 'bg-amber-50 text-amber-800';
   return 'bg-red-50 text-red-800';
-};
-
-// Map system_role enum to display label
-const ROLE_LABELS: Record<string, string> = {
-  executive_director: 'Executive Director',
-  deputy_director: 'Deputy Director',
-  programme_manager: 'Programme Manager',
-  finance_manager: 'Finance Manager',
-  hr_admin_officer: 'HR & Admin Officer',
-  programme_officer: 'Programme Officer',
-  finance_officer: 'Finance Officer',
-  admin_officer: 'Admin Officer',
-  project_coordinator: 'Project Coordinator',
 };
 
 // BSC perspective weights derived from review data
@@ -42,21 +30,26 @@ const ROLE_LABELS: Record<string, string> = {
 function computeBSCScores(reviews: Array<{ supervisor_rating: number | null; self_rating: number | null; review_status: string }>) {
   if (reviews.length === 0) return { finance: 0, customer: 0, process: 0, capacity: 0 };
 
-  const supRatings = reviews.filter(r => r.supervisor_rating).map(r => r.supervisor_rating as number);
-  const selfRatings = reviews.filter(r => r.self_rating).map(r => r.self_rating as number);
+  const supRatings = reviews.filter(r => r.supervisor_rating != null && r.supervisor_rating > 0).map(r => r.supervisor_rating as number);
+  const selfRatings = reviews.filter(r => r.self_rating != null && r.self_rating > 0).map(r => r.self_rating as number);
   const approvedCount = reviews.filter(r => r.review_status === 'approved').length;
   const submittedCount = reviews.filter(r => ['submitted', 'reviewed', 'approved'].includes(r.review_status)).length;
 
-  const avgSup = supRatings.length > 0 ? supRatings.reduce((a, b) => a + b, 0) / supRatings.length : 0;
-  const avgSelf = selfRatings.length > 0 ? selfRatings.reduce((a, b) => a + b, 0) / selfRatings.length : 0;
-  const submissionRate = reviews.length > 0 ? submittedCount / reviews.length : 0;
-  const approvalRate = reviews.length > 0 ? approvedCount / reviews.length : 0;
+  // Average ratings on 1–5 scale, then scale to 0–100 by × 20
+  const avgSup100 = supRatings.length > 0 ? (supRatings.reduce((a, b) => a + b, 0) / supRatings.length) * 20 : 0;
+  const avgSelf100 = selfRatings.length > 0 ? (selfRatings.reduce((a, b) => a + b, 0) / selfRatings.length) * 20 : 0;
+  const submissionRate100 = reviews.length > 0 ? (submittedCount / reviews.length) * 100 : 0;
+  const approvalRate100 = reviews.length > 0 ? (approvedCount / reviews.length) * 100 : 0;
 
-  // Scale 1-5 → 0-100
-  const finance = Math.round(avgSup * 20);
-  const customer = Math.round(((avgSup + avgSelf) / 2) * 20);
-  const process = Math.round(submissionRate * 100 * 0.5 + avgSelf * 20 * 0.5);
-  const capacity = Math.round(approvalRate * 100 * 0.4 + avgSup * 20 * 0.6);
+  // All perspectives on 0–100 scale
+  // Finance/Stewardship: supervisor rating is primary indicator
+  const finance = Math.min(100, Math.round(avgSup100));
+  // Customer/Stakeholder: average of supervisor and self ratings
+  const customer = Math.min(100, Math.round((avgSup100 + avgSelf100) / 2));
+  // Internal Business Processes: 50% submission rate + 50% self rating
+  const process = Math.min(100, Math.round(submissionRate100 * 0.5 + avgSelf100 * 0.5));
+  // Innovation/Capacity: 40% approval rate + 60% supervisor rating
+  const capacity = Math.min(100, Math.round(approvalRate100 * 0.4 + avgSup100 * 0.6));
 
   return { finance, customer, process, capacity };
 }
@@ -108,7 +101,11 @@ export default function BSCScorecardMatrix() {
           .filter(([role]) => role !== 'unknown')
           .map(([role, roleReviews]) => {
             const scores = computeBSCScores(roleReviews);
-            const overall = Math.round(((scores.finance + scores.customer + scores.process + scores.capacity) / 4) * 10) / 10;
+            // Weighted overall using ECSA-HC BSC framework weights: Finance 30%, Customer 30%, Process 25%, Capacity 15%
+            // BSC overall is on 0–100 scale (normalised to 100%)
+            const overall = Math.round(
+              (scores.finance * 0.30 + scores.customer * 0.30 + scores.process * 0.25 + scores.capacity * 0.15) * 10
+            ) / 10;
             return {
               role: ROLE_LABELS[role] || role,
               finance: { score: scores.finance },
@@ -139,13 +136,13 @@ export default function BSCScorecardMatrix() {
       <div className="flex items-center justify-between p-5 border-b border-border">
         <div>
           <h3 className="text-sm font-700 text-foreground">BSC Scorecard Matrix — All Roles</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Derived from mid-year review ratings · Score by BSC Perspective (0–100)</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Derived from mid-year review ratings · BSC Score by Perspective (0–100%) · Total max 120% with competencies</p>
         </div>
         <div className="flex items-center gap-2 text-[10px]">
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 inline-block" />≥85 Achieved</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-sky-50 inline-block" />70–84 On Track</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-50 inline-block" />55–69 At Risk</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-50 inline-block" />&lt;55 Overdue</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 inline-block" />≥100 Above Average / Outstanding</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-sky-50 inline-block" />75–99 Needs Improvement</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-50 inline-block" />50–74 Needs Improvement</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-50 inline-block" />&lt;50 Unsatisfactory</span>
         </div>
       </div>
 
@@ -224,7 +221,11 @@ export default function BSCScorecardMatrix() {
                 ))}
                 <td className="px-4 py-3 text-center">
                   <span className="text-sm font-700 tabular-nums font-mono text-primary">
-                    {data.length > 0 ? (data.reduce((a, r) => a + r.overall, 0) / data.length).toFixed(1) : '—'}
+                    {data.length > 0
+                      ? (Math.round(
+                          (data.reduce((a, r) => a + r.overall, 0) / data.length) * 10
+                        ) / 10).toFixed(1)
+                      : '—'}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-center text-xs text-muted-foreground tabular-nums">

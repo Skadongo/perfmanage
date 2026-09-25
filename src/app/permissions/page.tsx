@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
@@ -28,7 +28,7 @@ interface RolePermission {
 const ROLE_CONFIG: Record<StaffRole, { label: string; color: string; bg: string; icon: string; description: string }> = {
   executive_director:  { label: 'Director General',  color: 'text-violet-700',  bg: 'bg-violet-50 border-violet-200',  icon: 'BuildingOffice2Icon',         description: 'Full system access and final approval authority' },
   deputy_director:     { label: 'Director of Operations and Institutional Development',     color: 'text-indigo-700',  bg: 'bg-indigo-50 border-indigo-200',  icon: 'UserCircleIcon',              description: 'Broad access with approval rights for reviews' },
-  programme_manager:   { label: 'Programme Manager',   color: 'text-sky-700',     bg: 'bg-sky-50 border-sky-200',        icon: 'HeartIcon',                   description: 'Manages programme staff and approves their reviews' },
+  programme_manager:   { label: 'Director',   color: 'text-sky-700',     bg: 'bg-sky-50 border-sky-200',        icon: 'HeartIcon',                   description: 'Manages programme staff and approves their reviews' },
   finance_manager:     { label: 'Finance Manager',     color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200',icon: 'BanknotesIcon',               description: 'Manages finance team and approves their reviews' },
   hr_admin_officer:    { label: 'HR & Admin Officer',  color: 'text-amber-700',   bg: 'bg-amber-50 border-amber-200',    icon: 'UsersIcon',                   description: 'Manages staff records and system permissions' },
   programme_officer:   { label: 'Programme Officer',   color: 'text-blue-700',    bg: 'bg-blue-50 border-blue-200',      icon: 'ClipboardDocumentCheckIcon',  description: 'Submits own reviews, views programme content' },
@@ -217,7 +217,8 @@ function RoleCard({ role, permissions, onToggle, saving }: RoleCardProps) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function PermissionsPage() {
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
   const [permissions, setPermissions] = useState<RolePermission[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -233,9 +234,9 @@ export default function PermissionsPage() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseRef.current
         .from('role_permissions')
-        .select('*')
+        .select('id, role_name, screen_name, can_view, can_create, can_edit, can_delete, can_approve, updated_at')
         .order('role_name')
         .order('screen_name');
       if (error) throw error;
@@ -245,14 +246,14 @@ export default function PermissionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, []);
 
   useEffect(() => { fetchPermissions(); }, [fetchPermissions]);
 
   const handleToggle = useCallback(async (role: StaffRole, screen: string, permKey: string, value: boolean) => {
     setSaving(true);
     try {
-      const { error } = await supabase
+      const { error } = await supabaseRef.current
         .from('role_permissions')
         .update({ [permKey]: value, updated_at: new Date().toISOString() })
         .eq('role_name', role)
@@ -270,7 +271,7 @@ export default function PermissionsPage() {
     } finally {
       setSaving(false);
     }
-  }, [supabase, showToast]);
+  }, [showToast]);
 
   const roles = Object.keys(ROLE_CONFIG) as StaffRole[];
   const filteredRoles = selectedRole === 'all' ? roles : [selectedRole];

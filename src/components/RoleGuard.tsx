@@ -50,6 +50,7 @@ export default function RoleGuard({ children, minLevel = 50, message }: RoleGuar
   // Support admin, Director General and Director of Operations & Institutional Development
   // always have full unrestricted access to all screens
   const isDirectorLevel =
+    systemRole === 'superuser' ||
     systemRole === 'support_admin' ||
     systemRole === 'executive_director' ||
     systemRole === 'deputy_director';

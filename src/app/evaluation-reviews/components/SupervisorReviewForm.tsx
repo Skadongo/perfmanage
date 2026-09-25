@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { createClient } from '@/lib/supabase/client';
@@ -48,6 +48,9 @@ const STATUS_MAP: Record<string, 'pending' | 'in-progress' | 'submitted' | 'appr
 };
 
 export default function SupervisorReviewForm() {
+  // Stable supabase client ref
+  const supabaseRef = useRef(createClient());
+
   const [reviews, setReviews] = useState<SubmittedReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -55,7 +58,7 @@ export default function SupervisorReviewForm() {
   const [saving, setSaving] = useState<string | null>(null);
   const [actionType, setActionType] = useState<Record<string, 'approve' | 'reject' | null>>({});
 
-  const supabase = createClient();
+  const supabase = supabaseRef.current;
 
   const fetchSubmittedReviews = useCallback(async () => {
     setLoading(true);

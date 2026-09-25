@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 
@@ -188,10 +188,12 @@ export default function EvaluationComparisonModal({
   const [rejectionReason, setRejectionReason] = useState('');
   const [confirmAction, setConfirmAction] = useState<'approve' | 'reject' | null>(null);
 
-  const supabase = createClient();
+  // Stable supabase client ref
+  const supabaseRef = useRef(createClient());
 
   const fetchRecord = useCallback(async () => {
     if (!reviewId) return;
+    const supabase = supabaseRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -350,13 +352,13 @@ export default function EvaluationComparisonModal({
         updatePayload.approved_at = new Date().toISOString();
         // Advance workplan stage
         if (record?.workplan) {
-          await supabase
+          await supabaseRef.current
             .from('workplan_settings')
             .update({ workflow_stage: 'mid_year_approved', updated_at: new Date().toISOString() })
             .eq('id', (record as any).workplan_id);
         }
         // Log activity
-        await supabase.from('activity_logs').insert({
+        await supabaseRef.current.from('activity_logs').insert({
           activity_type: 'evaluation_approved',
           actor_name: record?.supervisor?.full_name ?? 'Supervisor',
           action_description: `Approved mid-year evaluation for ${record?.staff?.full_name}`,
@@ -370,7 +372,7 @@ export default function EvaluationComparisonModal({
         updatePayload.review_status = 'rejected';
         updatePayload.rejected_reason = rejectionReason || null;
         // Log activity
-        await supabase.from('activity_logs').insert({
+        await supabaseRef.current.from('activity_logs').insert({
           activity_type: 'evaluation_rejected',
           actor_name: record?.supervisor?.full_name ?? 'Supervisor',
           action_description: `Rejected mid-year evaluation for ${record?.staff?.full_name}`,
@@ -384,7 +386,7 @@ export default function EvaluationComparisonModal({
         updatePayload.review_status = 'reviewed';
       }
 
-      const { error: updateErr } = await supabase
+      const { error: updateErr } = await supabaseRef.current
         .from('mid_year_reviews')
         .update(updatePayload)
         .eq('id', reviewId);

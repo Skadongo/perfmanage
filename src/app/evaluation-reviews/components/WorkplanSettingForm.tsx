@@ -1,10 +1,13 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import PrintAppraisalLayout from './PrintAppraisalLayout';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
+import { useAuth } from '@/contexts/AuthContext';
+import { roleCachedFetch, TTL_STAFF_LIST } from '@/lib/cache';
+import { toast } from 'sonner';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -16,14 +19,27 @@ interface StaffOption {
   supervisor_name: string | null;
 }
 
+// NEW: KPI entry with label and target
+interface KPIEntry {
+  id: string;
+  label: string;
+  target: string;
+}
+
+// NEW: Custom KPI entry with its own weight
+interface CustomKPIEntry {
+  id: string;
+  label: string;
+  target: string;
+  weight: number;
+}
+
 interface PerspectiveRow {
   id: string;
   perspective: string;
   objective: string;
-  kpis: string[];
-  customKpis: string;
+  kpis: KPIEntry[];
   weight: number;
-  target: string;
   keyActivities: string;
 }
 
@@ -45,6 +61,7 @@ interface WorkplanFormData {
   reviewYear: number;
   perspectivesObjectives: PerspectiveRow[];
   generalCompetencies: GeneralCompetency[];
+  customKpis: CustomKPIEntry[];
   staffSignature: string;
   supervisorSignature: string;
 }
@@ -61,7 +78,6 @@ interface RowErrors {
   perspective?: string;
   objective?: string;
   weight?: string;
-  target?: string;
   kpis?: string;
 }
 
@@ -94,40 +110,49 @@ const PERSPECTIVES = [
   'Innovation Learning & Growth',
 ];
 
-const KPI_OPTIONS = [
-  { id: 'k1', label: 'Budget Variance (≤5% of approved budget)', perspective: 'Financial/Stewardship' },
-  { id: 'k2', label: 'Cost Recovery Rate (10% from all new grants)', perspective: 'Financial/Stewardship' },
-  { id: 'k3', label: 'Payroll Accuracy (zero-error rate)', perspective: 'Financial/Stewardship' },
-  { id: 'k4', label: 'Grant Disbursement Efficiency (within 5 days)', perspective: 'Financial/Stewardship' },
-  { id: 'k5', label: 'Reporting Timeliness (100% donor reports by deadline)', perspective: 'Financial/Stewardship' },
-  { id: 'k6', label: 'Unqualified Audited Financial Statements by Sept 30', perspective: 'Financial/Stewardship' },
-  { id: 'k7', label: 'Revenue Growth (% increase in membership contributions)', perspective: 'Financial/Stewardship' },
-  { id: 'k8', label: 'Procurement Savings (% reduction in admin costs)', perspective: 'Financial/Stewardship' },
-  { id: 'k9', label: 'Internal Service Level (SLA) — 48h resolution rate', perspective: 'Customer/Stakeholder' },
-  { id: 'k10', label: 'Employee Engagement Index (annual survey score)', perspective: 'Customer/Stakeholder' },
-  { id: 'k11', label: 'Recruitment Efficiency (avg. time-to-hire ≤90 days)', perspective: 'Customer/Stakeholder' },
-  { id: 'k12', label: 'System Availability (99.9% uptime)', perspective: 'Customer/Stakeholder' },
-  { id: 'k13', label: 'Service Desk Resolution Rate (critical tickets ≤4h)', perspective: 'Customer/Stakeholder' },
-  { id: 'k14', label: 'Visitor / Stakeholder Satisfaction Index', perspective: 'Customer/Stakeholder' },
-  { id: 'k15', label: 'On-Time Performance (pickups/arrivals ≥98%)', perspective: 'Customer/Stakeholder' },
-  { id: 'k16', label: 'No. of countries achieving WHO Maturity Level 3/4', perspective: 'Customer/Stakeholder' },
-  { id: 'k17', label: 'PMS System Adoption Rate (100% of staff)', perspective: 'Internal Business Processes' },
-  { id: 'k18', label: 'Data Integrity (0% error rate in HR digital repository)', perspective: 'Internal Business Processes' },
-  { id: 'k19', label: 'Audit Readiness (zero high-risk findings)', perspective: 'Internal Business Processes' },
-  { id: 'k20', label: 'ERP Adoption Rate (100% of financial transactions)', perspective: 'Internal Business Processes' },
-  { id: 'k21', label: 'Internal Control Compliance (zero high-risk audit findings)', perspective: 'Internal Business Processes' },
-  { id: 'k22', label: 'Data Warehouse Readiness (% completion)', perspective: 'Internal Business Processes' },
-  { id: 'k23', label: 'Automation Rate (% HR/Finance processes migrated)', perspective: 'Internal Business Processes' },
-  { id: 'k24', label: 'Logbook Accuracy (100% error-free daily logs)', perspective: 'Internal Business Processes' },
-  { id: 'k25', label: 'CPD Completion Rate (% staff meeting annual PD targets)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k26', label: 'Staff Turnover Rate (target ≤5% voluntary turnover)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k27', label: 'Leadership Development (% mid-level managers trained)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k28', label: 'Cybersecurity Maturity (0 successful breaches)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k29', label: 'ISO Certification Progress (ISO 27001 / ISO 9001)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k30', label: 'Corporate Governance Index Score (target: 60%)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k31', label: 'Employee Retention Rate (target: 95%)', perspective: 'Innovation Learning & Growth' },
-  { id: 'k32', label: 'Implementation Rate of AI/ERP Systems', perspective: 'Innovation Learning & Growth' },
-];
+// KPI suggestions by perspective (labels only — user can also type their own)
+const KPI_SUGGESTIONS: Record<string, string[]> = {
+  'Financial/Stewardship': [
+    'Budget Variance (≤5% of approved budget)',
+    'Cost Recovery Rate (10% from all new grants)',
+    'Payroll Accuracy (zero-error rate)',
+    'Grant Disbursement Efficiency (within 5 days)',
+    'Reporting Timeliness (100% donor reports by deadline)',
+    'Unqualified Audited Financial Statements by Sept 30',
+    'Revenue Growth (% increase in membership contributions)',
+    'Procurement Savings (% reduction in admin costs)',
+  ],
+  'Customer/Stakeholder': [
+    'Internal Service Level (SLA) — 48h resolution rate',
+    'Employee Engagement Index (annual survey score)',
+    'Recruitment Efficiency (avg. time-to-hire ≤90 days)',
+    'System Availability (99.9% uptime)',
+    'Service Desk Resolution Rate (critical tickets ≤4h)',
+    'Visitor / Stakeholder Satisfaction Index',
+    'On-Time Performance (pickups/arrivals ≥98%)',
+    'No. of countries achieving WHO Maturity Level 3/4',
+  ],
+  'Internal Business Processes': [
+    'PMS System Adoption Rate (100% of staff)',
+    'Data Integrity (0% error rate in HR digital repository)',
+    'Audit Readiness (zero high-risk findings)',
+    'ERP Adoption Rate (100% of financial transactions)',
+    'Internal Control Compliance (zero high-risk audit findings)',
+    'Data Warehouse Readiness (% completion)',
+    'Automation Rate (% HR/Finance processes migrated)',
+    'Logbook Accuracy (100% error-free daily logs)',
+  ],
+  'Innovation Learning & Growth': [
+    'CPD Completion Rate (% staff meeting annual PD targets)',
+    'Staff Turnover Rate (target ≤5% voluntary turnover)',
+    'Leadership Development (% mid-level managers trained)',
+    'Cybersecurity Maturity (0 successful breaches)',
+    'ISO Certification Progress (ISO 27001 / ISO 9001)',
+    'Corporate Governance Index Score (target: 60%)',
+    'Employee Retention Rate (target: 95%)',
+    'Implementation Rate of AI/ERP Systems',
+  ],
+};
 
 // ─── Predefined Objectives by Perspective ────────────────────────────────────
 const OBJECTIVE_OPTIONS: Record<string, string[]> = {
@@ -335,9 +360,7 @@ function makeRow(): PerspectiveRow {
     perspective: '',
     objective: '',
     kpis: [],
-    customKpis: '',
     weight: 0,
-    target: '',
     keyActivities: '',
   };
 }
@@ -389,8 +412,7 @@ function validateStep1(form: WorkplanFormData): Step1Errors {
     if (!row.perspective) rowErr.perspective = 'Select a BSC perspective.';
     if (!row.objective.trim()) rowErr.objective = 'Objective / Goal Statement is required.';
     if (!row.weight || row.weight < 1 || row.weight > 5) rowErr.weight = 'Weight must be between 1 and 5.';
-    if (!row.target.trim()) rowErr.target = 'Annual Target is required.';
-    if (row.kpis.length === 0) rowErr.kpis = 'Select at least one KPI for this objective.';
+    if (row.kpis.length === 0) rowErr.kpis = 'Add at least one KPI for this objective.';
     if (Object.keys(rowErr).length > 0) errors.rows[idx] = rowErr;
   });
 
@@ -429,8 +451,9 @@ interface ChecklistItem {
 function buildChecklist(form: WorkplanFormData): ChecklistItem[] {
   const totalWeight = form.perspectivesObjectives.reduce((s, r) => s + (Number(r.weight) || 0), 0);
   const totalCompWeight = form.generalCompetencies.reduce((s, c) => s + (Number(c.weight) || 0), 0);
+  const totalCustomKpiWeight = form.customKpis.reduce((s, k) => s + (Number(k.weight) || 0), 0);
   const allRowsComplete = form.perspectivesObjectives.every(
-    (r) => r.perspective && r.objective.trim() && r.target.trim() && r.kpis.length > 0 && r.weight >= 1 && r.weight <= 5
+    (r) => r.perspective && r.objective.trim() && r.kpis.length > 0 && r.weight >= 1 && r.weight <= 5
   );
 
   return [
@@ -455,7 +478,7 @@ function buildChecklist(form: WorkplanFormData): ChecklistItem[] {
       detail: `${form.perspectivesObjectives.length} objective(s)`,
     },
     {
-      label: 'All objectives complete (perspective, goal, target, KPI)',
+      label: 'All objectives complete (perspective, goal, KPI)',
       done: allRowsComplete,
       detail: allRowsComplete ? 'All fields filled' : 'Some objectives have missing fields',
     },
@@ -478,6 +501,187 @@ function buildChecklist(form: WorkplanFormData): ChecklistItem[] {
       done: !!form.supervisorSignature.trim(),
     },
   ];
+}
+
+// ─── KPI Combobox Component ───────────────────────────────────────────────────
+
+interface KPIComboboxProps {
+  perspective: string;
+  kpis: KPIEntry[];
+  onAdd: (entry: KPIEntry) => void;
+  onRemove: (id: string) => void;
+  onUpdateTarget: (id: string, target: string) => void;
+  hasError?: boolean;
+}
+
+function KPICombobox({ perspective, kpis, onAdd, onRemove, onUpdateTarget, hasError }: KPIComboboxProps) {
+  const [inputValue, setInputValue] = React.useState('');
+  const [open, setOpen] = React.useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const suggestions = perspective ? (KPI_SUGGESTIONS[perspective] || []) : [];
+  const addedLabels = new Set(kpis.map((k) => k.label.toLowerCase()));
+
+  const filtered = suggestions.filter(
+    (s) =>
+      !addedLabels.has(s.toLowerCase()) &&
+      (!inputValue.trim() || s.toLowerCase().includes(inputValue.toLowerCase()))
+  );
+
+  React.useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  function addKPI(label: string) {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    if (addedLabels.has(trimmed.toLowerCase())) return;
+    onAdd({ id: `kpi-${Date.now()}-${Math.random()}`, label: trimmed, target: '' });
+    setInputValue('');
+    setOpen(false);
+    inputRef.current?.focus();
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (filtered.length === 1) {
+        addKPI(filtered[0]);
+      } else if (inputValue.trim()) {
+        addKPI(inputValue);
+      }
+    }
+    if (e.key === 'Escape') setOpen(false);
+  }
+
+  const baseBorder = hasError ? 'border-red-400 focus:ring-red-300' : 'border-border focus:ring-primary/30 focus:border-primary';
+
+  return (
+    <div className="space-y-3">
+      {/* Added KPI tags with target inputs */}
+      {kpis.length > 0 && (
+        <div className="space-y-2">
+          {kpis.map((kpi) => (
+            <div key={kpi.id} className="rounded-lg border border-border bg-white p-2.5 space-y-2">
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-600 text-foreground leading-snug">{kpi.label}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onRemove(kpi.id)}
+                  className="flex-shrink-0 p-0.5 rounded hover:bg-red-100 text-muted-foreground hover:text-red-500 transition-colors"
+                  title="Remove KPI"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                    <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+                  </svg>
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-600 text-muted-foreground uppercase tracking-wide flex-shrink-0">Target:</span>
+                <input
+                  type="text"
+                  className="flex-1 text-xs border border-border rounded-md px-2 py-1 bg-muted/30 focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary focus:bg-white transition-colors placeholder:text-muted-foreground/50"
+                  placeholder="e.g. ≥95% by June 2026"
+                  value={kpi.target}
+                  onChange={(e) => onUpdateTarget(kpi.id, e.target.value)}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Combobox input */}
+      <div ref={containerRef} className="relative">
+        <div className={`flex items-center gap-1.5 border rounded-lg px-3 py-2 bg-white focus-within:ring-2 transition-colors ${baseBorder}`}>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0">
+            <path fillRule="evenodd" d="M10 3a.75.75 0 0 1 .75.75v10.638l3.96-4.158a.75.75 0 1 1 1.08 1.04l-5.25 5.5a.75.75 0 0 1-1.08 0l-5.25-5.5a.75.75 0 1 1 1.08-1.04l3.96 4.158V3.75A.75.75 0 0 1 10 3Z" clipRule="evenodd" />
+          </svg>
+          <input
+            ref={inputRef}
+            type="text"
+            className="flex-1 text-xs bg-transparent focus:outline-none placeholder:text-muted-foreground/60"
+            placeholder={
+              perspective
+                ? 'Type a KPI or pick from suggestions, then press Enter…' :'Select a BSC Perspective first…'
+            }
+            value={inputValue}
+            disabled={!perspective}
+            onChange={(e) => { setInputValue(e.target.value); setOpen(true); }}
+            onFocus={() => { if (perspective) setOpen(true); }}
+            onKeyDown={handleKeyDown}
+          />
+          {inputValue.trim() && (
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); addKPI(inputValue); }}
+              className="flex-shrink-0 text-[10px] font-700 text-primary bg-primary/10 hover:bg-primary/20 px-2 py-0.5 rounded transition-colors"
+            >
+              Add
+            </button>
+          )}
+          {suggestions.length > 0 && (
+            <button
+              type="button"
+              tabIndex={-1}
+              onMouseDown={(e) => { e.preventDefault(); setOpen((v) => !v); inputRef.current?.focus(); }}
+              className="flex-shrink-0 p-0.5 rounded hover:bg-muted/60 text-muted-foreground transition-colors"
+              title="Show suggestions"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`}>
+                <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {open && (
+          <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-border rounded-xl shadow-lg max-h-52 overflow-y-auto">
+            {filtered.length > 0 ? (
+              <>
+                <div className="px-3 py-1.5 border-b border-border bg-muted/30 sticky top-0">
+                  <p className="text-[10px] font-600 text-muted-foreground uppercase tracking-wide">
+                    Suggested KPIs — {perspective}
+                  </p>
+                </div>
+                {filtered.map((s, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onMouseDown={(e) => { e.preventDefault(); addKPI(s); }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-primary/5 hover:text-primary transition-colors border-b border-border/50 last:border-0 text-foreground"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </>
+            ) : inputValue.trim() ? (
+              <div className="px-3 py-2.5 text-xs text-muted-foreground italic">
+                Press <kbd className="px-1 py-0.5 bg-muted border border-border rounded text-[10px] font-600">Enter</kbd> or click <strong>Add</strong> to capture "{inputValue}" as a custom KPI.
+              </div>
+            ) : (
+              <div className="px-3 py-2.5 text-xs text-muted-foreground italic">
+                All suggested KPIs for this perspective have been added.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <p className="text-[10px] text-muted-foreground">
+        Pick from suggestions or type your own KPI and press <kbd className="px-1 py-0.5 bg-muted border border-border rounded text-[9px] font-600">Enter</kbd>. Set a measurable target for each KPI added.
+      </p>
+    </div>
+  );
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -514,7 +718,13 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [stageAdvanced, setStageAdvanced] = useState(false);
 
-  const supabase = createClient();
+  // Stable supabase client ref
+  const supabaseRef = useRef(createClient());
+  // ── Auth context: lock staff field to logged-in user ─────────────────────
+  const { profile } = useAuth();
+  const isManagerOrAbove = profile
+    ? ['executive_director', 'deputy_director', 'hr_admin_officer', 'programme_manager', 'finance_manager', 'support_admin'].includes(profile.systemRole)
+    : false;
 
   const [form, setForm] = useState<WorkplanFormData>({
     staffId: '',
@@ -526,6 +736,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     reviewYear: 2026,
     perspectivesObjectives: [makeRow()],
     generalCompetencies: DEFAULT_GENERAL_COMPETENCIES.map((c) => ({ ...c })),
+    customKpis: [],
     staffSignature: '',
     supervisorSignature: '',
   });
@@ -534,7 +745,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
   const autosaveEnabled = !!form.staffId;
   const { saveDraft, recoverDraft, clearDraft } = useAutosave({
     staffId: form.staffId || null,
-    workplanId: form.staffId ? `workplan-draft-${form.staffId}` : null,
+    workplanId: null,
     draftType: 'workplan_setting',
     reviewPeriod: form.fiscalYear || 'annual',
     formData: {
@@ -547,6 +758,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
       reviewYear: form.reviewYear,
       perspectivesObjectives: form.perspectivesObjectives,
       generalCompetencies: form.generalCompetencies,
+      customKpis: form.customKpis,
       staffSignature: form.staffSignature,
       supervisorSignature: form.supervisorSignature,
     },
@@ -558,8 +770,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
   // Recover draft when staff member is selected
   useEffect(() => {
     if (!form.staffId) return;
-    const draftWorkplanId = `workplan-draft-${form.staffId}`;
-    recoverDraft(draftWorkplanId, form.staffId, form.fiscalYear || 'annual').then((data) => {
+    recoverDraft(null, form.staffId, form.fiscalYear || 'annual').then((data) => {
       if (data?.form_data) {
         const fd = data.form_data as any;
         setForm((prev) => ({
@@ -571,6 +782,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
           reviewYear: fd.reviewYear || prev.reviewYear,
           perspectivesObjectives: fd.perspectivesObjectives?.length ? fd.perspectivesObjectives : prev.perspectivesObjectives,
           generalCompetencies: fd.generalCompetencies?.length ? fd.generalCompetencies : prev.generalCompetencies,
+          customKpis: fd.customKpis || prev.customKpis,
           staffSignature: fd.staffSignature || prev.staffSignature,
           supervisorSignature: fd.supervisorSignature || prev.supervisorSignature,
         }));
@@ -582,16 +794,123 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.staffId]);
 
+  // ── On-demand: load existing workplan when staff + fiscal year are selected ──
+  const [existingWorkplanId, setExistingWorkplanId] = useState<string | null>(null);
+  const [existingWorkplanLoading, setExistingWorkplanLoading] = useState(false);
+  const existingWorkplanFetched = useRef(false);
+
+  useEffect(() => {
+    if (!form.staffId || !form.fiscalYear) return;
+    if (existingWorkplanFetched.current) return;
+
+    existingWorkplanFetched.current = true;
+    setExistingWorkplanLoading(true);
+
+    supabaseRef.current
+      .from('workplan_settings')
+      .select('id, perspectives_objectives, general_competencies, custom_kpis, staff_signature, supervisor_signature, supervisor_id, supervisor_name, workflow_stage, status')
+      .eq('staff_id', form.staffId)
+      .eq('fiscal_year', form.fiscalYear)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data: existing }) => {
+        if (existing) {
+          setExistingWorkplanId(existing.id);
+          setSavedWorkplanId(existing.id);
+          // Populate form with existing data so staff can edit/re-submit
+          setForm((prev) => ({
+            ...prev,
+            supervisorId: existing.supervisor_id || prev.supervisorId,
+            supervisorName: existing.supervisor_name || prev.supervisorName,
+            perspectivesObjectives: existing.perspectives_objectives?.length
+              ? existing.perspectives_objectives
+              : prev.perspectivesObjectives,
+            generalCompetencies: existing.general_competencies?.length
+              ? existing.general_competencies
+              : prev.generalCompetencies,
+            customKpis: existing.custom_kpis || prev.customKpis,
+            staffSignature: existing.staff_signature || prev.staffSignature,
+            supervisorSignature: existing.supervisor_signature || prev.supervisorSignature,
+          }));
+          if (existing.status === 'signed' || existing.status === 'approved') {
+            toast.info(`Loaded existing workplan for ${form.fiscalYear}. You can review or update it.`);
+          }
+        }
+      })
+      .catch(() => { /* silent — form still works with defaults */ })
+      .finally(() => setExistingWorkplanLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.staffId, form.fiscalYear]);
+
+  // Reset on-demand fetch flag when staff or fiscal year changes
+  useEffect(() => {
+    existingWorkplanFetched.current = false;
+    setExistingWorkplanId(null);
+  }, [form.staffId, form.fiscalYear]);
+
   useEffect(() => {
     async function loadStaff() {
       setStaffLoading(true);
       try {
-        const { data } = await supabase
-          .from('staff')
-          .select('id, full_name, job_title, supervisor_id, supervisor_name')
-          .eq('employment_status', 'active')
-          .order('full_name', { ascending: true });
-        if (data) setStaffList(data as StaffOption[]);
+        // Non-managers only need their own record — fetch just that one row
+        if (!isManagerOrAbove && profile) {
+          let ownRecord: StaffOption | null = null;
+
+          // Try by staff_id first (fastest)
+          if (profile.staffId) {
+            const { data: row } = await supabaseRef.current
+              .from('staff')
+              .select('id, full_name, job_title, supervisor_id, supervisor_name')
+              .eq('id', profile.staffId)
+              .eq('employment_status', 'active')
+              .maybeSingle();
+            ownRecord = row ?? null;
+          }
+
+          // Fallback: match by email
+          if (!ownRecord && profile.email) {
+            const { data: row } = await supabaseRef.current
+              .from('staff')
+              .select('id, full_name, job_title, supervisor_id, supervisor_name')
+              .eq('email', profile.email)
+              .eq('employment_status', 'active')
+              .maybeSingle();
+            ownRecord = row ?? null;
+          }
+
+          if (ownRecord) {
+            setStaffList([ownRecord]);
+            // Pre-fill form immediately
+            setForm((prev) => ({
+              ...prev,
+              staffId: ownRecord!.id,
+              staffName: ownRecord!.full_name,
+              jobTitle: ownRecord!.job_title,
+              supervisorId: ownRecord!.supervisor_id || prev.supervisorId,
+              supervisorName: ownRecord!.supervisor_name || prev.supervisorName,
+            }));
+          }
+          return;
+        }
+
+        // Managers and above: load the full active staff list (cached)
+        const data = await roleCachedFetch(
+          'staff-active-list',
+          'all',
+          async () => {
+            const { data: rows } = await supabaseRef.current
+              .from('staff')
+              .select('id, full_name, job_title, supervisor_id, supervisor_name')
+              .eq('employment_status', 'active')
+              .order('full_name', { ascending: true });
+            return rows ?? [];
+          },
+          TTL_STAFF_LIST
+        );
+        if (data) {
+          setStaffList(data as StaffOption[]);
+        }
       } catch (err) {
         console.log('Error loading staff:', err);
       } finally {
@@ -599,7 +918,60 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
       }
     }
     loadStaff();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isManagerOrAbove, profile]);
+
+  // ── Auto-lock staff field to logged-in user (Measure 1) ──────────────────
+  // Runs whenever staffList or profile changes so the lock fires even if
+  // profile loads after the staff list is already fetched.
+  useEffect(() => {
+    if (isManagerOrAbove) return;           // managers can pick any staff
+    if (!profile) return;                   // profile not yet loaded
+    if (staffList.length === 0) return;     // staff list not yet loaded
+    if (form.staffId) return;               // already locked — don't overwrite
+
+    // Primary match: by staff_id stored in user_profiles
+    let ownRecord = profile.staffId
+      ? staffList.find((s) => s.id === profile.staffId)
+      : undefined;
+
+    // Fallback: match by email when staff_id is not set in user_profiles
+    if (!ownRecord && profile.email) {
+      const emailLower = profile.email.toLowerCase();
+      // We need email from the staff table — re-query for this user only
+      supabaseRef.current
+        .from('staff')
+        .select('id, full_name, job_title, supervisor_id, supervisor_name')
+        .eq('email', profile.email)
+        .eq('employment_status', 'active')
+        .maybeSingle()
+        .then(({ data: staffByEmail }) => {
+          if (staffByEmail) {
+            setForm((prev) => ({
+              ...prev,
+              staffId: staffByEmail.id,
+              staffName: staffByEmail.full_name,
+              jobTitle: staffByEmail.job_title,
+              supervisorId: staffByEmail.supervisor_id || prev.supervisorId,
+              supervisorName: staffByEmail.supervisor_name || prev.supervisorName,
+            }));
+          }
+        });
+      return;
+    }
+
+    if (ownRecord) {
+      setForm((prev) => ({
+        ...prev,
+        staffId: ownRecord!.id,
+        staffName: ownRecord!.full_name,
+        jobTitle: ownRecord!.job_title,
+        supervisorId: ownRecord!.supervisor_id || prev.supervisorId,
+        supervisorName: ownRecord!.supervisor_name || prev.supervisorName,
+      }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staffList, profile, isManagerOrAbove]);
 
   function setField<K extends keyof WorkplanFormData>(key: K, value: WorkplanFormData[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -650,12 +1022,40 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     });
   }
 
-  function toggleKPI(rowIdx: number, kpiId: string) {
+  function addKPIToRow(rowIdx: number, entry: KPIEntry) {
     const row = form.perspectivesObjectives[rowIdx];
-    const kpis = row.kpis.includes(kpiId)
-      ? row.kpis.filter((k) => k !== kpiId)
-      : [...row.kpis, kpiId];
-    updateRow(rowIdx, 'kpis', kpis);
+    updateRow(rowIdx, 'kpis', [...row.kpis, entry]);
+  }
+
+  function removeKPIFromRow(rowIdx: number, kpiId: string) {
+    const row = form.perspectivesObjectives[rowIdx];
+    updateRow(rowIdx, 'kpis', row.kpis.filter((k) => k.id !== kpiId));
+  }
+
+  function updateKPITarget(rowIdx: number, kpiId: string, target: string) {
+    const row = form.perspectivesObjectives[rowIdx];
+    updateRow(rowIdx, 'kpis', row.kpis.map((k) => k.id === kpiId ? { ...k, target } : k));
+  }
+
+  function addCustomKPI() {
+    const newEntry: CustomKPIEntry = {
+      id: `ckpi-${Date.now()}-${Math.random()}`,
+      label: '',
+      target: '',
+      weight: 0,
+    };
+    setForm((prev) => ({ ...prev, customKpis: [...prev.customKpis, newEntry] }));
+  }
+
+  function removeCustomKPI(id: string) {
+    setForm((prev) => ({ ...prev, customKpis: prev.customKpis.filter((k) => k.id !== id) }));
+  }
+
+  function updateCustomKPI(id: string, field: keyof CustomKPIEntry, value: any) {
+    setForm((prev) => ({
+      ...prev,
+      customKpis: prev.customKpis.map((k) => k.id === id ? { ...k, [field]: value } : k),
+    }));
   }
 
   function updateCompetencyWeight(idx: number, weight: number) {
@@ -674,6 +1074,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
 
   const totalWeight = form.perspectivesObjectives.reduce((s, r) => s + (Number(r.weight) || 0), 0);
   const totalCompWeight = form.generalCompetencies.reduce((s, c) => s + (Number(c.weight) || 0), 0);
+  const totalCustomKpiWeight = (form.customKpis || []).reduce((s, k) => s + (Number(k.weight) || 0), 0);
 
   const steps = [
     { label: 'Staff & Supervisor', icon: 'UserIcon' },
@@ -706,98 +1107,231 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     setStep2Errors(e2);
 
     if (hasStep0Errors(e0)) {
-      setSaveError('Step 1 (Staff & Supervisor) has missing required fields. Please go back and complete them.');
+      const msg = 'Step 1 (Staff & Supervisor) has missing required fields. Please go back and complete them.';
+      setSaveError(msg);
+      toast.error(msg);
       return;
     }
     if (hasStep1Errors(e1)) {
-      setSaveError('Step 2 (Perspectives & KPIs) has incomplete objectives or incorrect total weight. Please go back and fix them.');
+      const msg = 'Step 2 (Perspectives & KPIs) has incomplete objectives or incorrect total weight. Please go back and fix them.';
+      setSaveError(msg);
+      toast.error(msg);
       return;
     }
     if (hasStep2Errors(e2)) {
       // Show inline errors on step 2 fields — no generic banner needed
+      toast.error('Please provide both signatures before submitting.');
+      return;
+    }
+
+    // ── Measure 3: Server-side ownership check ────────────────────────────
+    // Verify the staff_id being submitted matches the logged-in user's own staff record.
+    // Managers/HR are exempt and may submit on behalf of any staff member.
+    if (!isManagerOrAbove && profile?.staffId && form.staffId !== profile.staffId) {
+      const msg = 'You can only set a workplan for your own account. Please refresh and try again.';
+      setSaveError(msg);
+      toast.error(msg);
+      return;
+    }
+
+    // Ensure unauthenticated users cannot submit (Measure 4 — belt-and-suspenders)
+    const { data: { user: currentUser } } = await supabaseRef.current.auth.getUser();
+    if (!currentUser) {
+      const msg = 'Your session has expired. Please log in again.';
+      setSaveError(msg);
+      toast.error(msg);
       return;
     }
 
     setSaving(true);
     setSaveError(null);
 
-    try {
-      const normalizedObjectives = normalizeBscWeights(form.perspectivesObjectives);
+    const MAX_RETRIES = 2;
+    let attempt = 0;
 
-      const payload = {
-        staff_id: form.staffId,
-        supervisor_id: form.supervisorId || null,
-        fiscal_year: form.fiscalYear,
-        review_year: form.reviewYear,
-        perspectives_objectives: normalizedObjectives,
-        general_competencies: form.generalCompetencies,
-        staff_signature: form.staffSignature,
-        staff_signed_at: new Date().toISOString(),
-        supervisor_signature: form.supervisorSignature,
-        supervisor_signed_at: new Date().toISOString(),
-        status: 'signed',
-        workflow_stage: 'workplan_pending',
-        submitted_at: new Date().toISOString(),
-        review_type: 'annual',
-      };
+    while (attempt <= MAX_RETRIES) {
+      try {
+        const normalizedObjectives = normalizeBscWeights(form.perspectivesObjectives);
 
-      const { data, error } = await supabase.from('workplan_settings').insert(payload).select('id').single();
-      if (error) {
-        setSaveError(error.message || 'Failed to save workplan. Please try again.');
+        const payload = {
+          staff_id: form.staffId,
+          supervisor_id: form.supervisorId || null,
+          fiscal_year: form.fiscalYear,
+          review_year: form.reviewYear,
+          perspectives_objectives: normalizedObjectives,
+          general_competencies: form.generalCompetencies,
+          custom_kpis: form.customKpis,
+          staff_signature: form.staffSignature,
+          staff_signed_at: new Date().toISOString(),
+          supervisor_signature: form.supervisorSignature,
+          supervisor_signed_at: new Date().toISOString(),
+          status: 'signed',
+          workflow_stage: 'workplan_pending',
+          submitted_at: new Date().toISOString(),
+          review_type: 'annual',
+        };
+
+        const { data, error } = await supabaseRef.current.from('workplan_settings').insert(payload).select('id').single();
+
+        if (error) {
+          const isNetworkError =
+            error.message?.toLowerCase().includes('network') ||
+            error.message?.toLowerCase().includes('fetch') ||
+            error.message?.toLowerCase().includes('timeout') ||
+            error.code === 'PGRST301';
+
+          if (isNetworkError && attempt < MAX_RETRIES) {
+            attempt++;
+            toast.loading(`Connection issue — retrying (${attempt}/${MAX_RETRIES})…`, { id: 'workplan-retry' });
+            await new Promise((r) => setTimeout(r, 1500 * attempt));
+            continue;
+          }
+
+          toast.dismiss('workplan-retry');
+
+          let errorMsg: string;
+          if (error.code === '42501' || error.message?.includes('policy')) {
+            errorMsg = 'You are not authorised to create a workplan for this staff member.';
+          } else if (error.code === '23505') {
+            errorMsg = 'A workplan for this staff member already exists for this fiscal year.';
+          } else {
+            errorMsg = error.message || 'Failed to save workplan. Please try again.';
+          }
+          setSaveError(errorMsg);
+          toast.error(errorMsg);
+          setSaving(false);
+          return;
+        }
+
+        toast.dismiss('workplan-retry');
+
+        // ── Measure 5: Audit trail — log workplan creation ────────────────────
+        await supabaseRef.current.from('activity_logs').insert({
+          activity_type: 'workplan_created',
+          actor_name: profile?.fullName || form.staffName || 'Staff Member',
+          action_description: `set workplan for ${form.fiscalYear}`,
+          subject_name: form.staffName,
+          subject_detail: `Workplan ID: ${data?.id} | Fiscal Year: ${form.fiscalYear} | Submitted by auth user: ${currentUser.id}`,
+          icon_name: 'ClipboardDocumentCheckIcon',
+          icon_bg: 'bg-sky-50',
+          icon_color: 'text-sky-600',
+        });
+
+        // Clear draft after successful submission
+        await clearDraft(null, form.staffId, form.fiscalYear || 'annual');
+
+        toast.success(`Workplan for ${form.staffName} saved successfully!`);
+        setSavedWorkplanId(data?.id ?? null);
+        setSaving(false);
+        setSubmitted(true);
+        return;
+      } catch (err: any) {
+        const isNetworkError =
+          err?.message?.toLowerCase().includes('network') ||
+          err?.message?.toLowerCase().includes('fetch') ||
+          err?.name === 'TypeError';
+
+        if (isNetworkError && attempt < MAX_RETRIES) {
+          attempt++;
+          toast.loading(`Connection issue — retrying (${attempt}/${MAX_RETRIES})…`, { id: 'workplan-retry' });
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+          continue;
+        }
+
+        toast.dismiss('workplan-retry');
+        const msg = 'An unexpected error occurred. Please try again.';
+        setSaveError(msg);
+        toast.error(msg);
+        setSaving(false);
         return;
       }
-
-      // Clear draft after successful submission
-      const draftWorkplanId = `workplan-draft-${form.staffId}`;
-      await clearDraft(draftWorkplanId, form.staffId, form.fiscalYear || 'annual');
-
-      setSavedWorkplanId(data?.id ?? null);
-      setSubmitted(true);
-    } catch (err: any) {
-      setSaveError('An unexpected error occurred. Please try again.');
-    } finally {
-      setSaving(false);
     }
+
+    setSaving(false);
   }
 
   async function handleSupervisorApprove() {
     if (!savedWorkplanId) return;
     setApproving(true);
     setApprovalError(null);
-    try {
-      const { error } = await supabase
-        .from('workplan_settings')
-        .update({
-          workflow_stage: 'workplan_approved',
-          supervisor_approved_at: new Date().toISOString(),
-          supervisor_approval_comments: approvalComments || null,
-        })
-        .eq('id', savedWorkplanId);
 
-      if (error) {
-        setApprovalError(error.message || 'Failed to approve workplan.');
+    const MAX_RETRIES = 2;
+    let attempt = 0;
+
+    while (attempt <= MAX_RETRIES) {
+      try {
+        const { error } = await supabaseRef.current
+          .from('workplan_settings')
+          .update({
+            workflow_stage: 'workplan_approved',
+            supervisor_approved_at: new Date().toISOString(),
+            supervisor_approval_comments: approvalComments || null,
+          })
+          .eq('id', savedWorkplanId);
+
+        if (error) {
+          const isNetworkError =
+            error.message?.toLowerCase().includes('network') ||
+            error.message?.toLowerCase().includes('fetch') ||
+            error.code === 'PGRST301';
+
+          if (isNetworkError && attempt < MAX_RETRIES) {
+            attempt++;
+            toast.loading(`Connection issue — retrying (${attempt}/${MAX_RETRIES})…`, { id: 'approve-retry' });
+            await new Promise((r) => setTimeout(r, 1500 * attempt));
+            continue;
+          }
+
+          toast.dismiss('approve-retry');
+          const msg = error.message || 'Failed to approve workplan.';
+          setApprovalError(msg);
+          toast.error(msg);
+          setApproving(false);
+          return;
+        }
+
+        toast.dismiss('approve-retry');
+
+        // Log activity
+        await supabaseRef.current.from('activity_logs').insert({
+          activity_type: 'workplan_approved',
+          actor_name: profile?.fullName || form.supervisorName || 'Supervisor',
+          action_description: 'approved workplan — Mid-Year evaluation now unlocked',
+          subject_name: form.staffName,
+          subject_detail: `Workplan ID: ${savedWorkplanId} | Fiscal Year: ${form.fiscalYear} | Approved by: ${profile?.fullName || form.supervisorName}`,
+          icon_name: 'CheckBadgeIcon',
+          icon_bg: 'bg-emerald-50',
+          icon_color: 'text-emerald-600',
+        }).then(() => {});
+
+        toast.success(`Workplan approved — Mid-Year evaluation unlocked for ${form.staffName}!`);
+        setApproving(false);
+        setStageAdvanced(true);
+        onSubmit?.();
+        return;
+      } catch (err: any) {
+        const isNetworkError =
+          err?.message?.toLowerCase().includes('network') ||
+          err?.message?.toLowerCase().includes('fetch') ||
+          err?.name === 'TypeError';
+
+        if (isNetworkError && attempt < MAX_RETRIES) {
+          attempt++;
+          toast.loading(`Connection issue — retrying (${attempt}/${MAX_RETRIES})…`, { id: 'approve-retry' });
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+          continue;
+        }
+
+        toast.dismiss('approve-retry');
+        const msg = 'An unexpected error occurred.';
+        setApprovalError(msg);
+        toast.error(msg);
+        setApproving(false);
         return;
       }
-
-      // Log activity
-      await supabase.from('activity_logs').insert({
-        activity_type: 'workplan_approved',
-        actor_name: form.supervisorName || 'Supervisor',
-        action_description: 'approved workplan — Mid-Year evaluation now unlocked',
-        subject_name: form.staffName,
-        subject_detail: form.fiscalYear,
-        icon_name: 'CheckBadgeIcon',
-        icon_bg: 'bg-emerald-50',
-        icon_color: 'text-emerald-600',
-      }).then(() => {});
-
-      setStageAdvanced(true);
-      onSubmit?.();
-    } catch (err: any) {
-      setApprovalError('An unexpected error occurred.');
-    } finally {
-      setApproving(false);
     }
+
+    setApproving(false);
   }
 
   // ── Stage advanced confirmation ──────────────────────────────────────────
@@ -1047,31 +1581,55 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
                 Loading staff list…
               </div>
             ) : (
+              <>
+                {/* On-demand workplan loading indicator */}
+                {existingWorkplanLoading && (
+                  <div className="flex items-center gap-2 text-xs text-sky-700 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2">
+                    <div className="w-3.5 h-3.5 border-2 border-sky-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                    Loading existing workplan for {form.fiscalYear}…
+                  </div>
+                )}
+                {existingWorkplanId && !existingWorkplanLoading && (
+                  <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                    <Icon name="CheckCircleIcon" size={13} className="flex-shrink-0" />
+                    Existing workplan loaded for {form.fiscalYear} — you can review and update it.
+                  </div>
+                )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Staff Member" required error={step0Errors.staffId}>
-                  <select
-                    className={step0Errors.staffId ? selectErrCls : selectCls}
-                    value={form.staffId}
-                    onChange={(e) => {
-                      const staff = staffList.find((s) => s.id === e.target.value);
-                      setField('staffId', e.target.value);
-                      setField('staffName', staff?.full_name || '');
-                      setField('jobTitle', staff?.job_title || '');
-                      if (staff?.supervisor_id) {
-                        const sup = staffList.find((s) => s.id === staff.supervisor_id);
-                        setField('supervisorId', staff.supervisor_id);
-                        setField('supervisorName', sup?.full_name || staff.supervisor_name || '');
-                      } else {
-                        setField('supervisorId', '');
-                        setField('supervisorName', '');
-                      }
-                    }}
-                  >
-                    <option value="">Select staff member…</option>
-                    {staffList.map((s) => (
-                      <option key={s.id} value={s.id}>{s.full_name} — {s.job_title}</option>
-                    ))}
-                  </select>
+                  {/* ── Measure 1: Lock staff field for non-managers ─────── */}
+                  {!isManagerOrAbove ? (
+                    <div className={`${inputCls} bg-muted/40 cursor-not-allowed flex items-center gap-2`}>
+                      <Icon name="LockClosedIcon" size={13} className="text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm text-foreground truncate">
+                        {form.staffName || 'Loading your profile…'}
+                      </span>
+                    </div>
+                  ) : (
+                    <select
+                      className={step0Errors.staffId ? selectErrCls : selectCls}
+                      value={form.staffId}
+                      onChange={(e) => {
+                        const staff = staffList.find((s) => s.id === e.target.value);
+                        setField('staffId', e.target.value);
+                        setField('staffName', staff?.full_name || '');
+                        setField('jobTitle', staff?.job_title || '');
+                        if (staff?.supervisor_id) {
+                          const sup = staffList.find((s) => s.id === staff.supervisor_id);
+                          setField('supervisorId', staff.supervisor_id);
+                          setField('supervisorName', sup?.full_name || staff.supervisor_name || '');
+                        } else {
+                          setField('supervisorId', '');
+                          setField('supervisorName', '');
+                        }
+                      }}
+                    >
+                      <option value="">Select staff member…</option>
+                      {staffList.map((s) => (
+                        <option key={s.id} value={s.id}>{s.full_name} — {s.job_title}</option>
+                      ))}
+                    </select>
+                  )}
                 </FormField>
 
                 <FormField label="Supervisor / Line Manager" required error={step0Errors.supervisorId}>
@@ -1107,6 +1665,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
                   </select>
                 </FormField>
               </div>
+              </>
             )}
           </div>
         )}
@@ -1134,6 +1693,12 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
                 <Icon name={Math.abs(totalCompWeight - 20) < 1 ? 'CheckCircleIcon' : 'ExclamationTriangleIcon'} size={13} />
                 Competencies Weight: {totalCompWeight} / 20 {Math.abs(totalCompWeight - 20) < 1 ? '✓' : '(should equal 20)'}
               </div>
+              {form.customKpis.length > 0 && (
+                <div className="text-xs font-600 px-2.5 py-1.5 rounded-lg border inline-flex items-center gap-1.5 bg-teal-50 text-teal-700 border-teal-200">
+                  <Icon name="PencilSquareIcon" size={13} />
+                  Custom KPIs Weight: {totalCustomKpiWeight} ({form.customKpis.length} KPI{form.customKpis.length !== 1 ? 's' : ''})
+                </div>
+              )}
               <div className="text-xs font-600 px-2.5 py-1.5 rounded-lg border inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 border-blue-200">
                 <Icon name="CalculatorIcon" size={13} />
                 Max Possible Score: {totalWeight + totalCompWeight} / 120
@@ -1162,7 +1727,6 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
 
             <div className="space-y-4">
               {form.perspectivesObjectives.map((row, idx) => {
-                const filteredKPIs = KPI_OPTIONS.filter((k) => !row.perspective || k.perspective === row.perspective);
                 const colorCls = PERSPECTIVE_COLORS[row.perspective] || 'bg-muted/30 border-border text-foreground';
                 const rowErr = step1Errors.rows[idx] || {};
                 return (
@@ -1227,69 +1791,20 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
                       />
                     </FormField>
 
-                    <FormField label="Annual Target" required error={rowErr.target}>
-                      <input
-                        className={rowErr.target ? inputErrCls : inputCls}
-                        placeholder="e.g. Achieve 95% budget variance compliance"
-                        value={row.target}
-                        onChange={(e) => updateRow(idx, 'target', e.target.value)}
-                      />
-                    </FormField>
-
-                    {row.perspective && (
-                      <div>
-                        <label className={`block text-xs font-600 mb-2 ${rowErr.kpis ? 'text-red-600' : 'text-foreground'}`}>
-                          KPIs (select all that apply) <span className="text-red-500">*</span>
-                        </label>
-                        <div className="grid grid-cols-1 gap-1.5 pr-1">
-                          {filteredKPIs.map((kpi) => (
-                            <label key={kpi.id} className="flex items-start gap-2 cursor-pointer group">
-                              <input
-                                type="checkbox"
-                                checked={row.kpis.includes(kpi.id)}
-                                onChange={() => toggleKPI(idx, kpi.id)}
-                                className="mt-0.5 accent-primary flex-shrink-0"
-                              />
-                              <span className="text-xs text-foreground group-hover:text-primary transition-colors">{kpi.label}</span>
-                            </label>
-                          ))}
-                        </div>
-                        {row.kpis.length > 0 && (
-                          <p className="text-[10px] text-muted-foreground mt-1">{row.kpis.length} KPI{row.kpis.length > 1 ? 's' : ''} selected</p>
-                        )}
-                        {rowErr.kpis && (
-                          <p className="flex items-center gap-1 mt-1 text-[11px] text-red-600">
-                            <Icon name="ExclamationCircleIcon" size={11} className="flex-shrink-0" />
-                            {rowErr.kpis}
-                          </p>
-                        )}
-
-                        {/* ── Additional / Custom KPIs free-text ── */}
-                        <div className="mt-3 pt-3 border-t border-dashed border-border/60">
-                          <label className="block text-xs font-600 text-foreground mb-1.5 flex items-center gap-1.5">
-                            <Icon name="PencilSquareIcon" size={12} className="text-primary" />
-                            Additional / Custom KPIs
-                            <span className="text-[10px] font-400 text-muted-foreground">(not in the list above)</span>
-                          </label>
-                          <textarea
-                            className={textareaCls}
-                            rows={3}
-                            placeholder="Enter any KPIs specific to this objective that are not listed above. Use one KPI per line or separate with semicolons…"
-                            value={row.customKpis}
-                            onChange={(e) => updateRow(idx, 'customKpis', e.target.value)}
-                          />
-                          {row.customKpis.trim() && (
-                            <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
-                              <Icon name="CheckCircleIcon" size={10} className="text-emerald-500" />
-                              Custom KPIs captured — will be included in the workplan
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                                        <FormField label="KPIs & Targets" required error={rowErr.kpis}>
+                        <KPICombobox
+                          perspective={row.perspective}
+                          kpis={row.kpis}
+                          onAdd={(entry) => addKPIToRow(idx, entry)}
+                          onRemove={(kpiId) => removeKPIFromRow(idx, kpiId)}
+                          onUpdateTarget={(kpiId, target) => updateKPITarget(idx, kpiId, target)}
+                          hasError={!!rowErr.kpis}
+                        />
+                      </FormField>
                     )}
 
                     {!row.perspective && (
-                      <p className="text-[11px] text-muted-foreground italic">Select a BSC Perspective above to see available KPIs.</p>
+                      <p className="text-[11px] text-muted-foreground italic">Select a BSC Perspective above to add KPIs.</p>
                     )}
                   </div>
                 );
@@ -1305,7 +1820,105 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
               Add Another Objective
             </button>
 
-            {/* ── General Competencies Section ── */}
+            {/* ── Custom KPIs Section ── */}
+            <div className="mt-6">
+              <div className="flex items-start gap-3 mb-3">
+                <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center flex-shrink-0">
+                  <Icon name="PencilSquareIcon" size={15} className="text-teal-600" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-sm font-700 text-foreground">Custom KPIs</h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">Add any additional KPIs that are not tied to a specific BSC perspective. Set a label, measurable target, and weight for each.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addCustomKPI}
+                  className="flex items-center gap-1.5 text-xs font-600 text-teal-700 border border-teal-300 bg-teal-50 hover:bg-teal-100 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0"
+                >
+                  <Icon name="PlusIcon" size={13} />
+                  Add Custom KPI
+                </button>
+              </div>
+
+              {form.customKpis.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-teal-300 bg-teal-50/50 px-4 py-5 text-center">
+                  <Icon name="PencilSquareIcon" size={20} className="text-teal-400 mx-auto mb-2" />
+                  <p className="text-xs font-600 text-teal-700">No custom KPIs added yet</p>
+                  <p className="text-[11px] text-teal-600 mt-0.5">Click "Add Custom KPI" to define a KPI with its own weight, independent of BSC perspectives.</p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-teal-200 bg-teal-50 overflow-hidden">
+                  {/* Header */}
+                  <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-teal-100 border-b border-teal-200">
+                    <div className="col-span-4 text-[10px] font-700 text-teal-700 uppercase tracking-wide">KPI Label</div>
+                    <div className="col-span-4 text-[10px] font-700 text-teal-700 uppercase tracking-wide">Target</div>
+                    <div className="col-span-3 text-[10px] font-700 text-teal-700 uppercase tracking-wide text-center">Weight</div>
+                    <div className="col-span-1" />
+                  </div>
+
+                  {form.customKpis.map((kpi, idx) => (
+                    <div
+                      key={kpi.id}
+                      className={`grid grid-cols-12 gap-2 px-4 py-3 items-start ${idx < form.customKpis.length - 1 ? 'border-b border-teal-100' : ''}`}
+                    >
+                      <div className="col-span-4">
+                        <input
+                          type="text"
+                          className="w-full text-xs border border-teal-300 rounded-lg px-2.5 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-teal-300 focus:border-teal-400 transition-colors placeholder:text-muted-foreground/50"
+                          placeholder="e.g. Report Submission Rate"
+                          value={kpi.label}
+                          onChange={(e) => updateCustomKPI(kpi.id, 'label', e.target.value)}
+                        />
+                      </div>
+                      <div className="col-span-4">
+                        <input
+                          type="text"
+                          className="w-full text-xs border border-teal-300 rounded-lg px-2.5 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-teal-300 focus:border-teal-400 transition-colors placeholder:text-muted-foreground/50"
+                          placeholder="e.g. 100% by June 2026"
+                          value={kpi.target}
+                          onChange={(e) => updateCustomKPI(kpi.id, 'target', e.target.value)}
+                        />
+                      </div>
+                      <div className="col-span-3 flex flex-col items-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={20}
+                          step={0.5}
+                          className="w-16 text-center text-sm font-700 border border-teal-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-teal-300 focus:border-teal-400 transition-colors"
+                          placeholder="0"
+                          value={kpi.weight === 0 ? '' : kpi.weight}
+                          onChange={(e) => updateCustomKPI(kpi.id, 'weight', Number(e.target.value))}
+                        />
+                        <span className="text-[9px] text-teal-600 font-500">weight</span>
+                      </div>
+                      <div className="col-span-1 flex items-center justify-center pt-1">
+                        <button
+                          type="button"
+                          onClick={() => removeCustomKPI(kpi.id)}
+                          className="p-1 rounded-md hover:bg-red-100 text-red-400 hover:text-red-600 transition-colors"
+                          title="Remove custom KPI"
+                        >
+                          <Icon name="TrashIcon" size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Total row */}
+                  <div className="grid grid-cols-12 gap-2 px-4 py-3 border-t-2 border-teal-300 bg-teal-100/60">
+                    <div className="col-span-8">
+                      <p className="text-xs font-700 text-teal-700">Total Custom KPI Weight</p>
+                      <p className="text-[10px] text-teal-600 mt-0.5">{form.customKpis.length} custom KPI{form.customKpis.length !== 1 ? 's' : ''} added</p>
+                    </div>
+                    <div className="col-span-3 flex items-center justify-center">
+                      <span className="text-lg font-800 text-teal-700">{totalCustomKpiWeight}</span>
+                    </div>
+                    <div className="col-span-1" />
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="mt-6">
               <div className="flex items-start gap-3 mb-3">
                 <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
@@ -1487,6 +2100,20 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
                   ))}
                 </div>
               </div>
+              {form.customKpis.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-border">
+                  <p className="text-[10px] font-700 text-muted-foreground mb-1 uppercase tracking-wide">Custom KPIs</p>
+                  <div className="space-y-0.5">
+                    {form.customKpis.map((kpi) => (
+                      <div key={kpi.id} className="flex items-center gap-2 text-xs">
+                        <span className="text-muted-foreground truncate flex-1">{kpi.label || '(no label)'}</span>
+                        {kpi.target && <span className="text-[10px] text-muted-foreground/70 truncate max-w-[100px]">{kpi.target}</span>}
+                        <span className="font-600 text-teal-700 flex-shrink-0">{kpi.weight}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="mt-2 pt-2 border-t border-border space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-700 text-foreground">Max Possible Score</span>
