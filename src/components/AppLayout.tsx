@@ -29,14 +29,9 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [currentYear, setCurrentYear] = useState<number>(2026);
   const menuRef = useRef<HTMLDivElement>(null);
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
-
-  useEffect(() => {
-    setCurrentYear(new Date().getFullYear());
-  }, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -207,8 +202,8 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                 <p className="text-[10px] text-muted-foreground">Performance Management System</p>
               </div>
             </div>
-            <p className="text-[11px] text-muted-foreground text-center">
-              © {currentYear} East, Central &amp; Southern Africa Health Community. All rights reserved.
+            <p suppressHydrationWarning className="text-[11px] text-muted-foreground text-center">
+              © {new Date().getFullYear()} East, Central &amp; Southern Africa Health Community. All rights reserved.
             </p>
             <div className="hidden sm:flex items-center gap-4">
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
