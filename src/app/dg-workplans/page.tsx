@@ -7,6 +7,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { FISCAL_YEARS, CURRENT_FISCAL_YEAR } from '@/hooks/useWorkplans';
+import { formatDateShort } from '@/lib/dateUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -249,7 +250,7 @@ function WorkplanDetailModal({ workplanId, onClose }: WorkplanDetailModalProps) 
 
   function formatDate(iso: string | null) {
     if (!iso) return '—';
-    return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    return formatDateShort(iso);
   }
 
   return (
@@ -636,7 +637,7 @@ function WorkplanDetailModal({ workplanId, onClose }: WorkplanDetailModalProps) 
 
   function formatDate(iso: string | null) {
     if (!iso) return '—';
-    return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    return formatDateShort(iso);
   }
 }
 
@@ -913,7 +914,7 @@ export default function DGWorkplansPage() {
                       const stageColor = STAGE_COLORS[row.workflow_stage] ?? 'bg-muted/50 text-muted-foreground';
                       const stageLabel = STAGE_LABELS[row.workflow_stage] ?? row.workflow_stage;
                       const updatedDate = row.updated_at
-                        ? new Date(row.updated_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                        ? formatDateShort(row.updated_at)
                         : '—';
                       const initials = row.staff_name
                         .split(' ')

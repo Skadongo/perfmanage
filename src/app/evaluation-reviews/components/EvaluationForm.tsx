@@ -184,12 +184,15 @@ function getPerformanceBand(score: number): { label: string; increment: string; 
   return { label: 'Unsatisfactory', increment: 'Mandatory Performance Improvement Plan (PIP)', color: 'text-red-700' };
 }
 
+let _goalCounter = 0;
+let _kpiCounter = 0;
+
 function makeGoal(): GoalRow {
-  return { id: `g-${Date.now()}-${Math.random()}`, goal: '', target: '', actual: '', selfRating: 3, supervisorRating: 3, weight: 25, comments: '' };
+  return { id: `g-${++_goalCounter}`, goal: '', target: '', actual: '', selfRating: 3, supervisorRating: 3, weight: 25, comments: '' };
 }
 
 function makeKPI(): KPIRow {
-  return { id: `k-${Date.now()}-${Math.random()}`, kpiId: '', target: '', actual: '', status: 'On Track', selfRating: 3, supervisorRating: 3 };
+  return { id: `k-${++_kpiCounter}`, kpiId: '', target: '', actual: '', status: 'On Track', selfRating: 3, supervisorRating: 3 };
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -346,7 +349,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
     reviewType: 'Mid-Year Review',
     supervisorId: '',
     supervisor: '',
-    reviewDate: new Date().toISOString().split('T')[0],
+    reviewDate: '',
     goals: [makeGoal(), makeGoal(), makeGoal()],
     kpis: [makeKPI(), makeKPI()],
     bscRatings: PERSPECTIVES.map((p) => ({
@@ -380,6 +383,11 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
     supervisorSignature: '',
     hrSignature: '',
   });
+
+  // Populate reviewDate after mount to avoid SSR/client mismatch
+  useEffect(() => {
+    setForm((prev) => prev.reviewDate ? prev : { ...prev, reviewDate: new Date().toISOString().split('T')[0] });
+  }, []);
 
   useEffect(() => {
     if (!profile?.staffId || staffList.length === 0) return;

@@ -21,6 +21,7 @@ import {
   WorkplanRow,
 } from '@/hooks/useWorkplans';
 import { useAuth } from '@/contexts/AuthContext';
+import { formatDateShort } from '@/lib/dateUtils';
 
 // ── Status display helpers ─────────────────────────────────────────────────────
 const STATUS_LABELS: Record<string, string> = {
@@ -295,11 +296,7 @@ function WorkplanTableRow({ row, onOpen }: WorkplanTableRowProps) {
   const stageLabel = STAGE_LABELS[row.workflow_stage] ?? row.workflow_stage;
 
   const updatedDate = row.updated_at
-    ? new Date(row.updated_at).toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      })
+    ? formatDateShort(row.updated_at)
     : '—';
 
   return (
