@@ -82,6 +82,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
 
       {/* Main content — offset by sidebar width on desktop */}
       <div
+        suppressHydrationWarning
         className={`flex-1 flex flex-col min-h-screen min-w-0 transition-all duration-300 ease-in-out ml-0 ${
           collapsed ? 'lg:ml-16' : 'lg:ml-60'
         }`}
