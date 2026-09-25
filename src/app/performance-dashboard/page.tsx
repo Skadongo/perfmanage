@@ -112,7 +112,7 @@ function StaffUpdateBanner({ onDismiss }: { onDismiss: () => void }) {
 
 // ── Main page ───────────────────────────────────────────────────────────────
 export default function PerformanceDashboardPage() {
-  const { profile } = useAuth();
+  const { profile, loading } = useAuth();
   const { isOnline } = useServiceWorker();
 
   const systemRole = profile?.systemRole ?? 'default';
@@ -153,6 +153,19 @@ export default function PerformanceDashboardPage() {
     config.liveStripMetrics.includes(item.key as typeof config.liveStripMetrics[number])
   );
 
+  // Guard: while auth is loading, render a stable skeleton so SSR and client match
+  if (loading) {
+    return (
+      <AppLayout pageTitle="Performance Dashboard" pageSubtitle="Loading…">
+        <div className="space-y-5">
+          <MetricCardSkeleton count={4} />
+          <ChartSkeleton height={240} />
+          <TableSkeleton rows={5} cols={5} />
+        </div>
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout
       pageTitle={config.roleLabel}
@@ -160,7 +173,7 @@ export default function PerformanceDashboardPage() {
       actions={
         <div className="flex items-center gap-2">
           {!isOnline && (
-            <span className="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-amber-700 bg-amber-50 border-amber-200">
+            <span suppressHydrationWarning className="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-amber-700 bg-amber-50 border-amber-200">
               <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
               Offline
             </span>
@@ -185,7 +198,7 @@ export default function PerformanceDashboardPage() {
     >
       <div className="space-y-5">
         {!isOnline && (
-          <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+          <div suppressHydrationWarning className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
             <Icon name="WifiIcon" size={16} className="text-amber-600 flex-shrink-0" />
             <span className="flex-1 font-500">You&apos;re offline. Viewing cached dashboard data.</span>
           </div>
