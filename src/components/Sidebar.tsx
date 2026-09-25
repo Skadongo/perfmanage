@@ -92,10 +92,10 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
 
         {/* Logo */}
         <div suppressHydrationWarning className={`flex items-center border-b border-border h-[60px] px-3 ${collapsed ? 'lg:justify-center' : 'justify-between'}`}>
-          <div className="flex items-center gap-2 min-w-0">
+          <div suppressHydrationWarning className="flex items-center gap-2 min-w-0">
             <AppLogo size={48} />
             {/* Always show label on mobile drawer; hide when collapsed on desktop */}
-            <span className={`font-sans font-700 text-sm text-foreground truncate leading-tight ${collapsed ? 'lg:hidden' : ''}`}>
+            <span suppressHydrationWarning className={`font-sans font-700 text-sm text-foreground truncate leading-tight ${collapsed ? 'lg:hidden' : ''}`}>
               ECSA-HC
               <span className="block text-[10px] font-400 text-muted-foreground">PMS</span>
             </span>
