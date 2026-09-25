@@ -1,9 +1,9 @@
 'use client';
 
+// Static imports only — no React.lazy, no next/dynamic, no Suspense
 import React, { useState, useCallback } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
-
 import { useAuth } from '@/contexts/AuthContext';
 import { useRealtimeDashboard, type LiveStats } from '@/hooks/useRealtimeDashboard';
 import { useServiceWorker } from '@/hooks/useServiceWorker';
@@ -13,8 +13,6 @@ import {
   type RoleDashboardConfig,
 } from './config/roleDashboardConfig';
 import type { DrillDownFilter } from './components/StaffDrillDownModal';
-
-// ── Direct static imports ──────────────────────────────────────────────────
 import DashboardMetricCards from './components/DashboardMetricCards';
 import BSCPerspectiveChart from './components/BSCPerspectiveChart';
 import KPITrendChart from './components/KPITrendChart';
@@ -83,7 +81,7 @@ const ALL_STRIP_ITEMS: StripItem[] = [
   },
 ];
 
-// ── Role notification banner ────────────────────────────────────────────────
+// ── Role notification banners ───────────────────────────────────────────────
 function RoleChangeBanner({ onDismiss }: { onDismiss: () => void }) {
   return (
     <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
@@ -119,10 +117,6 @@ export default function PerformanceDashboardPage() {
   const roleBucket = resolveRoleBucket(systemRole);
   const config: RoleDashboardConfig = getRoleDashboardConfig(roleBucket);
 
-  // Scope data based on role:
-  // - staff_member → filter by own staffId
-  // - supervisor   → filter by supervisorId (their staffId is the supervisor_id on reports)
-  // - director/admin/hr → no filter (org-wide)
   const scopedStaffId = config.dataScope === 'self' ? (profile?.staffId ?? null) : null;
   const supervisorStaffId = config.dataScope === 'direct' ? (profile?.staffId ?? null) : null;
 
@@ -149,7 +143,7 @@ export default function PerformanceDashboardPage() {
   const handleDrillDown = (filter: DrillDownFilter) => setDrillFilter(filter);
   const handleCloseModal = () => setDrillFilter(null);
 
-  const stripItems = ALL_STRIP_ITEMS.filter(item =>
+  const stripItems = ALL_STRIP_ITEMS.filter((item) =>
     config.liveStripMetrics.includes(item.key as typeof config.liveStripMetrics[number])
   );
 
@@ -159,7 +153,6 @@ export default function PerformanceDashboardPage() {
       pageSubtitle={config.dashboardSubtitle}
       actions={
         <div className="flex items-center gap-2">
-          {/* Offline indicator */}
           {!isOnline && (
             <span className="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-600 text-amber-700 bg-amber-50 border-amber-200">
               <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
@@ -217,7 +210,7 @@ export default function PerformanceDashboardPage() {
         {config.showLiveStrip && liveStats && (
           <div className={`grid gap-2 sm:gap-3 ${
             stripItems.length <= 2 ? 'grid-cols-2' :
-            stripItems.length === 3 ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6'
+            stripItems.length === 3 ? 'grid-cols-3': 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6'
           }`}>
             {stripItems.map((item) => {
               const raw = liveStats[item.key] as number;
@@ -321,7 +314,6 @@ export default function PerformanceDashboardPage() {
         )}
       </div>
 
-      {/* Staff Drill-Down Modal */}
       {drillFilter && (
         <StaffDrillDownModal filter={drillFilter} onClose={handleCloseModal} />
       )}
