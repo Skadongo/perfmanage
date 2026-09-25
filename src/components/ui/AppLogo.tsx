@@ -28,7 +28,7 @@ const AppLogo = memo(function AppLogo({
   }, [onClick, className]);
 
   return (
-    <div className={containerClassName} onClick={onClick}>
+    <div suppressHydrationWarning className={containerClassName} onClick={onClick}>
       {/* Show image if src provided, otherwise show icon */}
       {src ?
       <AppImage

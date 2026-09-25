@@ -97,7 +97,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
             {/* Always show label on mobile drawer; hide when collapsed on desktop */}
             <span suppressHydrationWarning className={`font-sans font-700 text-sm text-foreground truncate leading-tight ${collapsed ? 'lg:hidden' : ''}`}>
               ECSA-HC
-              <span className="block text-[10px] font-400 text-muted-foreground">PMS</span>
+              <span suppressHydrationWarning className="block text-[10px] font-400 text-muted-foreground">PMS</span>
             </span>
           </div>
 
