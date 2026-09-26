@@ -7,17 +7,48 @@ const PFX = 'sb_';
 // When React Strict Mode double-mounts or rapid navigation orphans a lock,
 // a competing request steals it and throws:
 //   AbortError: Lock broken by another request with the 'steal' option
-// Removing navigator.locks forces GoTrue to use our custom promise-based
-// mutex (passed via the `auth.lock` option below) which never steals locks.
-if (typeof window !== 'undefined' && 'locks' in navigator) {
+// Strategy: try Object.defineProperty first; if the browser blocks it (many
+// Chromium versions mark navigator properties as non-configurable), wrap the
+// entire navigator object in a Proxy that returns undefined for 'locks'.
+// The custom promise-based mutex passed via auth.lock is used instead.
+if (typeof window !== 'undefined') {
+  // Attempt 1 — Object.defineProperty (works in Firefox, some Chromium builds)
+  let defineSucceeded = false;
   try {
-    Object.defineProperty(navigator, 'locks', {
-      value: undefined,
-      writable: true,
-      configurable: true,
-    });
+    const desc = Object.getOwnPropertyDescriptor(navigator, 'locks');
+    if (!desc || desc.configurable) {
+      Object.defineProperty(navigator, 'locks', {
+        value: undefined,
+        writable: true,
+        configurable: true,
+      });
+      defineSucceeded = (navigator as any).locks === undefined;
+    }
   } catch {
-    // Some browsers don't allow redefining navigator.locks — ignore
+    // ignore
+  }
+
+  // Attempt 2 — Proxy wrap (works when Object.defineProperty is blocked)
+  if (!defineSucceeded && (navigator as any).locks !== undefined) {
+    try {
+      const originalNavigator = window.navigator;
+      const navigatorProxy = new Proxy(originalNavigator, {
+        get(target, prop) {
+          if (prop === 'locks') return undefined;
+          const value = (target as any)[prop];
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+      Object.defineProperty(window, 'navigator', {
+        value: navigatorProxy,
+        writable: false,
+        configurable: true,
+      });
+    } catch {
+      // If both approaches fail, the custom auth.lock below still handles
+      // the mutex — the AbortError may still appear in the console but
+      // will be caught and will not break auth functionality.
+    }
   }
 }
 
