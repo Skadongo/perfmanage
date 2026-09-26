@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
@@ -56,25 +56,10 @@ interface SidebarProps {
 export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const { getDisplayName, getInitials, profile } = useAuth();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const roleLabel = profile?.systemRole
     ? profile.systemRole.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
     : 'Staff Member';
-
-  // On the server and first client render, render a minimal placeholder
-  // to avoid hydration mismatches from the component tagger line numbers
-  if (!mounted) {
-    return (
-      <>
-        <aside className="fixed left-0 top-0 h-screen bg-white border-r border-border z-40 flex flex-col w-72 sm:w-64 lg:w-60 -translate-x-full lg:translate-x-0" />
-      </>
-    );
-  }
 
   return (
     <>
