@@ -5,8 +5,11 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- 1. Materialised view: org-wide dashboard summary
+--    Includes explicit `id` column (integer 1) so a real unique index can be
+--    created — required for REFRESH MATERIALIZED VIEW CONCURRENTLY.
 CREATE MATERIALIZED VIEW IF NOT EXISTS public.mv_dashboard_summary AS
 SELECT
+  1                                                               AS id,
   COUNT(*)                                                        AS total_reviews,
   COUNT(*) FILTER (WHERE review_status IN ('submitted','reviewed','approved'))
                                                                   AS submitted_reviews,
@@ -19,9 +22,10 @@ SELECT
   NOW()                                                           AS last_refreshed
 FROM public.mid_year_reviews;
 
--- 2. Unique index required for REFRESH CONCURRENTLY
+-- 2. Unique index on real column `id` — required for REFRESH CONCURRENTLY
+--    (constant-expression indexes like ((1)) do NOT satisfy this requirement)
 CREATE UNIQUE INDEX IF NOT EXISTS mv_dashboard_summary_idx
-  ON public.mv_dashboard_summary ((1));
+  ON public.mv_dashboard_summary (id);
 
 -- 3. Materialised view: per-staff summary (used by staff-scoped dashboard)
 CREATE MATERIALIZED VIEW IF NOT EXISTS public.mv_staff_dashboard_summary AS
