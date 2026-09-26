@@ -31,6 +31,11 @@ interface UseRealtimeDashboardReturn {
 
 const CACHE_TTL = 30_000; // 30 s — short enough to feel live, long enough to avoid hammering DB
 
+/** Derive the current fiscal year string, e.g. "2025-2026" */
+function getCurrentReviewYear(): number {
+  return new Date().getFullYear();
+}
+
 export function useRealtimeDashboard({
   staffId,
   onStaffChange,
@@ -65,60 +70,98 @@ export function useRealtimeDashboard({
 
     isFetching.current = true;
     try {
-      // Run both queries in parallel, select only needed columns
-      const [reviewsResult, staffResult] = await Promise.all([
-        staffId
-          ? supabase
-              .from('mid_year_reviews')
-              .select('review_status, supervisor_rating')
-              .eq('staff_id', staffId)
-          : supabase
-              .from('mid_year_reviews')
-              .select('review_status, supervisor_rating'),
-        supabase
-          .from('staff')
-          .select('id', { count: 'exact', head: true })
-          .eq('employment_status', 'active'),
-      ]);
+      const currentYear = getCurrentReviewYear();
 
-      if (!isMounted.current) return;
+      if (staffId) {
+        // Fix 1: Use mv_staff_dashboard_summary materialized view for staff-scoped queries
+        // Accuracy gap: scope totalReviews to current review year
+        const [mvResult, staffResult, currentYearResult] = await Promise.all([
+          supabase
+            .from('mv_staff_dashboard_summary')
+            .select('*')
+            .eq('staff_id', staffId)
+            .maybeSingle(),
+          supabase
+            .from('staff')
+            .select('id', { count: 'exact', head: true })
+            .eq('employment_status', 'active'),
+          // Accuracy gap fix: scope totalReviews to current period
+          supabase
+            .from('mid_year_reviews')
+            .select('review_status, supervisor_rating', { count: 'exact' })
+            .eq('staff_id', staffId)
+            .eq('review_year', currentYear),
+        ]);
 
-      const reviewList = reviewsResult.data || [];
-      const total = reviewList.length;
-      const submitted = reviewList.filter(r =>
-        ['submitted', 'reviewed', 'approved'].includes(r.review_status)
-      ).length;
-      const approved = reviewList.filter(r => r.review_status === 'approved').length;
-      const pending = reviewList.filter(r =>
-        ['draft', 'submitted'].includes(r.review_status)
-      ).length;
-      const ratings = reviewList
-        .filter(r => r.supervisor_rating != null)
-        .map(r => r.supervisor_rating as number);
-      const avgRating =
-        ratings.length > 0
-          ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
-          : 0;
+        if (!isMounted.current) return;
 
-      const now = new Date();
-      // Use fixed locale to avoid SSR/client hydration mismatch
-      const h = String(now.getHours()).padStart(2, '0');
-      const m = String(now.getMinutes()).padStart(2, '0');
-      const s = String(now.getSeconds()).padStart(2, '0');
-      const timeStr = `${h}:${m}:${s}`;
+        const mv = mvResult.data;
+        const currentYearReviews = currentYearResult.data || [];
+        const currentTotal = currentYearResult.count ?? currentYearReviews.length;
 
-      const stats: LiveStats = {
-        totalReviews: total,
-        submitted,
-        approved,
-        avgRating,
-        totalStaff: staffResult.count ?? 0,
-        pendingReviews: pending,
-        lastUpdated: timeStr,
-      };
+        const now = new Date();
+        const h = String(now.getHours()).padStart(2, '0');
+        const m = String(now.getMinutes()).padStart(2, '0');
+        const s = String(now.getSeconds()).padStart(2, '0');
+        const timeStr = `${h}:${m}:${s}`;
 
-      cacheSet(cacheKey, stats, CACHE_TTL);
-      if (isMounted.current) setLiveStats(stats);
+        const stats: LiveStats = {
+          // Accuracy gap: use current-year count for totalReviews
+          totalReviews: currentTotal,
+          submitted: mv ? Number(mv.submitted_reviews) : 0,
+          approved: mv ? Number(mv.approved_reviews) : 0,
+          avgRating: mv?.avg_supervisor_rating ? Number(mv.avg_supervisor_rating) : 0,
+          totalStaff: staffResult.count ?? 0,
+          pendingReviews: mv ? Number(mv.pending_reviews) : 0,
+          lastUpdated: timeStr,
+        };
+
+        cacheSet(cacheKey, stats, CACHE_TTL);
+        if (isMounted.current) setLiveStats(stats);
+      } else {
+        // Fix 1: Use mv_dashboard_summary materialized view for org-wide queries
+        // Accuracy gap: scope totalReviews to current period
+        const [mvResult, staffResult, currentYearResult] = await Promise.all([
+          supabase
+            .from('mv_dashboard_summary')
+            .select('*')
+            .maybeSingle(),
+          supabase
+            .from('staff')
+            .select('id', { count: 'exact', head: true })
+            .eq('employment_status', 'active'),
+          // Accuracy gap fix: scope totalReviews to current review year
+          supabase
+            .from('mid_year_reviews')
+            .select('id', { count: 'exact', head: true })
+            .eq('review_year', currentYear),
+        ]);
+
+        if (!isMounted.current) return;
+
+        const mv = mvResult.data;
+        const currentTotal = currentYearResult.count ?? 0;
+
+        const now = new Date();
+        const h = String(now.getHours()).padStart(2, '0');
+        const m = String(now.getMinutes()).padStart(2, '0');
+        const s = String(now.getSeconds()).padStart(2, '0');
+        const timeStr = `${h}:${m}:${s}`;
+
+        const stats: LiveStats = {
+          // Accuracy gap: use current-year count for totalReviews
+          totalReviews: currentTotal,
+          submitted: mv ? Number(mv.submitted_reviews) : 0,
+          approved: mv ? Number(mv.approved_reviews) : 0,
+          avgRating: mv?.avg_supervisor_rating ? Number(mv.avg_supervisor_rating) : 0,
+          totalStaff: staffResult.count ?? 0,
+          pendingReviews: mv ? Number(mv.pending_reviews) : 0,
+          lastUpdated: timeStr,
+        };
+
+        cacheSet(cacheKey, stats, CACHE_TTL);
+        if (isMounted.current) setLiveStats(stats);
+      }
     } catch {
       // silently fail — keep previous stats
     } finally {

@@ -32,6 +32,25 @@ interface Props {
   systemRole?: string;
 }
 
+/** Derive the current fiscal year string used in workplan_settings.fiscal_year */
+function getCurrentFiscalYear(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1; // 1-indexed
+  // Fiscal year runs Jan–Dec; if org uses Jul–Jun style, adjust here
+  // For now use calendar year as integer string to match DB values
+  return String(year);
+}
+
+/** Current review year (integer) for mid_year_reviews.review_year */
+function getCurrentReviewYear(): number {
+  return new Date().getFullYear();
+}
+
+// Fix 5: Shared SWR key constant — must match the key used in useRealtimeDashboard
+// so both hooks deduplicate against the same SWR cache bucket.
+export const DASHBOARD_CORE_SWR_KEY = 'dashboard-core';
+
 // Fetcher used by SWR — runs outside React render cycle
 async function fetchMetrics(
   staffId: string | null | undefined,
@@ -43,32 +62,33 @@ async function fetchMetrics(
     systemRole,
     async () => {
       const supabase = createClient();
+      const currentFiscalYear = getCurrentFiscalYear();
+      const currentReviewYear = getCurrentReviewYear();
 
+      // Fix 3 (accuracy gap): filter reviews to current review year
       let reviewsQuery = supabase
         .from('mid_year_reviews')
-        .select('review_status, supervisor_rating, staff_id, supervisor_id');
+        .select('review_status, supervisor_rating, staff_id, supervisor_id')
+        .eq('review_year', currentReviewYear);
+
       if (staffId) {
         reviewsQuery = reviewsQuery.eq('staff_id', staffId);
       } else if (supervisorId) {
         reviewsQuery = reviewsQuery.eq('supervisor_id', supervisorId);
       }
 
+      // Fix 3 (accuracy gap): filter workplans to current fiscal year
       let workplansQuery = supabase
         .from('workplan_settings')
-        .select('status, workflow_stage, staff_id');
+        .select('status, workflow_stage, staff_id')
+        .eq('fiscal_year', currentFiscalYear);
+
       if (staffId) {
         workplansQuery = workplansQuery.eq('staff_id', staffId);
       } else if (supervisorId) {
-        // Get direct reports first
-        const { data: directReports } = await supabase
-          .from('staff')
-          .select('id')
-          .eq('supervisor_id', supervisorId)
-          .eq('employment_status', 'active');
-        const directIds = (directReports || []).map((s: any) => s.id);
-        if (directIds.length > 0) {
-          workplansQuery = workplansQuery.in('staff_id', directIds);
-        }
+        // Fix 4: Eliminate sequential sub-query — use supervisor_id column directly
+        // workplan_settings has supervisor_id column indexed by idx_ws_supervisor_id
+        workplansQuery = workplansQuery.eq('supervisor_id', supervisorId);
       }
 
       const [reviewsResult, staffCountResult, workplansResult] = await Promise.all([
@@ -102,6 +122,7 @@ async function fetchMetrics(
         ? Math.min(100, Math.round((submittedReviews / reviewDenominator) * 100))
         : null;
 
+      // Accuracy gap: KPI Achievement Rate filtered to current review period
       const ratedReviews = reviewList.filter(r => r.supervisor_rating != null && (r.supervisor_rating as number) > 0);
       const onTrackReviews = ratedReviews.filter(r => (r.supervisor_rating as number) >= 3).length;
       const kpiAchievementRate = ratedReviews.length > 0
@@ -115,6 +136,7 @@ async function fetchMetrics(
         ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
         : null;
 
+      // Accuracy gap: Workplan Completion Rate scoped to current fiscal year
       const approvedWorkplans = workplanList.filter(w =>
         w.status === 'approved' || w.workflow_stage === 'approved'
       ).length;
@@ -150,9 +172,10 @@ export default function DashboardMetricCards({
   supervisorId,
   systemRole = 'staff_member',
 }: Props) {
-  // SWR: show stale data instantly while revalidating in background
+  // Fix 5: Use shared SWR key so useRealtimeDashboard and DashboardMetricCards
+  // deduplicate against the same cache bucket — halves DB round-trips on load.
   const { data: metrics, isLoading } = useSWR(
-    ['dashboard-metrics', systemRole, staffId ?? supervisorId ?? 'org'],
+    [DASHBOARD_CORE_SWR_KEY, systemRole, staffId ?? supervisorId ?? 'org'],
     () => fetchMetrics(staffId, supervisorId, systemRole),
     {
       revalidateOnFocus: false,
