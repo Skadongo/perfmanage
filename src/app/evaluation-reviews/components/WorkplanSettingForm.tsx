@@ -221,6 +221,90 @@ const OBJECTIVE_OPTIONS: Record<string, string[]> = {
   ],
 };
 
+// ─── Ayebare Timothy Workplan Data (from attached PDF) ───────────────────────
+const AYEBARE_TIMOTHY_WORKPLAN: {
+  staffName: string;
+  jobTitle: string;
+  supervisorName: string;
+  fiscalYear: string;
+  reviewYear: number;
+  perspectives: Array<{
+    perspective: string;
+    objective: string;
+    keyActivities: string;
+    kpis: Array<{ label: string; target: string }>;
+    weight: number;
+  }>;
+  generalCompetencies: GeneralCompetency[];
+  staffSignature: string;
+} = {
+  staffName: 'Ayebare Timothy',
+  jobTitle: 'Snr Systems Engineer- HEPRR MPA',
+  supervisorName: 'Dr Mohammed Mohammed Ali',
+  fiscalYear: 'FY 2026-2027 (Jul–Jun)',
+  reviewYear: 2027,
+  perspectives: [
+    {
+      perspective: 'Internal Business Processes',
+      objective: 'Support regional information systems for health emergencies and the digitalization of the health sector',
+      keyActivities: 'Support 4 countries to develop, adopt, and roll out digital point-of-entry (PoE) screening/surveillance tools',
+      kpis: [
+        {
+          label: 'Number of countries supported to expand, adopt, pilot, or roll out digital POE/surveillance tools',
+          target: '4 countries',
+        },
+      ],
+      weight: 5,
+    },
+    {
+      perspective: 'Internal Business Processes',
+      objective: 'Develop and deploy a digital interoperability layer for HIS/surveillance tools in project countries',
+      keyActivities: 'Develop and deploy a digital interoperability layer for HIS/surveillance tools in three project countries, enabling secure, standards-based exchange of priority health emergency and surveillance data across national systems, with national teams able to operate and sustain the interoperability functions',
+      kpis: [
+        {
+          label: 'Number of countries supported to develop an HIS layer for interoperability of primary ECSA-HC deployed tools and other national digital tools',
+          target: '3 countries',
+        },
+      ],
+      weight: 5,
+    },
+    {
+      perspective: 'Internal Business Processes',
+      objective: 'Coordinate and deliver the rollout of SLIPTA/digital regional tools across project countries',
+      keyActivities: 'Regional activity: coordinate and deliver the rollout of SLIPTA/digital regional tools across 3 project countries',
+      kpis: [
+        {
+          label: 'Number of countries supported to roll out SLIPTA/digital regional tools across 3 project countries',
+          target: '3 countries',
+        },
+      ],
+      weight: 4,
+    },
+    {
+      perspective: 'Innovation Learning & Growth',
+      objective: 'Coordinate and deliver the deployment of digital AMR/regional tools across project countries',
+      keyActivities: 'Regional activity: coordinate and deliver the deployment of digital AMR/regional tools across three project countries',
+      kpis: [
+        {
+          label: 'Number of countries supported to deliver deployment of digital AMR/regional tools across three project countries',
+          target: '3 countries',
+        },
+      ],
+      weight: 2,
+    },
+  ],
+  generalCompetencies: [
+    { id: 'gc-1', name: 'Teamwork', description: 'Creates a culture of teamwork and responds rationally to feedback', weight: 5 },
+    { id: 'gc-2', name: 'Respect for Diversity', description: 'Values individual differences and promotes a peaceful work environment', weight: 5 },
+    { id: 'gc-3', name: 'Integrity', description: 'Reliable, meets all deadlines, and takes credit only for own work', weight: 5 },
+    { id: 'gc-4', name: 'Communication', description: 'Explains complex issues clearly and uses visual aids effectively', weight: 5 },
+    { id: 'gc-5', name: 'Results Oriented', description: 'Prioritizes activities and matches tasks with team capabilities', weight: 4 },
+    { id: 'gc-6', name: 'Innovation', description: 'Thinks outside the box to foster team creativity', weight: 4 },
+    { id: 'gc-7', name: 'Leadership (GS3+)', description: 'Acts as a role model and provides timely specific feedback to staff', weight: 2 },
+  ],
+  staffSignature: 'Ayebare Timothy',
+};
+
 // ─── Objective Combobox Component ────────────────────────────────────────────
 interface ObjectiveComboboxProps {
   value: string;
@@ -740,6 +824,43 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     staffSignature: '',
     supervisorSignature: '',
   });
+
+  // ── Pre-fill from Ayebare Timothy PDF workplan ────────────────────────────
+  const [prefillApplied, setPrefillApplied] = useState(false);
+
+  function prefillFromWorkplanPDF() {
+    const data = AYEBARE_TIMOTHY_WORKPLAN;
+    const newRows: PerspectiveRow[] = data.perspectives.map((p) => ({
+      id: `p-pdf-${Date.now()}-${Math.random()}`,
+      perspective: p.perspective,
+      objective: p.objective,
+      keyActivities: p.keyActivities,
+      kpis: p.kpis.map((k, ki) => ({
+        id: `kpi-pdf-${Date.now()}-${ki}-${Math.random()}`,
+        label: k.label,
+        target: k.target,
+      })),
+      weight: p.weight,
+    }));
+
+    setForm((prev) => ({
+      ...prev,
+      fiscalYear: data.fiscalYear,
+      reviewYear: data.reviewYear,
+      perspectivesObjectives: newRows,
+      generalCompetencies: data.generalCompetencies.map((c) => ({ ...c })),
+      staffSignature: data.staffSignature,
+    }));
+
+    // If staff name matches, also try to pre-fill supervisor name
+    if (!form.supervisorName && data.supervisorName) {
+      setForm((prev) => ({ ...prev, supervisorName: data.supervisorName }));
+    }
+
+    setPrefillApplied(true);
+    setStep1Errors({ rows: {} });
+    toast.success('Workplan pre-filled from Ayebare Timothy\'s PDF contract. Please verify staff selection and supervisor, then save.');
+  }
 
   // ── Autosave hook ────────────────────────────────────────────────────────
   const autosaveEnabled = !!form.staffId;
@@ -1677,11 +1798,39 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
               <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                 <span className="text-xs font-800 text-primary">2</span>
               </div>
-              <div>
+              <div className="flex-1">
                 <h3 className="text-sm font-700 text-foreground">Perspectives, Objectives & KPIs</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">Define the BSC perspectives, objectives, and KPIs for the evaluation year</p>
               </div>
+              {/* Pre-fill from PDF button */}
+              <button
+                type="button"
+                onClick={prefillFromWorkplanPDF}
+                className="flex-shrink-0 inline-flex items-center gap-1.5 text-xs font-600 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
+                title="Pre-fill this form with Ayebare Timothy's workplan data from the attached PDF"
+              >
+                <Icon name="DocumentArrowDownIcon" size={13} />
+                Pre-fill from PDF
+              </button>
             </div>
+
+            {/* Pre-fill applied notice */}
+            {prefillApplied && (
+              <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700">
+                <Icon name="InformationCircleIcon" size={14} className="text-blue-500 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-700">Workplan pre-filled from Ayebare Timothy's PDF contract</p>
+                  <p className="mt-0.5 text-blue-600">4 objectives and 7 competencies loaded. Review and adjust as needed before saving.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPrefillApplied(false)}
+                  className="ml-auto flex-shrink-0 p-0.5 rounded hover:bg-blue-100 text-blue-400 hover:text-blue-600 transition-colors"
+                >
+                  <Icon name="XMarkIcon" size={13} />
+                </button>
+              </div>
+            )}
 
             {/* Weight badges */}
             <div className="flex flex-wrap items-center gap-2">
