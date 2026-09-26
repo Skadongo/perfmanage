@@ -29,6 +29,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [currentYear, setCurrentYear] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
@@ -49,6 +50,10 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   }, []);
 
   useServiceWorker(); // Register SW and keep online/offline state in sync
+
+  useEffect(() => {
+    setCurrentYear(new Date().getFullYear());
+  }, []);
 
   const handleSignOut = async () => {
     try {
@@ -203,7 +208,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
               </div>
             </div>
             <p suppressHydrationWarning className="text-[11px] text-muted-foreground text-center">
-              © {new Date().getFullYear()} East, Central &amp; Southern Africa Health Community. All rights reserved.
+              © {currentYear ?? ''} East, Central &amp; Southern Africa Health Community. All rights reserved.
             </p>
             <div className="hidden sm:flex items-center gap-4">
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
