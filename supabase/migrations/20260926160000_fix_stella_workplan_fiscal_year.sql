@@ -45,5 +45,14 @@ ORDER BY s.full_name, ws.fiscal_year DESC;
 -- Grant read access to authenticated users (HR officers)
 GRANT SELECT ON public.v_workplan_status_summary TO authenticated;
 
--- 5. Refresh dashboard materialized views so the corrected data is reflected
+-- 5. Ensure unique indexes exist on materialized views before CONCURRENT refresh
+--    REFRESH MATERIALIZED VIEW CONCURRENTLY requires a unique index with no WHERE clause.
+--    These are idempotent — safe to re-run even if the indexes already exist.
+CREATE UNIQUE INDEX IF NOT EXISTS mv_dashboard_summary_idx
+  ON public.mv_dashboard_summary ((1));
+
+CREATE UNIQUE INDEX IF NOT EXISTS mv_staff_dashboard_summary_idx
+  ON public.mv_staff_dashboard_summary (staff_id);
+
+-- 6. Refresh dashboard materialized views so the corrected data is reflected
 SELECT public.refresh_dashboard_views();
