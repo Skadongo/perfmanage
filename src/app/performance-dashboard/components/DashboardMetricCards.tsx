@@ -19,6 +19,8 @@ interface MetricData {
   cpdCompletionRate: number | null;
   avgSupervisorRating: number | null;
   totalStaff: number;
+  /** ISO timestamp from mv_dashboard_summary.last_refreshed — null if not available */
+  mvLastRefreshed: string | null;
 }
 
 interface Props {
@@ -32,14 +34,18 @@ interface Props {
   systemRole?: string;
 }
 
-/** Derive the current fiscal year string used in workplan_settings.fiscal_year */
+/** Derive the current fiscal year string used in workplan_settings.fiscal_year
+ *  The DB default is 'FY 2025-2026', so we match that format.
+ */
 function getCurrentFiscalYear(): string {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1; // 1-indexed
-  // Fiscal year runs Jan–Dec; if org uses Jul–Jun style, adjust here
-  // For now use calendar year as integer string to match DB values
-  return String(year);
+  // Fiscal year runs Jul–Jun: Jul 2025 → Jun 2026 = "FY 2025-2026"
+  // If before July, fiscal year started in previous calendar year
+  const fyStart = month >= 7 ? year : year - 1;
+  const fyEnd = fyStart + 1;
+  return `FY ${fyStart}-${fyEnd}`;
 }
 
 /** Current review year (integer) for mid_year_reviews.review_year */
@@ -50,6 +56,40 @@ function getCurrentReviewYear(): number {
 // Fix 5: Shared SWR key constant — must match the key used in useRealtimeDashboard
 // so both hooks deduplicate against the same SWR cache bucket.
 export const DASHBOARD_CORE_SWR_KEY = 'dashboard-core';
+
+/** Format an ISO timestamp into a human-readable "Last Updated" string */
+function formatLastRefreshed(iso: string | null): string {
+  if (!iso) return 'Unknown';
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMins = Math.floor(diffMs / 60_000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHrs = Math.floor(diffMins / 60);
+    if (diffHrs < 24) return `${diffHrs}h ago`;
+    const diffDays = Math.floor(diffHrs / 24);
+    return `${diffDays}d ago`;
+  } catch {
+    return 'Unknown';
+  }
+}
+
+/** Determine refresh status badge based on how stale the materialized view is */
+function getRefreshStatus(iso: string | null): { label: string; color: string; bg: string; border: string } {
+  if (!iso) return { label: 'Unknown', color: 'text-gray-500', bg: 'bg-gray-50', border: 'border-gray-200' };
+  try {
+    const diffMs = new Date().getTime() - new Date(iso).getTime();
+    const diffMins = Math.floor(diffMs / 60_000);
+    if (diffMins <= 5) return { label: 'Live', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' };
+    if (diffMins <= 15) return { label: 'Recent', color: 'text-sky-700', bg: 'bg-sky-50', border: 'border-sky-200' };
+    if (diffMins <= 60) return { label: 'Syncing', color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200' };
+    return { label: 'Stale', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' };
+  } catch {
+    return { label: 'Unknown', color: 'text-gray-500', bg: 'bg-gray-50', border: 'border-gray-200' };
+  }
+}
 
 // Fetcher used by SWR — runs outside React render cycle
 async function fetchMetrics(
@@ -78,6 +118,7 @@ async function fetchMetrics(
       }
 
       // Fix 3 (accuracy gap): filter workplans to current fiscal year
+      // IMPORTANT: fiscal_year column default is 'FY 2025-2026' format — must match exactly
       let workplansQuery = supabase
         .from('workplan_settings')
         .select('status, workflow_stage, staff_id')
@@ -87,11 +128,16 @@ async function fetchMetrics(
         workplansQuery = workplansQuery.eq('staff_id', staffId);
       } else if (supervisorId) {
         // Fix 4: Eliminate sequential sub-query — use supervisor_id column directly
-        // workplan_settings has supervisor_id column indexed by idx_ws_supervisor_id
         workplansQuery = workplansQuery.eq('supervisor_id', supervisorId);
       }
 
-      const [reviewsResult, staffCountResult, workplansResult] = await Promise.all([
+      // Fetch mv last_refreshed for the "Last Updated" badge
+      const mvRefreshQuery = supabase
+        .from('mv_dashboard_summary')
+        .select('last_refreshed')
+        .maybeSingle();
+
+      const [reviewsResult, staffCountResult, workplansResult, mvResult] = await Promise.all([
         reviewsQuery,
         supervisorId
           ? supabase
@@ -104,17 +150,17 @@ async function fetchMetrics(
               .select('id', { count: 'exact', head: true })
               .eq('employment_status', 'active'),
         workplansQuery,
+        mvRefreshQuery,
       ]);
 
       const reviewList = reviewsResult.data || [];
       const workplanList = workplansResult.data || [];
       const staffCount = staffCountResult.count ?? 0;
+      const mvLastRefreshed = mvResult.data?.last_refreshed ?? null;
 
       const submittedReviews = reviewList.filter(r =>
         ['submitted', 'reviewed', 'approved'].includes(r.review_status)
       ).length;
-      // For a single staff member: denominator is 1 (they either submitted or not)
-      // For org/supervisor view: denominator is total staff count
       const reviewDenominator = staffId
         ? 1
         : Math.max(staffCount, 1);
@@ -122,7 +168,6 @@ async function fetchMetrics(
         ? Math.min(100, Math.round((submittedReviews / reviewDenominator) * 100))
         : null;
 
-      // Accuracy gap: KPI Achievement Rate filtered to current review period
       const ratedReviews = reviewList.filter(r => r.supervisor_rating != null && (r.supervisor_rating as number) > 0);
       const onTrackReviews = ratedReviews.filter(r => (r.supervisor_rating as number) >= 3).length;
       const kpiAchievementRate = ratedReviews.length > 0
@@ -136,7 +181,6 @@ async function fetchMetrics(
         ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10
         : null;
 
-      // Accuracy gap: Workplan Completion Rate scoped to current fiscal year
       const approvedWorkplans = workplanList.filter(w =>
         w.status === 'approved' || w.workflow_stage === 'approved'
       ).length;
@@ -157,6 +201,7 @@ async function fetchMetrics(
         cpdCompletionRate,
         avgSupervisorRating,
         totalStaff: staffCount,
+        mvLastRefreshed,
       };
     },
     TTL_DASHBOARD_METRICS,
@@ -172,14 +217,12 @@ export default function DashboardMetricCards({
   supervisorId,
   systemRole = 'staff_member',
 }: Props) {
-  // Fix 5: Use shared SWR key so useRealtimeDashboard and DashboardMetricCards
-  // deduplicate against the same cache bucket — halves DB round-trips on load.
   const { data: metrics, isLoading } = useSWR(
     [DASHBOARD_CORE_SWR_KEY, systemRole, staffId ?? supervisorId ?? 'org'],
     () => fetchMetrics(staffId, supervisorId, systemRole),
     {
       revalidateOnFocus: false,
-      dedupingInterval: 30_000, // 30 s dedup window
+      dedupingInterval: 30_000,
       fallbackData: undefined,
     }
   );
@@ -198,6 +241,7 @@ export default function DashboardMetricCards({
     cpdCompletionRate: null,
     avgSupervisorRating: null,
     totalStaff: 0,
+    mvLastRefreshed: null,
   };
 
   const kpiValue = m.kpiAchievementRate !== null ? `${m.kpiAchievementRate}%` : '—';
@@ -207,6 +251,10 @@ export default function DashboardMetricCards({
   const cpdValue = m.cpdCompletionRate !== null ? `${m.cpdCompletionRate}%` : '—';
   const cpdRaw = m.cpdCompletionRate ?? 0;
   const avgRatingValue = m.avgSupervisorRating !== null ? `${m.avgSupervisorRating}/5` : '—';
+
+  // Shared refresh info shown on every card
+  const lastUpdatedLabel = formatLastRefreshed(m.mvLastRefreshed);
+  const refreshStatus = getRefreshStatus(m.mvLastRefreshed);
 
   const ALL_METRICS = [
     {
@@ -320,78 +368,96 @@ export default function DashboardMetricCards({
     : filteredMetrics;
 
   return (
-    /* Responsive grid: 1 col on mobile, 2 on sm, 3 on lg, 4 on xl */
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-      {/* Hero card — spans full width on mobile, 2 cols on sm+ */}
-      {heroMetric && (
-        <button
-          onClick={() => onMetricClick({ type: 'metric', label: heroMetric.label, subLabel: `${heroMetric.value} · Target: ${heroMetric.target}`, value: heroMetric.rawValue, status: heroMetric.drillStatus })}
-          className="col-span-1 sm:col-span-2 bg-primary rounded-xl p-4 sm:p-5 shadow-card border border-primary/20 flex flex-col gap-3 text-left cursor-pointer hover:brightness-105 active:scale-[0.99] transition-all focus:outline-none focus:ring-2 focus:ring-white/50"
-          aria-label={`View staff breakdown for ${heroMetric.label}`}
-        >
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs font-600 uppercase tracking-wider text-primary-foreground/70">{heroMetric.label}</p>
-              <p className="text-3xl sm:text-4xl font-700 text-white mt-1 tabular-nums font-mono">{heroMetric.value}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center">
-                <Icon name={heroMetric.icon as Parameters<typeof Icon>[0]['name']} size={22} className="text-white" />
+    <div className="space-y-2">
+      {/* Refresh status bar — shown above cards */}
+      <div className="flex items-center justify-between px-0.5">
+        <p className="text-[11px] text-muted-foreground font-500 flex items-center gap-1.5">
+          <Icon name="ArrowPathIcon" size={11} className="text-muted-foreground" />
+          Materialized view synced via pg_cron every 5 min
+        </p>
+        <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[11px] font-600 ${refreshStatus.bg} ${refreshStatus.color} ${refreshStatus.border}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${refreshStatus.label === 'Live' ? 'bg-emerald-500 animate-pulse' : refreshStatus.label === 'Recent' ? 'bg-sky-500' : refreshStatus.label === 'Syncing' ? 'bg-amber-500' : 'bg-red-500'}`} />
+          {refreshStatus.label} · Updated {lastUpdatedLabel}
+        </div>
+      </div>
+
+      {/* Responsive grid: 1 col on mobile, 2 on sm, 3 on lg, 4 on xl */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+        {/* Hero card — spans full width on mobile, 2 cols on sm+ */}
+        {heroMetric && (
+          <button
+            onClick={() => onMetricClick({ type: 'metric', label: heroMetric.label, subLabel: `${heroMetric.value} · Target: ${heroMetric.target}`, value: heroMetric.rawValue, status: heroMetric.drillStatus })}
+            className="col-span-1 sm:col-span-2 bg-primary rounded-xl p-4 sm:p-5 shadow-card border border-primary/20 flex flex-col gap-3 text-left cursor-pointer hover:brightness-105 active:scale-[0.99] transition-all focus:outline-none focus:ring-2 focus:ring-white/50"
+            aria-label={`View staff breakdown for ${heroMetric.label}`}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs font-600 uppercase tracking-wider text-primary-foreground/70">{heroMetric.label}</p>
+                <p className="text-3xl sm:text-4xl font-700 text-white mt-1 tabular-nums font-mono">{heroMetric.value}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center">
+                  <Icon name={heroMetric.icon as Parameters<typeof Icon>[0]['name']} size={22} className="text-white" />
+                </div>
               </div>
             </div>
-          </div>
-          <ProgressBar value={heroMetric.rawValue} colorClass="bg-white/60" height="h-1.5" />
-          <div className="flex items-center justify-between flex-wrap gap-1">
-            <p className="text-xs text-primary-foreground/70">{heroMetric.description}</p>
-            <span className="text-xs font-600 text-white bg-white/20 px-2 py-0.5 rounded-full">{heroMetric.delta}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] text-primary-foreground/50">Target: {heroMetric.target}</p>
-            <span className="text-[11px] text-white/60 flex items-center gap-1">
-              <Icon name="UsersIcon" size={11} className="text-white/60" />
-              View staff →
-            </span>
-          </div>
-        </button>
-      )}
-
-      {/* Regular cards */}
-      {regularMetrics.map((metric) => (
-        <button
-          key={metric.id}
-          onClick={() => onMetricClick({ type: 'metric', label: metric.label, subLabel: `${metric.value} · Target: ${metric.target}`, value: metric.rawValue, status: metric.drillStatus })}
-          className={`bg-white rounded-xl p-3 sm:p-4 shadow-card border ${metric.alert ? metric.borderColor : 'border-border'} flex flex-col gap-3 ${metric.alert ? metric.bgColor : ''} text-left cursor-pointer hover:shadow-elevated active:scale-[0.99] transition-all focus:outline-none focus:ring-2 focus:ring-primary/30`}
-          aria-label={`View staff breakdown for ${metric.label}`}
-        >
-          <div className="flex items-start justify-between">
-            <div className={`w-9 h-9 rounded-lg ${metric.bgColor} flex items-center justify-center`}>
-              <Icon name={metric.icon as Parameters<typeof Icon>[0]['name']} size={18} className={metric.color} />
+            <ProgressBar value={heroMetric.rawValue} colorClass="bg-white/60" height="h-1.5" />
+            <div className="flex items-center justify-between flex-wrap gap-1">
+              <p className="text-xs text-primary-foreground/70">{heroMetric.description}</p>
+              <span className="text-xs font-600 text-white bg-white/20 px-2 py-0.5 rounded-full">{heroMetric.delta}</span>
             </div>
-            {metric.alert && (
-              <span className="text-[10px] font-700 bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full border border-red-200">
-                ⚠ Alert
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] text-primary-foreground/50">Target: {heroMetric.target}</p>
+              <span className="text-[11px] text-white/60 flex items-center gap-1">
+                <Icon name="ClockIcon" size={10} className="text-white/50" />
+                {lastUpdatedLabel}
               </span>
-            )}
-          </div>
-          <div>
-            <p className="text-[11px] font-600 uppercase tracking-wider text-muted-foreground">{metric.label}</p>
-            <p className={`text-2xl font-700 mt-0.5 tabular-nums font-mono ${metric.color}`}>{metric.value}</p>
-          </div>
-          <ProgressBar value={metric.rawValue} colorClass={metric.progressColor} height="h-1.5" />
-          <div className="flex items-center justify-between flex-wrap gap-1">
-            <span className={`text-[11px] font-500 ${metric.positive ? 'text-emerald-600' : 'text-red-600'}`}>
-              {metric.delta}
-            </span>
-            <span className="text-[11px] text-muted-foreground">{metric.target}</span>
-          </div>
-          <div className="flex items-center justify-end">
-            <span className="text-[10px] text-muted-foreground flex items-center gap-1 opacity-60">
-              <Icon name="UsersIcon" size={10} className="text-muted-foreground" />
-              View staff →
-            </span>
-          </div>
-        </button>
-      ))}
+            </div>
+          </button>
+        )}
+
+        {/* Regular cards */}
+        {regularMetrics.map((metric) => (
+          <button
+            key={metric.id}
+            onClick={() => onMetricClick({ type: 'metric', label: metric.label, subLabel: `${metric.value} · Target: ${metric.target}`, value: metric.rawValue, status: metric.drillStatus })}
+            className={`bg-white rounded-xl p-3 sm:p-4 shadow-card border ${metric.alert ? metric.borderColor : 'border-border'} flex flex-col gap-3 ${metric.alert ? metric.bgColor : ''} text-left cursor-pointer hover:shadow-elevated active:scale-[0.99] transition-all focus:outline-none focus:ring-2 focus:ring-primary/30`}
+            aria-label={`View staff breakdown for ${metric.label}`}
+          >
+            <div className="flex items-start justify-between">
+              <div className={`w-9 h-9 rounded-lg ${metric.bgColor} flex items-center justify-center`}>
+                <Icon name={metric.icon as Parameters<typeof Icon>[0]['name']} size={18} className={metric.color} />
+              </div>
+              {metric.alert && (
+                <span className="text-[10px] font-700 bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full border border-red-200">
+                  ⚠ Alert
+                </span>
+              )}
+            </div>
+            <div>
+              <p className="text-[11px] font-600 uppercase tracking-wider text-muted-foreground">{metric.label}</p>
+              <p className={`text-2xl font-700 mt-0.5 tabular-nums font-mono ${metric.color}`}>{metric.value}</p>
+            </div>
+            <ProgressBar value={metric.rawValue} colorClass={metric.progressColor} height="h-1.5" />
+            <div className="flex items-center justify-between flex-wrap gap-1">
+              <span className={`text-[11px] font-500 ${metric.positive ? 'text-emerald-600' : 'text-red-600'}`}>
+                {metric.delta}
+              </span>
+              <span className="text-[11px] text-muted-foreground">{metric.target}</span>
+            </div>
+            {/* Last Updated footer */}
+            <div className="flex items-center justify-between pt-0.5 border-t border-border/50">
+              <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                <Icon name="ClockIcon" size={10} className="text-muted-foreground" />
+                {lastUpdatedLabel}
+              </span>
+              <span className={`text-[10px] font-600 px-1.5 py-0.5 rounded-full border ${refreshStatus.bg} ${refreshStatus.color} ${refreshStatus.border}`}>
+                {refreshStatus.label}
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
