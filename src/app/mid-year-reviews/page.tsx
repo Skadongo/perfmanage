@@ -6,6 +6,7 @@ import Icon from '@/components/ui/AppIcon';
 import { CardListSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
 import { roleCachedFetch, TTL_STAFF_LIST } from '@/lib/cache';
+import BulkWorkplanUploadModal from './components/BulkWorkplanUploadModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -549,6 +550,7 @@ export default function MidYearReviewsPage() {
   const [showNewReviewModal, setShowNewReviewModal] = useState(false);
   const [newReviewStaffId, setNewReviewStaffId] = useState('');
   const [creatingReview, setCreatingReview] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   // Pagination
   const [page, setPage] = useState(0);
 
@@ -728,13 +730,22 @@ export default function MidYearReviewsPage() {
             <h1 className="text-2xl font-700 text-foreground">Mid-Year Reviews</h1>
             <p className="text-sm text-muted-foreground mt-0.5">2026 performance review submission and approval workflow</p>
           </div>
-          <button
-            onClick={() => setShowNewReviewModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-600 hover:bg-primary/90 transition-colors shadow-sm"
-          >
-            <Icon name="EcsaNewIcon" size={16} />
-            New Review
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-white border border-border text-foreground rounded-xl text-sm font-600 hover:bg-muted transition-colors shadow-sm"
+            >
+              <Icon name="ArrowUpTrayIcon" size={16} />
+              Upload Workplans
+            </button>
+            <button
+              onClick={() => setShowNewReviewModal(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-600 hover:bg-primary/90 transition-colors shadow-sm"
+            >
+              <Icon name="EcsaNewIcon" size={16} />
+              New Review
+            </button>
+          </div>
         </div>
 
         {/* Timeline Banner */}
@@ -869,6 +880,17 @@ export default function MidYearReviewsPage() {
       )}
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+      {/* Bulk Workplan Upload Modal */}
+      {showUploadModal && (
+        <BulkWorkplanUploadModal
+          onClose={() => setShowUploadModal(false)}
+          onImportComplete={(count) => {
+            setShowUploadModal(false);
+            showToast(`${count} workplan${count !== 1 ? 's' : ''} imported successfully`, 'success');
+          }}
+        />
+      )}
     </AppLayout>
   );
 }
