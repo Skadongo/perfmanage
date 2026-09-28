@@ -10,7 +10,18 @@ export interface ReviewStats {
   total: number;
   submitted: number;
   approved: number;
+  /**
+   * Pending = draft OR submitted (not yet approved/reviewed).
+   * This is the canonical definition used across all consumers:
+   *   - mv_dashboard_summary.pending_reviews
+   *   - useRealtimeDashboard live strip
+   *   - DashboardMetricCards
+   * Do NOT redefine inline — always use aggregateReviewStats() or
+   * the PENDING_STATUSES constant below.
+   */
   pending: number;
+  /** Staff who have not yet created a review record at all */
+  notStarted: number;
   avgSupervisorRating: number;
   avgSelfRating: number;
   submissionRate: number;
@@ -18,12 +29,33 @@ export interface ReviewStats {
 }
 
 /**
- * Compute top-level review stats from a list of review rows.
+ * Canonical set of review_status values that count as "pending".
+ * Import this wherever you need to filter/count pending reviews so the
+ * definition stays consistent across the codebase.
  */
-export function aggregateReviewStats(reviews: ReviewRow[]): ReviewStats {
+export const PENDING_STATUSES = ['draft', 'submitted'] as const;
+
+/**
+ * Compute top-level review stats from a list of review rows.
+ *
+ * @param reviews       - Review rows for the current period
+ * @param totalStaff    - Total active staff in scope (used to compute notStarted).
+ *                        Pass 0 or omit if not available.
+ */
+export function aggregateReviewStats(reviews: ReviewRow[], totalStaff = 0): ReviewStats {
   const total = reviews.length;
   if (total === 0) {
-    return { total: 0, submitted: 0, approved: 0, pending: 0, avgSupervisorRating: 0, avgSelfRating: 0, submissionRate: 0, approvalRate: 0 };
+    return {
+      total: 0,
+      submitted: 0,
+      approved: 0,
+      pending: 0,
+      notStarted: Math.max(0, totalStaff - total),
+      avgSupervisorRating: 0,
+      avgSelfRating: 0,
+      submissionRate: 0,
+      approvalRate: 0,
+    };
   }
 
   let submitted = 0;
@@ -35,7 +67,8 @@ export function aggregateReviewStats(reviews: ReviewRow[]): ReviewStats {
   for (const r of reviews) {
     const isSubmitted = ['submitted', 'reviewed', 'approved'].includes(r.review_status);
     const isApproved = r.review_status === 'approved';
-    const isPending = ['draft', 'submitted'].includes(r.review_status);
+    // Use canonical PENDING_STATUSES — single source of truth
+    const isPending = (PENDING_STATUSES as readonly string[]).includes(r.review_status);
 
     if (isSubmitted) submitted++;
     if (isApproved) approved++;
@@ -47,11 +80,15 @@ export function aggregateReviewStats(reviews: ReviewRow[]): ReviewStats {
   const avg = (arr: number[]) =>
     arr.length > 0 ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 10) / 10 : 0;
 
+  // notStarted = staff who have no review record yet
+  const notStarted = Math.max(0, totalStaff - total);
+
   return {
     total,
     submitted,
     approved,
     pending,
+    notStarted,
     avgSupervisorRating: avg(supRatings),
     avgSelfRating: avg(selfRatings),
     submissionRate: Math.round((submitted / total) * 100),

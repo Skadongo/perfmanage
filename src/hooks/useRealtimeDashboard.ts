@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { cacheGet, cacheSet } from '@/lib/cache';
+import { cacheGet, cacheSet, TTL_LIVE_STRIP } from '@/lib/cache';
 
 export interface LiveStats {
   totalReviews: number;
@@ -29,7 +29,7 @@ interface UseRealtimeDashboardReturn {
   refetch: () => void;
 }
 
-const CACHE_TTL = 30_000; // 30 s — short enough to feel live, long enough to avoid hammering DB
+const CACHE_TTL = TTL_LIVE_STRIP; // Aligned with TTL_DASHBOARD_METRICS (2 min) — fixes TTL mismatch between live strip and metric cards
 
 /** Derive the current fiscal year string, e.g. "2025-2026" */
 function getCurrentReviewYear(): number {

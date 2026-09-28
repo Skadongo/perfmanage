@@ -7,16 +7,21 @@ import ProgressBar from '@/components/ui/ProgressBar';
 import type { DrillDownFilter } from './StaffDrillDownModal';
 import { createClient } from '@/lib/supabase/client';
 import { MetricCardSkeleton } from '@/components/ui/SkeletonLoader';
-import { roleCachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
+import { roleCachedFetch, TTL_DASHBOARD_METRICS, SWR_DEDUP_ADMIN, SWR_DEDUP_STAFF } from '@/lib/cache';
 
+// ── Fix: Rename cpdCompletionRate → workplanApprovalRate throughout ────────────
 interface MetricData {
   kpiAchievementRate: number | null;
   reviewCompletionRate: number | null;
   reviewsSubmitted: number;
+  /** reviewsTotal = active staff count in scope (denominator for completion rate) */
   reviewsTotal: number;
+  /** notStartedReviews = staff with no review record yet (reviewsTotal - reviews fetched) */
+  notStartedReviews: number;
   workplansTotal: number;
   workplansApproved: number;
-  cpdCompletionRate: number | null;
+  /** Renamed from cpdCompletionRate — measures workplan approval, not CPD */
+  workplanApprovalRate: number | null;
   avgSupervisorRating: number | null;
   totalStaff: number;
   /** ISO timestamp from mv_dashboard_summary.last_refreshed — null if not available */
@@ -34,15 +39,11 @@ interface Props {
   systemRole?: string;
 }
 
-/** Derive the current fiscal year string used in workplan_settings.fiscal_year
- *  The DB default is 'FY 2025-2026', so we match that format.
- */
+/** Derive the current fiscal year string used in workplan_settings.fiscal_year */
 function getCurrentFiscalYear(): string {
   const now = new Date();
   const year = now.getFullYear();
-  const month = now.getMonth() + 1; // 1-indexed
-  // Fiscal year runs Jul–Jun: Jul 2025 → Jun 2026 = "FY 2025-2026"
-  // If before July, fiscal year started in previous calendar year
+  const month = now.getMonth() + 1;
   const fyStart = month >= 7 ? year : year - 1;
   const fyEnd = fyStart + 1;
   return `FY ${fyStart}-${fyEnd}`;
@@ -53,8 +54,6 @@ function getCurrentReviewYear(): number {
   return new Date().getFullYear();
 }
 
-// Fix 5: Shared SWR key constant — must match the key used in useRealtimeDashboard
-// so both hooks deduplicate against the same SWR cache bucket.
 export const DASHBOARD_CORE_SWR_KEY = 'dashboard-core';
 
 /** Format an ISO timestamp into a human-readable "Last Updated" string */
@@ -91,7 +90,9 @@ function getRefreshStatus(iso: string | null): { label: string; color: string; b
   }
 }
 
-// Fetcher used by SWR — runs outside React render cycle
+/** Roles that see org-wide data — use longer SWR dedup interval */
+const ADMIN_ROLES = new Set(['admin', 'director_general', 'programme_director', 'hr_admin', 'superuser']);
+
 async function fetchMetrics(
   staffId: string | null | undefined,
   supervisorId: string | null | undefined,
@@ -105,7 +106,68 @@ async function fetchMetrics(
       const currentFiscalYear = getCurrentFiscalYear();
       const currentReviewYear = getCurrentReviewYear();
 
-      // Fix 3 (accuracy gap): filter reviews to current review year
+      // ── Fix: Read from mv_dashboard_summary for org-wide admin/director views ──
+      // For staff-scoped and supervisor-scoped views we still query directly
+      // because the MV doesn't have per-supervisor breakdowns.
+      const isOrgWide = !staffId && !supervisorId;
+      const isAdminRole = ADMIN_ROLES.has(systemRole);
+
+      if (isOrgWide && isAdminRole) {
+        // Fast path: read from materialized view (single row, pre-aggregated)
+        const [mvResult, staffCountResult, workplansResult] = await Promise.all([
+          supabase
+            .from('mv_dashboard_summary')
+            .select('*')
+            .maybeSingle(),
+          supabase
+            .from('staff')
+            .select('id', { count: 'exact', head: true })
+            .eq('employment_status', 'active'),
+          supabase
+            .from('workplan_settings')
+            .select('status, workflow_stage')
+            .eq('fiscal_year', currentFiscalYear),
+        ]);
+
+        const mv = mvResult.data;
+        const staffCount = staffCountResult.count ?? 0;
+        const workplanList = workplansResult.data || [];
+
+        const submittedReviews = mv ? Number(mv.submitted_reviews) : 0;
+        const totalReviews = mv ? Number(mv.total_reviews) : 0;
+        // Fix: reviewCompletionRate denominator = active staff (not review count)
+        // notStarted = staff who haven't created a review record yet
+        const notStartedReviews = Math.max(0, staffCount - totalReviews);
+        const reviewDenominator = Math.max(staffCount, 1);
+        const reviewCompletionRate = Math.min(100, Math.round((submittedReviews / reviewDenominator) * 100));
+
+        const avgRating = mv?.avg_supervisor_rating ? Number(mv.avg_supervisor_rating) : null;
+        // kpiAchievementRate not available from MV — fall back to null for org-wide MV path
+        const kpiAchievementRate: number | null = null;
+
+        const approvedWorkplans = workplanList.filter(w =>
+          w.status === 'approved' || w.workflow_stage === 'approved'
+        ).length;
+        const workplanApprovalRate = staffCount > 0
+          ? Math.min(100, Math.round((approvedWorkplans / staffCount) * 100))
+          : null;
+
+        return {
+          kpiAchievementRate,
+          reviewCompletionRate,
+          reviewsSubmitted: submittedReviews,
+          reviewsTotal: staffCount,
+          notStartedReviews,
+          workplansTotal: workplanList.length,
+          workplansApproved: approvedWorkplans,
+          workplanApprovalRate,
+          avgSupervisorRating: avgRating,
+          totalStaff: staffCount,
+          mvLastRefreshed: mv?.last_refreshed ?? null,
+        };
+      }
+
+      // Slow path: direct queries for staff-scoped and supervisor-scoped views
       let reviewsQuery = supabase
         .from('mid_year_reviews')
         .select('review_status, supervisor_rating, staff_id, supervisor_id')
@@ -117,8 +179,6 @@ async function fetchMetrics(
         reviewsQuery = reviewsQuery.eq('supervisor_id', supervisorId);
       }
 
-      // Fix 3 (accuracy gap): filter workplans to current fiscal year
-      // IMPORTANT: fiscal_year column default is 'FY 2025-2026' format — must match exactly
       let workplansQuery = supabase
         .from('workplan_settings')
         .select('status, workflow_stage, staff_id')
@@ -127,11 +187,9 @@ async function fetchMetrics(
       if (staffId) {
         workplansQuery = workplansQuery.eq('staff_id', staffId);
       } else if (supervisorId) {
-        // Fix 4: Eliminate sequential sub-query — use supervisor_id column directly
         workplansQuery = workplansQuery.eq('supervisor_id', supervisorId);
       }
 
-      // Fetch mv last_refreshed for the "Last Updated" badge
       const mvRefreshQuery = supabase
         .from('mv_dashboard_summary')
         .select('last_refreshed')
@@ -161,9 +219,11 @@ async function fetchMetrics(
       const submittedReviews = reviewList.filter(r =>
         ['submitted', 'reviewed', 'approved'].includes(r.review_status)
       ).length;
-      const reviewDenominator = staffId
-        ? 1
-        : Math.max(staffCount, 1);
+
+      // Fix: reviewCompletionRate denominator = active staff in scope
+      // notStarted = staff who haven't created a review record yet
+      const reviewDenominator = staffId ? 1 : Math.max(staffCount, 1);
+      const notStartedReviews = staffId ? 0 : Math.max(0, staffCount - reviewList.length);
       const reviewCompletionRate = reviewDenominator > 0
         ? Math.min(100, Math.round((submittedReviews / reviewDenominator) * 100))
         : null;
@@ -184,11 +244,10 @@ async function fetchMetrics(
       const approvedWorkplans = workplanList.filter(w =>
         w.status === 'approved' || w.workflow_stage === 'approved'
       ).length;
-      const cpdDenominator = staffId
-        ? 1
-        : Math.max(staffCount, 1);
-      const cpdCompletionRate = cpdDenominator > 0
-        ? Math.min(100, Math.round((approvedWorkplans / cpdDenominator) * 100))
+      const workplanDenominator = staffId ? 1 : Math.max(staffCount, 1);
+      // Fix: renamed from cpdCompletionRate → workplanApprovalRate
+      const workplanApprovalRate = workplanDenominator > 0
+        ? Math.min(100, Math.round((approvedWorkplans / workplanDenominator) * 100))
         : null;
 
       return {
@@ -196,9 +255,10 @@ async function fetchMetrics(
         reviewCompletionRate,
         reviewsSubmitted: submittedReviews,
         reviewsTotal: staffId ? reviewList.length : staffCount,
+        notStartedReviews,
         workplansTotal: workplanList.length,
         workplansApproved: approvedWorkplans,
-        cpdCompletionRate,
+        workplanApprovalRate,
         avgSupervisorRating,
         totalStaff: staffCount,
         mvLastRefreshed,
@@ -217,12 +277,16 @@ export default function DashboardMetricCards({
   supervisorId,
   systemRole = 'staff_member',
 }: Props) {
+  // Fix: use longer dedupingInterval for admin/director roles (org-wide stable data)
+  const isAdminRole = ADMIN_ROLES.has(systemRole);
+  const dedupingInterval = isAdminRole ? SWR_DEDUP_ADMIN : SWR_DEDUP_STAFF;
+
   const { data: metrics, isLoading } = useSWR(
     [DASHBOARD_CORE_SWR_KEY, systemRole, staffId ?? supervisorId ?? 'org'],
     () => fetchMetrics(staffId, supervisorId, systemRole),
     {
       revalidateOnFocus: false,
-      dedupingInterval: 30_000,
+      dedupingInterval,
       fallbackData: undefined,
     }
   );
@@ -236,9 +300,10 @@ export default function DashboardMetricCards({
     reviewCompletionRate: null,
     reviewsSubmitted: 0,
     reviewsTotal: 0,
+    notStartedReviews: 0,
     workplansTotal: 0,
     workplansApproved: 0,
-    cpdCompletionRate: null,
+    workplanApprovalRate: null,
     avgSupervisorRating: null,
     totalStaff: 0,
     mvLastRefreshed: null,
@@ -248,13 +313,29 @@ export default function DashboardMetricCards({
   const kpiRaw = m.kpiAchievementRate ?? 0;
   const reviewValue = m.reviewCompletionRate !== null ? `${m.reviewCompletionRate}%` : '—';
   const reviewRaw = m.reviewCompletionRate ?? 0;
-  const cpdValue = m.cpdCompletionRate !== null ? `${m.cpdCompletionRate}%` : '—';
-  const cpdRaw = m.cpdCompletionRate ?? 0;
+  // Fix: use workplanApprovalRate (renamed from cpdCompletionRate)
+  const workplanApprovalValue = m.workplanApprovalRate !== null ? `${m.workplanApprovalRate}%` : '—';
+  const workplanApprovalRaw = m.workplanApprovalRate ?? 0;
   const avgRatingValue = m.avgSupervisorRating !== null ? `${m.avgSupervisorRating}/5` : '—';
 
-  // Shared refresh info shown on every card
   const lastUpdatedLabel = formatLastRefreshed(m.mvLastRefreshed);
   const refreshStatus = getRefreshStatus(m.mvLastRefreshed);
+
+  // Fix: Build review completion delta with "not started" breakdown for supervisors
+  const isSupervisorView = !!supervisorId && !staffId;
+  const reviewDeltaLabel = (() => {
+    if (m.reviewsTotal === 0) return 'No reviews yet';
+    const base = `${m.reviewsSubmitted} of ${m.reviewsTotal} submitted`;
+    if (isSupervisorView && m.notStartedReviews > 0) {
+      return `${base} · ${m.notStartedReviews} not started`;
+    }
+    return base;
+  })();
+
+  // Fix: reviewCompletionRate tooltip clarifies denominator = active staff
+  const reviewDescription = isSupervisorView
+    ? `Mid-year reviews submitted (denominator = ${m.reviewsTotal} active direct reports)`
+    : 'Mid-year reviews submitted vs active staff';
 
   const ALL_METRICS = [
     {
@@ -283,11 +364,9 @@ export default function DashboardMetricCards({
       value: reviewValue,
       rawValue: reviewRaw,
       target: '100% by 30 Jun',
-      delta: m.reviewsTotal > 0
-        ? `${m.reviewsSubmitted} of ${m.reviewsTotal} reviews submitted`
-        : 'No reviews yet',
+      delta: reviewDeltaLabel,
       positive: reviewRaw >= 80,
-      description: 'Mid-year reviews submitted',
+      description: reviewDescription,
       icon: 'ClipboardDocumentCheckIcon',
       color: 'text-sky-600',
       bgColor: 'bg-sky-50',
@@ -298,16 +377,17 @@ export default function DashboardMetricCards({
       drillStatus: undefined as DrillDownFilter['status'],
     },
     {
-      id: 'metric-cpd-completion',
-      label: 'Workplan Completion Rate',
-      value: cpdValue,
-      rawValue: cpdRaw,
+      // Fix: renamed from metric-cpd-completion, label updated to "Workplan Approval Rate"
+      id: 'metric-workplan-approval',
+      label: 'Workplan Approval Rate',
+      value: workplanApprovalValue,
+      rawValue: workplanApprovalRaw,
       target: '100% by Dec 31',
       delta: m.workplansTotal > 0
         ? `${m.workplansApproved} of ${m.workplansTotal} workplans approved`
         : 'No workplans yet',
-      positive: cpdRaw >= 80,
-      description: 'Staff with approved workplans',
+      positive: workplanApprovalRaw >= 80,
+      description: 'Staff with approved workplans for current fiscal year',
       icon: 'AcademicCapIcon',
       color: 'text-violet-600',
       bgColor: 'bg-violet-50',
@@ -357,7 +437,6 @@ export default function DashboardMetricCards({
     },
   ];
 
-  // Filter by visibleMetricIds if provided
   const filteredMetrics = visibleMetricIds
     ? ALL_METRICS.filter(m => visibleMetricIds.includes(m.id))
     : ALL_METRICS;
@@ -369,7 +448,7 @@ export default function DashboardMetricCards({
 
   return (
     <div className="space-y-2">
-      {/* Refresh status bar — shown above cards */}
+      {/* Refresh status bar */}
       <div className="flex items-center justify-between px-0.5">
         <p className="text-[11px] text-muted-foreground font-500 flex items-center gap-1.5">
           <Icon name="ArrowPathIcon" size={11} className="text-muted-foreground" />
@@ -381,9 +460,7 @@ export default function DashboardMetricCards({
         </div>
       </div>
 
-      {/* Responsive grid: 1 col on mobile, 2 on sm, 3 on lg, 4 on xl */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
-        {/* Hero card — spans full width on mobile, 2 cols on sm+ */}
         {heroMetric && (
           <button
             onClick={() => onMetricClick({ type: 'metric', label: heroMetric.label, subLabel: `${heroMetric.value} · Target: ${heroMetric.target}`, value: heroMetric.rawValue, status: heroMetric.drillStatus })}
@@ -416,7 +493,6 @@ export default function DashboardMetricCards({
           </button>
         )}
 
-        {/* Regular cards */}
         {regularMetrics.map((metric) => (
           <button
             key={metric.id}

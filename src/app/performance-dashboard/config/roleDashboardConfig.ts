@@ -78,7 +78,7 @@ const CONFIGS: Record<DashboardRole, RoleDashboardConfig> = {
     visibleMetrics: [
       'metric-review-completion',
       'metric-avg-rating',
-      'metric-cpd-completion',
+      'metric-workplan-approval',
     ],
     showHeroMetric: true,
     showKPITrendChart: true,
@@ -100,7 +100,7 @@ const CONFIGS: Record<DashboardRole, RoleDashboardConfig> = {
     visibleMetrics: [
       'metric-kpi-achievement',
       'metric-review-completion',
-      'metric-cpd-completion',
+      'metric-workplan-approval',
       'metric-avg-rating',
       'metric-total-staff',
     ],
@@ -124,7 +124,7 @@ const CONFIGS: Record<DashboardRole, RoleDashboardConfig> = {
     visibleMetrics: [
       'metric-kpi-achievement',
       'metric-review-completion',
-      'metric-cpd-completion',
+      'metric-workplan-approval',
       'metric-avg-rating',
       'metric-total-staff',
     ],
@@ -148,7 +148,7 @@ const CONFIGS: Record<DashboardRole, RoleDashboardConfig> = {
     visibleMetrics: [
       'metric-kpi-achievement',
       'metric-review-completion',
-      'metric-cpd-completion',
+      'metric-workplan-approval',
       'metric-avg-rating',
       'metric-total-staff',
     ],
@@ -172,7 +172,7 @@ const CONFIGS: Record<DashboardRole, RoleDashboardConfig> = {
     visibleMetrics: [
       'metric-kpi-achievement',
       'metric-review-completion',
-      'metric-cpd-completion',
+      'metric-workplan-approval',
       'metric-avg-rating',
       'metric-total-staff',
     ],

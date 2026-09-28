@@ -56,12 +56,28 @@ export async function cachedFetch<T>(
 export const TTL_STAFF_LIST = 5 * 60_000;
 /** Dashboard metrics: 2 min — needs to feel live but avoids hammering DB */
 export const TTL_DASHBOARD_METRICS = 2 * 60_000;
+/**
+ * Live strip TTL — aligned with TTL_DASHBOARD_METRICS so the live strip
+ * (useRealtimeDashboard) and metric cards (DashboardMetricCards) always
+ * show data from the same cache window. Previously CACHE_TTL in
+ * useRealtimeDashboard was 30 s while TTL_DASHBOARD_METRICS was 2 min,
+ * causing up to 90 s of visible inconsistency between the two panels.
+ */
+export const TTL_LIVE_STRIP = TTL_DASHBOARD_METRICS; // 2 min — same as metric cards
 /** Workplan list: 2 min */
 export const TTL_WORKPLAN_LIST = 2 * 60_000;
 /** Role permissions: 10 min — very rarely changes */
 export const TTL_ROLE_PERMISSIONS = 10 * 60_000;
 /** BSC perspectives: 10 min */
 export const TTL_BSC_PERSPECTIVES = 10 * 60_000;
+/**
+ * SWR dedupingInterval for admin/director views (org-wide, stable data).
+ * Raised from 30 s to 60 s to halve redundant network calls for roles
+ * where the underlying data changes less frequently.
+ */
+export const SWR_DEDUP_ADMIN = 60_000; // 60 s for admin/director
+/** SWR dedupingInterval for staff/supervisor views (more dynamic). */
+export const SWR_DEDUP_STAFF = 30_000; // 30 s for staff/supervisor
 
 /**
  * Build a role-scoped cache key.
