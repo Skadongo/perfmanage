@@ -1256,8 +1256,8 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
     }
 
     // Ensure unauthenticated users cannot submit (Measure 4 — belt-and-suspenders)
-    const { data: { user: currentUser } } = await supabaseRef.current.auth.getUser();
-    if (!currentUser) {
+    const { data: { session: currentSession } } = await supabaseRef.current.auth.getSession();
+    if (!currentSession?.user) {
       const msg = 'Your session has expired. Please log in again.';
       setSaveError(msg);
       toast.error(msg);
@@ -1332,7 +1332,7 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
           actor_name: profile?.fullName || form.staffName || 'Staff Member',
           action_description: `set workplan for ${form.fiscalYear}`,
           subject_name: form.staffName,
-          subject_detail: `Workplan ID: ${data?.id} | Fiscal Year: ${form.fiscalYear} | Submitted by auth user: ${currentUser.id}`,
+          subject_detail: `Workplan ID: ${data?.id} | Fiscal Year: ${form.fiscalYear} | Submitted by auth user: ${currentSession?.user?.id}`,
           icon_name: 'ClipboardDocumentCheckIcon',
           icon_bg: 'bg-sky-50',
           icon_color: 'text-sky-600',

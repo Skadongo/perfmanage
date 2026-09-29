@@ -152,7 +152,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        const p = await fetchProfile(session.user.id);
+        // Pass session.user so fetchProfile never falls back to getUser()
+        const p = await fetchProfile(session.user.id, session.user);
         setProfile(p);
       }
       initialLoadDone.current = true;
@@ -221,14 +222,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setProfile(null);
   };
 
-  // Get Current User
+  // Get Current User — use getSession to avoid exclusive lock contention
   const getCurrentUser = async () => {
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.getUser();
+    const { data: { session }, error } = await supabase.auth.getSession();
     if (error) throw error;
-    return user;
+    return session?.user ?? null;
   };
 
   // Check if Email is Verified
