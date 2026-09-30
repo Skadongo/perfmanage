@@ -12,6 +12,11 @@ interface CacheEntry<T> {
 
 const store = new Map<string, CacheEntry<unknown>>();
 
+/** In-flight deduplication: if a fetch for the same key is already running,
+ *  return the same promise instead of firing a second Supabase request.
+ *  This prevents concurrent callers from racing for the GoTrue auth lock. */
+const inFlight = new Map<string, Promise<unknown>>();
+
 export function cacheGet<T>(key: string): T | null {
   const entry = store.get(key) as CacheEntry<T> | undefined;
   if (!entry) return null;
@@ -38,6 +43,8 @@ export function cacheClear(): void {
  * Fetch-or-cache helper.
  * If the key is in cache (and not expired) it returns immediately.
  * Otherwise it calls `fetcher`, stores the result, and returns it.
+ * Concurrent calls for the same key share a single in-flight promise
+ * to avoid duplicate Supabase requests racing for the auth lock.
  */
 export async function cachedFetch<T>(
   key: string,
@@ -46,9 +53,23 @@ export async function cachedFetch<T>(
 ): Promise<T> {
   const cached = cacheGet<T>(key);
   if (cached !== null) return cached;
-  const data = await fetcher();
-  cacheSet(key, data, ttlMs);
-  return data;
+
+  // If a fetch for this key is already in-flight, piggyback on it
+  if (inFlight.has(key)) {
+    return inFlight.get(key) as Promise<T>;
+  }
+
+  const promise = fetcher().then((data) => {
+    cacheSet(key, data, ttlMs);
+    inFlight.delete(key);
+    return data;
+  }).catch((err) => {
+    inFlight.delete(key);
+    throw err;
+  });
+
+  inFlight.set(key, promise);
+  return promise;
 }
 
 // ─── Role-keyed cache TTLs ────────────────────────────────────────────────────

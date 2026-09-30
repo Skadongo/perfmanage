@@ -99,6 +99,8 @@ export default function EvaluationReviewsPage() {
 
       if (isMounted.current) setStageCounts(counts);
     } catch (err) {
+      // AbortError from GoTrue lock contention is transient — suppress it silently
+      if (err instanceof Error && err.name === 'AbortError') return;
       console.error('Failed to fetch stage counts:', err);
     } finally {
       if (isMounted.current) setStageLoading(false);
@@ -166,6 +168,8 @@ export default function EvaluationReviewsPage() {
 
         if (isMounted.current) setReviewsSummary(mapped);
       } catch (err) {
+        // AbortError from GoTrue lock contention is transient — suppress it silently
+        if (err instanceof Error && err.name === 'AbortError') return;
         console.error('Failed to fetch review summary:', err);
       } finally {
         if (isMounted.current) setStatsLoading(false);
