@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { Toaster } from 'sonner';
+import PDFWorkplanImportModal, { ImportedWorkplanData } from './components/PDFWorkplanImportModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -410,6 +411,9 @@ export default function MyWorkplanPage() {
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>('idle');
   const [loadingExisting, setLoadingExisting] = useState(false);
 
+  // PDF import state
+  const [showImportModal, setShowImportModal] = useState(false);
+
   // UI state
   const [activeSection, setActiveSection] = useState<'scorecard' | 'competencies' | 'signoff'>('scorecard');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -673,6 +677,19 @@ export default function MyWorkplanPage() {
     setCompetencies((prev) => prev.map((c) => c.id === id ? { ...c, ...patch } : c));
   }
 
+  // ─── PDF Import Handler ────────────────────────────────────────────────────
+
+  function handlePDFImport(data: ImportedWorkplanData) {
+    setFiscalYear(data.fiscalYear);
+    setRows(data.perspectivesObjectives);
+    setCompetencies(data.generalCompetencies);
+    if (data.supportRequired) setSupportRequired(data.supportRequired);
+    // Expand all imported rows
+    setExpandedRows(new Set(data.perspectivesObjectives.map((r) => r.id)));
+    setActiveSection('scorecard');
+    toast.success(`Workplan data imported for ${data.staffName}. Review and save when ready.`);
+  }
+
   // ─── Derived ──────────────────────────────────────────────────────────────
 
   const bscTotal = rows.reduce((s, r) => s + (Number(r.weight) || 0), 0);
@@ -753,14 +770,24 @@ export default function MyWorkplanPage() {
               </span>
             )}
             {!isReadOnly && (
-              <button
-                onClick={() => handleSaveDraft(true)}
-                disabled={saveStatus === 'saving'}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-600 border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
-              >
-                <Icon name="CloudArrowUpIcon" size={14} />
-                Save Draft
-              </button>
+              <>
+                <button
+                  onClick={() => setShowImportModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-600 border border-primary/30 text-primary bg-primary/5 rounded-lg hover:bg-primary/10 transition-colors"
+                  title="Import workplan data from PDF"
+                >
+                  <Icon name="DocumentArrowUpIcon" size={14} />
+                  Import from PDF
+                </button>
+                <button
+                  onClick={() => handleSaveDraft(true)}
+                  disabled={saveStatus === 'saving'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-600 border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+                >
+                  <Icon name="CloudArrowUpIcon" size={14} />
+                  Save Draft
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -1261,6 +1288,13 @@ export default function MyWorkplanPage() {
             </div>
           </div>
         )}
+
+        {/* ── PDF Import Modal ── */}
+        <PDFWorkplanImportModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          onImport={handlePDFImport}
+        />
       </div>
     </AppLayout>
   );
