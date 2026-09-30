@@ -57,7 +57,7 @@ export default function EvaluationReviewsPage() {
   });
   const [stageLoading, setStageLoading] = useState(true);
   const [pdfUploadOpen, setPdfUploadOpen] = useState(false);
-  const [importWorkplanOpen, setImportWorkplanOpen] = useState(false);
+  const [importWorkplanOpen, setImportWorkplanOpen] = useState(true);
 
   // Stable supabase client ref — prevents re-creation on every render
   const supabaseRef = useRef(createClient());
