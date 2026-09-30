@@ -15,6 +15,7 @@ import { createClient } from '@/lib/supabase/client';
 import { cachedFetch, TTL_WORKPLAN_LIST, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 import { mapStatus, computeProgress } from '@/lib/constants';
 import PDFWorkplanUploadModal from './components/PDFWorkplanUploadModal';
+import BulkWorkplanUploadModal from '../mid-year-reviews/components/BulkWorkplanUploadModal';
 
 interface ReviewSummary {
   id: string;
@@ -56,6 +57,7 @@ export default function EvaluationReviewsPage() {
   });
   const [stageLoading, setStageLoading] = useState(true);
   const [pdfUploadOpen, setPdfUploadOpen] = useState(false);
+  const [importWorkplanOpen, setImportWorkplanOpen] = useState(false);
 
   // Stable supabase client ref — prevents re-creation on every render
   const supabaseRef = useRef(createClient());
@@ -305,6 +307,12 @@ export default function EvaluationReviewsPage() {
       actions={
       <div className="flex items-center gap-2">
           <button
+          onClick={() => setImportWorkplanOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-2 text-xs font-600 rounded-lg border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 transition-colors shadow-sm">
+            <Icon name="ArrowUpTrayIcon" size={14} className="text-primary" />
+            <span className="hidden sm:inline">Import Workplan</span>
+          </button>
+          <button
           onClick={() => setPdfUploadOpen(true)}
           className="flex items-center gap-1.5 px-3 py-2 text-xs font-600 rounded-lg border border-border bg-white text-foreground hover:bg-muted/40 transition-colors shadow-sm">
             <Icon name="DocumentArrowUpIcon" size={14} className="text-primary" />
@@ -321,6 +329,18 @@ export default function EvaluationReviewsPage() {
       }>
 
       <Toaster position="bottom-right" richColors />
+
+      {/* ── Import Workplan Modal ── */}
+      {importWorkplanOpen && (
+        <BulkWorkplanUploadModal
+          onClose={() => setImportWorkplanOpen(false)}
+          onImportComplete={(count) => {
+            setImportWorkplanOpen(false);
+            fetchStageCounts(true);
+            toast?.success(`${count} workplan${count !== 1 ? 's' : ''} imported successfully.`);
+          }}
+        />
+      )}
 
       {/* ── PDF Upload Modal ── */}
       <PDFWorkplanUploadModal
