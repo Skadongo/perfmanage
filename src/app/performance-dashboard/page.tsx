@@ -24,6 +24,7 @@ const AtRiskStaffTable      = dynamic(() => import('./components/AtRiskStaffTabl
 const ActivityFeed          = dynamic(() => import('./components/ActivityFeed'), { ssr: false });
 const StaffDrillDownModal   = dynamic(() => import('./components/StaffDrillDownModal'), { ssr: false });
 const StrategicPlanSection  = dynamic(() => import('./components/StrategicPlanSection'), { ssr: false });
+const WorkplanSummaryPanel  = dynamic(() => import('./components/WorkplanSummaryPanel'), { ssr: false });
 
 // ── Live strip metric definitions ──────────────────────────────────────────
 interface StripItem {
@@ -293,7 +294,7 @@ export default function PerformanceDashboardPage() {
           </section>
         )}
 
-        {(config.showAtRiskTable || config.showActivityFeed) && (
+        {config.showAtRiskTable || config.showActivityFeed ? (
           <section>
             <div className={`grid gap-4 ${
               config.showAtRiskTable && config.showActivityFeed ? 'grid-cols-1 xl:grid-cols-3' : 'grid-cols-1'
@@ -314,7 +315,18 @@ export default function PerformanceDashboardPage() {
               )}
             </div>
           </section>
-        )}
+        ) : null}
+
+        {/* ── Workplan Records ─────────────────────────────────────────── */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-xs font-600 uppercase tracking-wider text-muted-foreground">Workplan Records</h2>
+            <span className="text-[11px] text-muted-foreground">Individual Performance Contracts</span>
+          </div>
+          <Suspense fallback={<div className="animate-pulse bg-muted/40 rounded-xl h-32" />}>
+            <WorkplanSummaryPanel key={`workplans-${refreshKey}`} />
+          </Suspense>
+        </section>
       </div>
 
       {drillFilter && (
