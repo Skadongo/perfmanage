@@ -14,6 +14,7 @@ import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { cachedFetch, TTL_WORKPLAN_LIST, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 import { mapStatus, computeProgress } from '@/lib/constants';
+import PDFWorkplanUploadModal from './components/PDFWorkplanUploadModal';
 
 interface ReviewSummary {
   id: string;
@@ -54,6 +55,7 @@ export default function EvaluationReviewsPage() {
     total: 0
   });
   const [stageLoading, setStageLoading] = useState(true);
+  const [pdfUploadOpen, setPdfUploadOpen] = useState(false);
 
   // Stable supabase client ref — prevents re-creation on every render
   const supabaseRef = useRef(createClient());
@@ -303,6 +305,12 @@ export default function EvaluationReviewsPage() {
       actions={
       <div className="flex items-center gap-2">
           <button
+          onClick={() => setPdfUploadOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-2 text-xs font-600 rounded-lg border border-border bg-white text-foreground hover:bg-muted/40 transition-colors shadow-sm">
+            <Icon name="DocumentArrowUpIcon" size={14} className="text-primary" />
+            <span className="hidden sm:inline">Upload PDF</span>
+          </button>
+          <button
           onClick={() => setActiveForm('workplan')}
           className="btn-brand">
 
@@ -313,6 +321,16 @@ export default function EvaluationReviewsPage() {
       }>
 
       <Toaster position="bottom-right" richColors />
+
+      {/* ── PDF Upload Modal ── */}
+      <PDFWorkplanUploadModal
+        isOpen={pdfUploadOpen}
+        onClose={() => setPdfUploadOpen(false)}
+        onImported={() => {
+          setPdfUploadOpen(false);
+          fetchStageCounts(true);
+        }}
+      />
 
       {/* ── Form Modal ── */}
       {activeForm &&
