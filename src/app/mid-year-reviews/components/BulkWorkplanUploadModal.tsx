@@ -37,9 +37,19 @@ interface WorkplanRecord {
   _supervisorId?: string | null;
   _errors: string[];
   _warnings: string[];
+  // conflict
+  _existingWorkplanId?: string | null;
 }
 
-type UploadStatus = 'idle' | 'parsing' | 'validating' | 'ready' | 'importing' | 'done' | 'error';
+type ConflictResolution = 'overwrite' | 'merge' | 'skip';
+
+interface ConflictState {
+  record: WorkplanRecord;
+  existingId: string;
+  resolution: ConflictResolution;
+}
+
+type UploadStatus = 'idle' | 'parsing' | 'validating' | 'conflict' | 'ready' | 'importing' | 'done' | 'error';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -66,16 +76,6 @@ const FISCAL_YEAR_OPTIONS = [
   'FY 2024-2025 (Jul–Jun)',
 ];
 
-// ─── Template columns for the flat Excel format ───────────────────────────────
-// The template has one row per KPI entry. Multiple rows for the same staff member
-// are merged into a single workplan.
-//
-// Required columns:
-//   staff_name, job_title, perspective, key_work_objective, key_activities,
-//   kpi_measure, target, weight
-// Optional:
-//   directorate, supervisor_name, fiscal_year
-
 const REQUIRED_COLS = ['staff_name', 'perspective', 'key_work_objective', 'kpi_measure', 'target'];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -94,64 +94,19 @@ function normalisePerspective(raw: string): string {
   if (lower.includes('customer') || lower.includes('stakeholder')) return 'Customer/Stakeholder';
   if (lower.includes('internal') || lower.includes('business') || lower.includes('process')) return 'Internal Business Processes';
   if (lower.includes('innov') || lower.includes('learn') || lower.includes('growth')) return 'Innovation Learning & Growth';
-  return raw; // keep as-is; will be flagged as warning
+  return raw;
 }
 
 function downloadTemplate() {
   const wb = XLSX.utils.book_new();
   const headers = [
-    'staff_name',
-    'job_title',
-    'directorate',
-    'supervisor_name',
-    'fiscal_year',
-    'perspective',
-    'key_work_objective',
-    'key_activities',
-    'kpi_measure',
-    'target',
-    'weight',
+    'staff_name', 'job_title', 'directorate', 'supervisor_name', 'fiscal_year',
+    'perspective', 'key_work_objective', 'key_activities', 'kpi_measure', 'target', 'weight',
   ];
   const sampleRows = [
-    [
-      'JANE MARY DOE',
-      'Programme Officer',
-      'Programmes',
-      'ANDREW NKHULO SILUMESII',
-      'FY 2026-2027 (Jul–Jun)',
-      'Financial/Stewardship',
-      'Strengthen financial sustainability',
-      'Prepare quarterly financial reports; monitor budget utilisation',
-      'Budget Variance (≤5% of approved budget)',
-      '≤5% variance by June 2027',
-      '3',
-    ],
-    [
-      'JANE MARY DOE',
-      'Programme Officer',
-      'Programmes',
-      'ANDREW NKHULO SILUMESII',
-      'FY 2026-2027 (Jul–Jun)',
-      'Customer/Stakeholder',
-      'Strengthen value proposition to Member States',
-      'Coordinate quarterly stakeholder meetings; produce meeting reports',
-      'Stakeholder Satisfaction Index',
-      '≥80% satisfaction score',
-      '3',
-    ],
-    [
-      'JOHN SMITH',
-      'Finance Officer',
-      'Finance',
-      'LILLIANE BRENDA NAMUTEBI NJUBA',
-      'FY 2026-2027 (Jul–Jun)',
-      'Internal Business Processes',
-      'Improve budget utilization',
-      'Monthly budget tracking; variance analysis reports',
-      'Budget Utilisation Rate (≥90%)',
-      '≥90% utilisation by Q4',
-      '4',
-    ],
+    ['JANE MARY DOE', 'Programme Officer', 'Programmes', 'ANDREW NKHULO SILUMESII', 'FY 2026-2027 (Jul–Jun)', 'Financial/Stewardship', 'Strengthen financial sustainability', 'Prepare quarterly financial reports; monitor budget utilisation', 'Budget Variance (≤5% of approved budget)', '≤5% variance by June 2027', '3'],
+    ['JANE MARY DOE', 'Programme Officer', 'Programmes', 'ANDREW NKHULO SILUMESII', 'FY 2026-2027 (Jul–Jun)', 'Customer/Stakeholder', 'Strengthen value proposition to Member States', 'Coordinate quarterly stakeholder meetings; produce meeting reports', 'Stakeholder Satisfaction Index', '≥80% satisfaction score', '3'],
+    ['JOHN SMITH', 'Finance Officer', 'Finance', 'LILLIANE BRENDA NAMUTEBI NJUBA', 'FY 2026-2027 (Jul–Jun)', 'Internal Business Processes', 'Improve budget utilization', 'Monthly budget tracking; variance analysis reports', 'Budget Utilisation Rate (≥90%)', '≥90% utilisation by Q4', '4'],
   ];
   const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
   ws['!cols'] = headers.map(() => ({ wch: 30 }));
@@ -161,14 +116,8 @@ function downloadTemplate() {
 
 // ─── Parse flat rows into grouped workplan records ────────────────────────────
 
-function parseRows(
-  rawRows: unknown[][],
-  headers: string[],
-  defaultFiscalYear: string
-): WorkplanRecord[] {
+function parseRows(rawRows: unknown[][], headers: string[], defaultFiscalYear: string): WorkplanRecord[] {
   const get = (row: unknown[], col: string) => norm(row[headers.indexOf(col)] ?? '');
-
-  // Group rows by staff_name (case-insensitive)
   const grouped = new Map<string, WorkplanRecord>();
 
   for (const row of rawRows) {
@@ -178,7 +127,6 @@ function parseRows(
     const fiscalYearRaw = get(row, 'fiscal_year');
     const fiscalYear = fiscalYearRaw || defaultFiscalYear;
     const reviewYear = fiscalYear.includes('2026') ? 2026 : fiscalYear.includes('2025') ? 2025 : 2026;
-
     const key = `${staffName}::${fiscalYear}`;
 
     if (!grouped.has(key)) {
@@ -193,12 +141,11 @@ function parseRows(
         generalCompetencies: DEFAULT_COMPETENCIES.map((c) => ({ ...c })),
         _errors: [],
         _warnings: [],
+        _existingWorkplanId: null,
       });
     }
 
     const record = grouped.get(key)!;
-
-    // Update job title / supervisor if not yet set
     if (!record.jobTitle && get(row, 'job_title')) record.jobTitle = get(row, 'job_title');
     if (!record.supervisorName && get(row, 'supervisor_name')) record.supervisorName = get(row, 'supervisor_name').toUpperCase();
 
@@ -211,38 +158,19 @@ function parseRows(
     const weightRaw = get(row, 'weight');
     const weight = weightRaw ? Math.min(5, Math.max(1, parseInt(weightRaw, 10) || 3)) : 3;
 
-    if (!perspectiveRaw) {
-      record._warnings.push(`Row missing perspective — skipped`);
-      continue;
-    }
+    if (!perspectiveRaw) { record._warnings.push(`Row missing perspective — skipped`); continue; }
+    if (!PERSPECTIVES.includes(perspective)) record._warnings.push(`Unknown perspective "${perspectiveRaw}" — mapped as-is`);
 
-    if (!PERSPECTIVES.includes(perspective)) {
-      record._warnings.push(`Unknown perspective "${perspectiveRaw}" — mapped as-is`);
-    }
-
-    // Find existing row with same perspective + objective, or create new
     let existingRow = record.perspectivesObjectives.find(
       (r) => r.perspective === perspective && r.objective === objective
     );
-
     if (!existingRow) {
-      existingRow = {
-        id: uid(),
-        perspective,
-        objective,
-        keyActivities,
-        kpis: [],
-        weight,
-      };
+      existingRow = { id: uid(), perspective, objective, keyActivities, kpis: [], weight };
       record.perspectivesObjectives.push(existingRow);
     }
-
-    if (kpiLabel) {
-      existingRow.kpis.push({ id: uid(), label: kpiLabel, target });
-    }
+    if (kpiLabel) existingRow.kpis.push({ id: uid(), label: kpiLabel, target });
   }
 
-  // Validate each record
   for (const record of grouped.values()) {
     if (!record.staffName) record._errors.push('Staff name is required');
     if (record.perspectivesObjectives.length === 0) record._errors.push('No scorecard rows found');
@@ -253,11 +181,181 @@ function parseRows(
   return Array.from(grouped.values());
 }
 
+// ─── Merge helper — combines existing + incoming perspective rows ──────────────
+
+function mergeWorkplanRows(
+  existingRows: PerspectiveRow[],
+  incomingRows: PerspectiveRow[]
+): PerspectiveRow[] {
+  const merged = existingRows.map((r) => ({ ...r, kpis: [...r.kpis] }));
+  for (const incoming of incomingRows) {
+    const match = merged.find(
+      (r) => r.perspective === incoming.perspective && r.objective === incoming.objective
+    );
+    if (match) {
+      // Add KPIs that don't already exist (by label)
+      for (const kpi of incoming.kpis) {
+        if (!match.kpis.some((k) => k.label === kpi.label)) {
+          match.kpis.push({ ...kpi });
+        }
+      }
+    } else {
+      merged.push({ ...incoming, kpis: [...incoming.kpis] });
+    }
+  }
+  return merged;
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface BulkWorkplanUploadModalProps {
   onClose: () => void;
   onImportComplete: (count: number) => void;
+}
+
+// ─── Conflict Dialog ──────────────────────────────────────────────────────────
+
+interface ConflictDialogProps {
+  conflicts: ConflictState[];
+  onResolutionChange: (staffName: string, resolution: ConflictResolution) => void;
+  onApplyAll: (resolution: ConflictResolution) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ConflictDialog({ conflicts, onResolutionChange, onApplyAll, onConfirm, onCancel }: ConflictDialogProps) {
+  return (
+    <div className="space-y-4">
+      {/* Header banner */}
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
+        <div className="p-1.5 bg-amber-100 rounded-lg flex-shrink-0 mt-0.5">
+          <Icon name="EcsaWarningIcon" size={18} className="text-amber-600" />
+        </div>
+        <div>
+          <p className="text-sm font-700 text-amber-800">
+            {conflicts.length} Conflict{conflicts.length !== 1 ? 's' : ''} Detected
+          </p>
+          <p className="text-xs text-amber-700 mt-0.5">
+            The following staff members already have a workplan for the selected fiscal year.
+            Choose how to handle each conflict before proceeding.
+          </p>
+        </div>
+      </div>
+
+      {/* Apply-all shortcuts */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground font-600 mr-1">Apply to all:</span>
+        {(['overwrite', 'merge', 'skip'] as ConflictResolution[]).map((res) => (
+          <button
+            key={res}
+            onClick={() => onApplyAll(res)}
+            className={`px-3 py-1 rounded-lg text-xs font-600 border transition-colors ${
+              res === 'overwrite' ?'border-rose-300 text-rose-700 hover:bg-rose-50'
+                : res === 'merge' ?'border-blue-300 text-blue-700 hover:bg-blue-50' :'border-slate-300 text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            {res.charAt(0).toUpperCase() + res.slice(1)} All
+          </button>
+        ))}
+      </div>
+
+      {/* Per-record conflict list */}
+      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+        {conflicts.map((conflict) => (
+          <div
+            key={conflict.record.staffName}
+            className="rounded-xl border border-border bg-white p-4 space-y-3"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-700 text-foreground truncate">{conflict.record.staffName}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {conflict.record.jobTitle || 'No job title'} · {conflict.record.fiscalYear}
+                </p>
+              </div>
+              <span className="text-[10px] font-700 text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5">
+                Existing workplan
+              </span>
+            </div>
+
+            {/* Resolution options */}
+            <div className="grid grid-cols-3 gap-2">
+              {/* Overwrite */}
+              <button
+                onClick={() => onResolutionChange(conflict.record.staffName, 'overwrite')}
+                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 text-center transition-all ${
+                  conflict.resolution === 'overwrite' ?'border-rose-500 bg-rose-50' :'border-border hover:border-rose-300 hover:bg-rose-50/50'
+                }`}
+              >
+                <div className={`p-1.5 rounded-lg ${conflict.resolution === 'overwrite' ? 'bg-rose-100' : 'bg-muted'}`}>
+                  <Icon name="ArrowPathIcon" size={16} className={conflict.resolution === 'overwrite' ? 'text-rose-600' : 'text-muted-foreground'} />
+                </div>
+                <span className={`text-xs font-700 ${conflict.resolution === 'overwrite' ? 'text-rose-700' : 'text-foreground'}`}>
+                  Overwrite
+                </span>
+                <span className="text-[10px] text-muted-foreground leading-tight">
+                  Replace existing data entirely
+                </span>
+              </button>
+
+              {/* Merge */}
+              <button
+                onClick={() => onResolutionChange(conflict.record.staffName, 'merge')}
+                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 text-center transition-all ${
+                  conflict.resolution === 'merge' ?'border-blue-500 bg-blue-50' :'border-border hover:border-blue-300 hover:bg-blue-50/50'
+                }`}
+              >
+                <div className={`p-1.5 rounded-lg ${conflict.resolution === 'merge' ? 'bg-blue-100' : 'bg-muted'}`}>
+                  <Icon name="DocumentDuplicateIcon" size={16} className={conflict.resolution === 'merge' ? 'text-blue-600' : 'text-muted-foreground'} />
+                </div>
+                <span className={`text-xs font-700 ${conflict.resolution === 'merge' ? 'text-blue-700' : 'text-foreground'}`}>
+                  Merge
+                </span>
+                <span className="text-[10px] text-muted-foreground leading-tight">
+                  Add new rows to existing
+                </span>
+              </button>
+
+              {/* Skip */}
+              <button
+                onClick={() => onResolutionChange(conflict.record.staffName, 'skip')}
+                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 text-center transition-all ${
+                  conflict.resolution === 'skip' ?'border-slate-500 bg-slate-50' :'border-border hover:border-slate-300 hover:bg-slate-50/50'
+                }`}
+              >
+                <div className={`p-1.5 rounded-lg ${conflict.resolution === 'skip' ? 'bg-slate-100' : 'bg-muted'}`}>
+                  <Icon name="MinusCircleIcon" size={16} className={conflict.resolution === 'skip' ? 'text-slate-600' : 'text-muted-foreground'} />
+                </div>
+                <span className={`text-xs font-700 ${conflict.resolution === 'skip' ? 'text-slate-700' : 'text-foreground'}`}>
+                  Skip
+                </span>
+                <span className="text-[10px] text-muted-foreground leading-tight">
+                  Keep existing, ignore import
+                </span>
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Footer actions */}
+      <div className="flex gap-3 pt-1">
+        <button
+          onClick={onCancel}
+          className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm font-500 hover:bg-muted"
+        >
+          Back
+        </button>
+        <button
+          onClick={onConfirm}
+          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-white text-sm font-600 hover:bg-primary/90"
+        >
+          <Icon name="ArrowUpTrayIcon" size={15} />
+          Proceed with Import
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -271,6 +369,7 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
   const [results, setResults] = useState<{ inserted: number; skipped: number; errors: string[] }>({ inserted: 0, skipped: 0, errors: [] });
   const [defaultFiscalYear, setDefaultFiscalYear] = useState('FY 2026-2027 (Jul–Jun)');
   const [expandedRecord, setExpandedRecord] = useState<string | null>(null);
+  const [conflicts, setConflicts] = useState<ConflictState[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const validRecords = records.filter((r) => r._errors.length === 0);
@@ -282,6 +381,7 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
     setFileName(file.name);
     setStatus('parsing');
     setRecords([]);
+    setConflicts([]);
 
     try {
       const buffer = await file.arrayBuffer();
@@ -289,15 +389,11 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
       const ws = wb.Sheets[wb.SheetNames[0]];
       const raw: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-      if (raw.length < 2) {
-        setStatus('error');
-        return;
-      }
+      if (raw.length < 2) { setStatus('error'); return; }
 
       const headers = (raw[0] as unknown[]).map((h) => norm(h).toLowerCase().replace(/[\s/]+/g, '_'));
       const dataRows = raw.slice(1).filter((r) => (r as unknown[]).some((c) => norm(c) !== ''));
 
-      // Check required columns
       const missing = REQUIRED_COLS.filter((c) => !headers.includes(c));
       if (missing.length > 0) {
         setStatus('error');
@@ -306,10 +402,8 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
       }
 
       const parsed = parseRows(dataRows, headers, defaultFiscalYear);
-
       setStatus('validating');
 
-      // Resolve staff IDs from DB
       const supabase = createClient();
       const allNames = [...new Set(parsed.flatMap((p) => [p.staffName, p.supervisorName].filter(Boolean)))];
 
@@ -325,7 +419,6 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
         const staffEntry = staffMap.get(record.staffName);
         if (staffEntry) {
           record._staffId = staffEntry.id;
-          // Use supervisor from DB if not provided in file
           if (!record.supervisorName && staffEntry.supervisor_name) {
             record.supervisorName = staffEntry.supervisor_name;
           }
@@ -336,14 +429,36 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
         if (record.supervisorName) {
           const supEntry = staffMap.get(record.supervisorName);
           record._supervisorId = supEntry?.id || null;
-          if (!supEntry) {
-            record._warnings.push(`Supervisor "${record.supervisorName}" not found — will be left blank`);
-          }
+          if (!supEntry) record._warnings.push(`Supervisor "${record.supervisorName}" not found — will be left blank`);
+        }
+      }
+
+      // ── Conflict detection: check which valid records already have a workplan ──
+      const validParsed = parsed.filter((r) => r._errors.length === 0 && r._staffId);
+      const conflictList: ConflictState[] = [];
+
+      for (const record of validParsed) {
+        const { data: existing } = await supabase
+          .from('workplan_settings')
+          .select('id')
+          .eq('staff_id', record._staffId!)
+          .eq('fiscal_year', record.fiscalYear)
+          .maybeSingle();
+
+        if (existing) {
+          record._existingWorkplanId = existing.id;
+          conflictList.push({ record, existingId: existing.id, resolution: 'overwrite' });
         }
       }
 
       setRecords(parsed);
-      setStatus('ready');
+
+      if (conflictList.length > 0) {
+        setConflicts(conflictList);
+        setStatus('conflict');
+      } else {
+        setStatus('ready');
+      }
     } catch (err) {
       setStatus('error');
       setResults((r) => ({ ...r, errors: [`Failed to parse file: ${err instanceof Error ? err.message : 'Unknown error'}`] }));
@@ -362,6 +477,27 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
     if (file) processFile(file);
   };
 
+  // ── Conflict resolution handlers ─────────────────────────────────────────────
+
+  const handleResolutionChange = (staffName: string, resolution: ConflictResolution) => {
+    setConflicts((prev) =>
+      prev.map((c) => (c.record.staffName === staffName ? { ...c, resolution } : c))
+    );
+  };
+
+  const handleApplyAll = (resolution: ConflictResolution) => {
+    setConflicts((prev) => prev.map((c) => ({ ...c, resolution })));
+  };
+
+  const handleConflictConfirm = () => {
+    setStatus('ready');
+  };
+
+  const handleConflictCancel = () => {
+    setStatus('ready');
+    setConflicts([]);
+  };
+
   // ── Import ───────────────────────────────────────────────────────────────────
 
   const handleImport = async () => {
@@ -374,21 +510,24 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
     let skipped = 0;
     const errors: string[] = [];
 
+    // Build a map of conflict resolutions by staff name
+    const resolutionMap = new Map<string, ConflictResolution>();
+    conflicts.forEach((c) => resolutionMap.set(c.record.staffName, c.resolution));
+
     for (let i = 0; i < validRecords.length; i++) {
       const record = validRecords[i];
       setProgress(Math.round(((i + 1) / validRecords.length) * 100));
 
       try {
-        // Check if workplan already exists for this staff + fiscal year
-        const { data: existing } = await supabase
-          .from('workplan_settings')
-          .select('id')
-          .eq('staff_id', record._staffId!)
-          .eq('fiscal_year', record.fiscalYear)
-          .maybeSingle();
+        const existingId = record._existingWorkplanId;
+        const resolution = existingId ? (resolutionMap.get(record.staffName) ?? 'overwrite') : null;
 
-        if (existing) {
-          // Upsert — update existing workplan
+        if (existingId && resolution === 'skip') {
+          skipped++;
+          continue;
+        }
+
+        if (existingId && resolution === 'overwrite') {
           const { error } = await supabase
             .from('workplan_settings')
             .update({
@@ -398,34 +537,56 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
               review_year: record.reviewYear,
               updated_at: new Date().toISOString(),
             })
-            .eq('id', existing.id);
+            .eq('id', existingId);
 
-          if (error) {
-            errors.push(`${record.staffName}: ${error.message}`);
-          } else {
-            inserted++;
-          }
-        } else {
-          // Insert new workplan
+          if (error) errors.push(`${record.staffName}: ${error.message}`);
+          else inserted++;
+          continue;
+        }
+
+        if (existingId && resolution === 'merge') {
+          // Fetch existing rows first
+          const { data: existingData } = await supabase
+            .from('workplan_settings')
+            .select('perspectives_objectives, general_competencies')
+            .eq('id', existingId)
+            .maybeSingle();
+
+          const existingRows: PerspectiveRow[] = existingData?.perspectives_objectives || [];
+          const mergedRows = mergeWorkplanRows(existingRows, record.perspectivesObjectives);
+
           const { error } = await supabase
             .from('workplan_settings')
-            .insert({
-              staff_id: record._staffId!,
+            .update({
               supervisor_id: record._supervisorId || null,
-              fiscal_year: record.fiscalYear,
-              review_year: record.reviewYear,
-              perspectives_objectives: record.perspectivesObjectives,
+              perspectives_objectives: mergedRows,
               general_competencies: record.generalCompetencies,
-              status: 'draft',
-              workflow_stage: 'workplan_pending',
-            });
+              review_year: record.reviewYear,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingId);
 
-          if (error) {
-            errors.push(`${record.staffName}: ${error.message}`);
-          } else {
-            inserted++;
-          }
+          if (error) errors.push(`${record.staffName}: ${error.message}`);
+          else inserted++;
+          continue;
         }
+
+        // No existing workplan — insert new
+        const { error } = await supabase
+          .from('workplan_settings')
+          .insert({
+            staff_id: record._staffId!,
+            supervisor_id: record._supervisorId || null,
+            fiscal_year: record.fiscalYear,
+            review_year: record.reviewYear,
+            perspectives_objectives: record.perspectivesObjectives,
+            general_competencies: record.generalCompetencies,
+            status: 'draft',
+            workflow_stage: 'workplan_pending',
+          });
+
+        if (error) errors.push(`${record.staffName}: ${error.message}`);
+        else inserted++;
       } catch (err) {
         errors.push(`${record.staffName}: ${err instanceof Error ? err.message : 'Unknown error'}`);
         skipped++;
@@ -443,6 +604,7 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
     setFileName('');
     setProgress(0);
     setResults({ inserted: 0, skipped: 0, errors: [] });
+    setConflicts([]);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -533,10 +695,7 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
                 <p className="text-sm text-muted-foreground mt-1">{progress}% complete</p>
               </div>
               <div className="w-full max-w-xs bg-muted rounded-full h-2">
-                <div
-                  className="bg-primary h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${progress}%` }}
-                />
+                <div className="bg-primary h-2 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
               </div>
             </div>
           )}
@@ -544,7 +703,6 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
           {/* Idle / Upload state */}
           {(status === 'idle' || status === 'error') && (
             <div className="space-y-4">
-              {/* Fiscal year selector */}
               <div>
                 <label className="block text-xs font-600 text-muted-foreground mb-1.5">Default Fiscal Year</label>
                 <select
@@ -559,7 +717,6 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
                 <p className="text-xs text-muted-foreground mt-1">Used when fiscal_year column is blank in the file</p>
               </div>
 
-              {/* Drop zone */}
               <div
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                 onDragLeave={() => setDragOver(false)}
@@ -578,16 +735,9 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
                   </div>
                   <p className="text-xs text-muted-foreground">Supports .xlsx, .xls, .csv</p>
                 </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".xlsx,.xls,.csv"
-                  className="hidden"
-                  onChange={handleFileChange}
-                />
+                <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFileChange} />
               </div>
 
-              {/* Error message */}
               {status === 'error' && results.errors.length > 0 && (
                 <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
                   {results.errors.map((e, i) => (
@@ -599,7 +749,6 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
                 </div>
               )}
 
-              {/* Template download */}
               <div className="rounded-xl border border-border bg-muted/30 p-4 flex items-center gap-4">
                 <div className="p-2 bg-emerald-100 rounded-lg flex-shrink-0">
                   <Icon name="DocumentArrowDownIcon" size={20} className="text-emerald-700" />
@@ -619,7 +768,6 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
                 </button>
               </div>
 
-              {/* Format guide */}
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 space-y-2">
                 <p className="text-xs font-700 text-blue-800 flex items-center gap-1.5">
                   <Icon name="InformationCircleIcon" size={14} />
@@ -667,9 +815,41 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
             </div>
           )}
 
+          {/* Conflict resolution state */}
+          {status === 'conflict' && (
+            <ConflictDialog
+              conflicts={conflicts}
+              onResolutionChange={handleResolutionChange}
+              onApplyAll={handleApplyAll}
+              onConfirm={handleConflictConfirm}
+              onCancel={handleConflictCancel}
+            />
+          )}
+
           {/* Ready state — preview */}
           {status === 'ready' && (
             <div className="space-y-4">
+              {/* Conflict summary banner (if any) */}
+              {conflicts.length > 0 && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Icon name="EcsaWarningIcon" size={16} className="text-amber-600 flex-shrink-0" />
+                    <p className="text-xs text-amber-800">
+                      <span className="font-700">{conflicts.length} conflict{conflicts.length !== 1 ? 's' : ''}</span> resolved —{' '}
+                      {conflicts.filter((c) => c.resolution === 'overwrite').length} overwrite,{' '}
+                      {conflicts.filter((c) => c.resolution === 'merge').length} merge,{' '}
+                      {conflicts.filter((c) => c.resolution === 'skip').length} skip
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setStatus('conflict')}
+                    className="text-xs font-600 text-amber-700 underline hover:no-underline flex-shrink-0"
+                  >
+                    Edit
+                  </button>
+                </div>
+              )}
+
               {/* Summary */}
               <div className="grid grid-cols-3 gap-3">
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
@@ -702,6 +882,7 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
                   const isExpanded = expandedRecord === key;
                   const hasErrors = record._errors.length > 0;
                   const hasWarnings = record._warnings.length > 0;
+                  const conflict = conflicts.find((c) => c.record.staffName === record.staffName);
 
                   return (
                     <div
@@ -726,17 +907,25 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
                           </p>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
+                          {conflict && (
+                            <span className={`text-[10px] font-700 px-2 py-0.5 rounded-full ${
+                              conflict.resolution === 'overwrite' ?'text-rose-700 bg-rose-100'
+                                : conflict.resolution === 'merge' ?'text-blue-700 bg-blue-100' :'text-slate-600 bg-slate-100'
+                            }`}>
+                              {conflict.resolution}
+                            </span>
+                          )}
                           {hasErrors && (
                             <span className="text-xs font-600 text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full">
                               {record._errors.length} error{record._errors.length !== 1 ? 's' : ''}
                             </span>
                           )}
-                          {hasWarnings && !hasErrors && (
+                          {hasWarnings && !hasErrors && !conflict && (
                             <span className="text-xs font-600 text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
                               {record._warnings.length} warning{record._warnings.length !== 1 ? 's' : ''}
                             </span>
                           )}
-                          {!hasErrors && !hasWarnings && (
+                          {!hasErrors && !hasWarnings && !conflict && (
                             <span className="text-xs font-600 text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Ready</span>
                           )}
                           <Icon name="ChevronDownIcon" size={14} className={`text-muted-foreground transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
@@ -782,7 +971,7 @@ export default function BulkWorkplanUploadModal({ onClose, onImportComplete }: B
         </div>
 
         {/* Footer */}
-        {(status === 'ready') && (
+        {status === 'ready' && (
           <div className="px-6 py-4 border-t border-border flex items-center justify-between gap-3 flex-shrink-0">
             <p className="text-xs text-muted-foreground">
               {validRecords.length} of {records.length} workplan{records.length !== 1 ? 's' : ''} will be imported
