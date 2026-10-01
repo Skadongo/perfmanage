@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
-export default function ChangePasswordPage() {
+function ChangePasswordContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, profile, loading } = useAuth();
   const supabase = createClient();
 
@@ -19,15 +20,18 @@ export default function ChangePasswordPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
 
+  // Determine if this is a forced first-login change or a voluntary change
+  const isForced = profile?.mustChangePassword === true;
+
   useEffect(() => {
     if (!loading) {
       if (!user) {
         router.replace('/login');
-      } else if (profile && !profile.mustChangePassword) {
-        router.replace('/performance-dashboard');
       }
+      // Only redirect away if mustChangePassword is false AND it's a forced flow
+      // Voluntary changes (from avatar menu) should always be accessible
     }
-  }, [user, profile, loading, router]);
+  }, [user, loading, router]);
 
   const validatePassword = (pw: string): string | null => {
     if (pw.length < 8) return 'Password must be at least 8 characters.';
@@ -61,23 +65,30 @@ export default function ChangePasswordPage() {
 
       if (updateError) throw updateError;
 
-      // Mark must_change_password as false in user_profiles
-      const { error: profileError } = await supabase
-        .from('user_profiles')
-        .update({ must_change_password: false, updated_at: new Date().toISOString() })
-        .eq('id', user!.id);
+      // If it was a forced change, mark must_change_password as false
+      if (isForced) {
+        const { error: profileError } = await supabase
+          .from('user_profiles')
+          .update({ must_change_password: false, updated_at: new Date().toISOString() })
+          .eq('id', user!.id);
 
-      if (profileError) throw profileError;
+        if (profileError) throw profileError;
+      }
 
       setSuccess(true);
       setTimeout(() => {
         router.replace('/performance-dashboard');
       }, 2000);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to update password. Please try again.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update password. Please try again.';
+      setError(message);
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleCancel = () => {
+    router.back();
   };
 
   const strengthChecks = [
@@ -117,22 +128,26 @@ export default function ChangePasswordPage() {
                 className="object-contain mb-3"
               />
               <h1 className="text-lg font-700 text-foreground text-center">
-                Set Your New Password
+                {isForced ? 'Set Your New Password' : 'Change Password'}
               </h1>
               <p className="text-sm text-muted-foreground mt-1 text-center leading-snug">
-                Welcome! For security, you must set a personal password before continuing.
+                {isForced
+                  ? 'Welcome! For security, you must set a personal password before continuing.'
+                  : 'Update your account password. Choose a strong, unique password.'}
               </p>
             </div>
 
-            {/* Info banner */}
-            <div className="mb-5 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2.5">
-              <svg className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-              </svg>
-              <p className="text-xs text-blue-700">
-                Signed in as <span className="font-600">{user.email}</span>. Your default password was <span className="font-600">Ecsahc@2026</span>. Please choose a strong personal password.
-              </p>
-            </div>
+            {/* Info banner — only shown for forced first-login */}
+            {isForced && (
+              <div className="mb-5 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2.5">
+                <svg className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+                <p className="text-xs text-blue-700">
+                  Signed in as <span className="font-600">{user.email}</span>. Your default password was <span className="font-600">Ecsahc@2026</span>. Please choose a strong personal password.
+                </p>
+              </div>
+            )}
 
             {/* Success state */}
             {success ? (
@@ -268,20 +283,35 @@ export default function ChangePasswordPage() {
                     ))}
                   </div>
 
-                  <button
-                    type="submit"
-                    disabled={isSubmitting || strengthScore < 5 || newPassword !== confirmPassword}
-                    className="w-full py-2.5 px-4 bg-primary text-white rounded-lg text-sm font-600 hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        Updating Password…
-                      </>
-                    ) : (
-                      'Set New Password & Continue'
+                  <div className="flex gap-3">
+                    {/* Cancel button — only shown for voluntary changes */}
+                    {!isForced && (
+                      <button
+                        type="button"
+                        onClick={handleCancel}
+                        disabled={isSubmitting}
+                        className="flex-1 py-2.5 px-4 border border-border text-foreground rounded-lg text-sm font-600 hover:bg-muted transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        Cancel
+                      </button>
                     )}
-                  </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting || strengthScore < 5 || newPassword !== confirmPassword}
+                      className="flex-1 py-2.5 px-4 bg-primary text-white rounded-lg text-sm font-600 hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Updating…
+                        </>
+                      ) : isForced ? (
+                        'Set New Password & Continue'
+                      ) : (
+                        'Update Password'
+                      )}
+                    </button>
+                  </div>
                 </form>
               </>
             )}
@@ -295,5 +325,17 @@ export default function ChangePasswordPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ChangePasswordPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <ChangePasswordContent />
+    </Suspense>
   );
 }
