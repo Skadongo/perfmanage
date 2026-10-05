@@ -71,12 +71,14 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   return (
     <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
       {/* Sidebar — handles its own mobile overlay internally */}
-      <Sidebar
-        collapsed={collapsed}
-        onToggle={() => setCollapsed(!collapsed)}
-        mobileOpen={mobileOpen}
-        onMobileClose={() => setMobileOpen(false)}
-      />
+      <div suppressHydrationWarning>
+        <Sidebar
+          collapsed={collapsed}
+          onToggle={() => setCollapsed(!collapsed)}
+          mobileOpen={mobileOpen}
+          onMobileClose={() => setMobileOpen(false)}
+        />
+      </div>
 
       {/* Main content — offset by sidebar width on desktop */}
       <div
