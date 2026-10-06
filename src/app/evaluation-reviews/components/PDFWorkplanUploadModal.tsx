@@ -69,6 +69,56 @@ const BSC_PERSPECTIVES = [
 
 // ─── PDF Parsing Logic ────────────────────────────────────────────────────────
 
+/**
+ * Attempts to find a staff record by name, handling reversed first/last name order.
+ * Strategy:
+ *  1. Exact ilike substring match (fast path)
+ *  2. Split the extracted name into tokens and search for each token individually,
+ *     then pick the candidate whose tokens all appear in the DB full_name.
+ */
+async function lookupStaffByName(
+  supabase: ReturnType<typeof createClient>,
+  extractedName: string
+): Promise<{ id: string; full_name: string; job_title: string | null; supervisor_id: string | null } | null> {
+  if (!extractedName || extractedName === 'Unknown Staff') return null;
+
+  // ── 1. Direct substring match ──────────────────────────────────────────────
+  const { data: directRows } = await supabase
+    .from('staff')
+    .select('id, full_name, job_title, supervisor_id')
+    .ilike('full_name', `%${extractedName}%`)
+    .limit(1);
+
+  if (directRows && directRows.length > 0) return directRows[0];
+
+  // ── 2. Token-based match (handles reversed name order) ────────────────────
+  // Split extracted name into individual word tokens (e.g. ["Ayabare", "Timothy"])
+  const tokens = extractedName.trim().split(/\s+/).filter((t) => t.length > 1);
+  if (tokens.length < 2) return null;
+
+  // Fetch all staff whose full_name contains ANY of the tokens
+  // Use the longest token for the initial DB filter to minimise result set
+  const longestToken = tokens.reduce((a, b) => (a.length >= b.length ? a : b));
+  const { data: candidates } = await supabase
+    .from('staff')
+    .select('id, full_name, job_title, supervisor_id')
+    .ilike('full_name', `%${longestToken}%`)
+    .limit(20);
+
+  if (!candidates || candidates.length === 0) return null;
+
+  // Among candidates, find one whose full_name contains ALL extracted tokens
+  const normalise = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, '');
+  const normTokens = tokens.map(normalise);
+
+  const match = candidates.find((row) => {
+    const normFull = normalise(row.full_name);
+    return normTokens.every((tok) => normFull.includes(tok));
+  });
+
+  return match ?? null;
+}
+
 function parseWorkplanFromText(text: string, fileName: string): ParsedWorkplanData {
   const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
   const fullText = lines.join(' ');
@@ -272,14 +322,8 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
     setImportError(null);
 
     try {
-      // Look up staff by name
-      const { data: staffRows } = await supabase
-        .from('staff')
-        .select('id, full_name, job_title, supervisor_id')
-        .ilike('full_name', `%${parsedData.staffName}%`)
-        .limit(1);
-
-      const staffRecord = staffRows?.[0] ?? null;
+      // Look up staff by name — handles reversed first/last name order (e.g. "Ayabare Timothy" → "Timothy Ayabare")
+      const staffRecord = await lookupStaffByName(supabase, parsedData.staffName);
       const staffId = staffRecord?.id ?? null;
 
       // ── Schema validation before insert ──────────────────────────────────
