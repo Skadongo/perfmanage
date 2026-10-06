@@ -14,6 +14,7 @@ import {
   type RoleDashboardConfig,
 } from './config/roleDashboardConfig';
 import type { DrillDownFilter } from './types';
+import StrategicPlanSection from './components/StrategicPlanSection';
 
 // ── Dynamic imports (next/dynamic replaces React.lazy to fix webpack chunk resolution) ──
 const DashboardMetricCards  = dynamic(() => import('./components/DashboardMetricCards'), { ssr: false });
@@ -23,7 +24,6 @@ const FrameworkIndicators   = dynamic(() => import('./components/FrameworkIndica
 const AtRiskStaffTable      = dynamic(() => import('./components/AtRiskStaffTable'), { ssr: false });
 const ActivityFeed          = dynamic(() => import('./components/ActivityFeed'), { ssr: false });
 const StaffDrillDownModal   = dynamic(() => import('./components/StaffDrillDownModal'), { ssr: false });
-const StrategicPlanSection  = dynamic(() => import('./components/StrategicPlanSection'), { ssr: false });
 const WorkplanSummaryPanel  = dynamic(() => import('./components/WorkplanSummaryPanel'), { ssr: false });
 
 // ── Live strip metric definitions ──────────────────────────────────────────
