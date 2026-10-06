@@ -4,6 +4,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
+import { extractTextFromPDF } from '@/lib/pdfExtract';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,87 +48,176 @@ interface PDFWorkplanUploadModalProps {
   onImported: () => void;
 }
 
-// ─── Pre-extracted data from Ayebare Timothy PDF ──────────────────────────────
+// ─── ECSA-HC Standard Competencies ───────────────────────────────────────────
 
-const AYEBARE_TIMOTHY_DATA: ParsedWorkplanData = {
-  staffName: 'Ayebare Timothy',
-  jobTitle: 'Snr Systems Engineer- HEPRR MPA',
-  directorate: 'Health Systems',
-  supervisorName: 'Dr Mohammed Mohammed Ali',
-  fiscalYear: 'FY 2026-2027 (Jul–Jun)',
-  reviewYear: 2026,
-  perspectivesObjectives: [
-    {
-      id: 'row-pdf-1',
-      perspective: 'Internal Business Processes',
-      objective: 'Support regional information systems for health emergencies and digitalization of the health sector',
-      keyActivities: 'Support 4 countries to develop, adopt, and roll out digital point-of-entry (PoE) screening/surveillance tools',
-      kpis: [
-        {
-          id: 'kpi-pdf-1',
-          label: 'Number of countries supported to expand, adopt, pilot, or roll out digital POE/surveillance tools',
-          target: '4 countries',
-        },
-      ],
-      weight: 5,
-    },
-    {
-      id: 'row-pdf-2',
-      perspective: 'Internal Business Processes',
-      objective: 'Develop and deploy a digital interoperability layer for HIS/surveillance tools in project countries',
-      keyActivities: 'Develop and deploy a digital interoperability layer for HIS/surveillance tools in three project countries, enabling secure, standards-based exchange of priority health emergency and surveillance data across national systems',
-      kpis: [
-        {
-          id: 'kpi-pdf-2',
-          label: 'Number of countries supported to develop an HIS layer for interoperability of primary ECSA-HC deployed tools and other national digital tools',
-          target: '3 countries',
-        },
-      ],
-      weight: 5,
-    },
-    {
-      id: 'row-pdf-3',
-      perspective: 'Internal Business Processes',
-      objective: 'Coordinate and deliver rollout of SLIPTA/digital regional tools across project countries',
-      keyActivities: 'Regional activity: coordinate and deliver the rollout of SLIPTA/digital regional tools across 3 project countries',
-      kpis: [
-        {
-          id: 'kpi-pdf-3',
-          label: 'Number of countries supported to roll out SLIPTA/digital regional tools across 3 project countries',
-          target: '3 countries',
-        },
-      ],
-      weight: 4,
-    },
-    {
-      id: 'row-pdf-4',
-      perspective: 'Internal Business Processes',
-      objective: 'Coordinate and deliver deployment of digital AMR/regional tools across project countries',
-      keyActivities: 'Regional activity: coordinate and deliver the deployment of digital AMR/regional tools across three project countries',
-      kpis: [
-        {
-          id: 'kpi-pdf-4',
-          label: 'Number of countries supported to deliver deployment of digital AMR/regional tools across three project countries',
-          target: '3 countries',
-        },
-      ],
-      weight: 2,
-    },
-  ],
-  generalCompetencies: [
-    { id: 'c1', name: 'Teamwork', description: 'Creates a culture of teamwork and responds rationally to feedback.', weight: 5 },
-    { id: 'c2', name: 'Respect for Diversity', description: 'Values individual differences and promotes a peaceful work environment.', weight: 5 },
-    { id: 'c3', name: 'Integrity', description: 'Reliable, meets all deadlines, and takes credit only for own work.', weight: 5 },
-    { id: 'c4', name: 'Communication', description: 'Explains complex issues clearly and uses visual aids effectively.', weight: 5 },
-    { id: 'c5', name: 'Results Oriented', description: 'Prioritizes activities and matches tasks with team capabilities.', weight: 5 },
-    { id: 'c6', name: 'Innovation', description: 'Thinks "outside the box" to foster team creativity.', weight: 4 },
-    { id: 'c7', name: 'Leadership (GS3+)', description: 'Acts as a role model and provides timely specific feedback to staff.', weight: 2 },
-  ],
-  supportRequired:
-    'Budget for regional training workshops; Access to the automated Performance Management digital portal; Timely feedback on submitted grant proposals.',
-};
+const STANDARD_COMPETENCIES: Omit<Competency, 'weight'>[] = [
+  { id: 'c1', name: 'Teamwork', description: 'Creates a culture of teamwork and responds rationally to feedback.' },
+  { id: 'c2', name: 'Respect for Diversity', description: 'Values individual differences and promotes a peaceful work environment.' },
+  { id: 'c3', name: 'Integrity', description: 'Reliable, meets all deadlines, and takes credit only for own work.' },
+  { id: 'c4', name: 'Communication', description: 'Explains complex issues clearly and uses visual aids effectively.' },
+  { id: 'c5', name: 'Results Oriented', description: 'Prioritizes activities and matches tasks with team capabilities.' },
+  { id: 'c6', name: 'Innovation', description: 'Thinks "outside the box" to foster team creativity.' },
+  { id: 'c7', name: 'Leadership (GS3+)', description: 'Acts as a role model and provides timely specific feedback to staff.' },
+];
 
-type Step = 'upload' | 'preview' | 'importing' | 'done';
+const BSC_PERSPECTIVES = [
+  'Financial/Stewardship',
+  'Customer/Stakeholder',
+  'Internal Business Processes',
+  'Innovation Learning & Growth Perspective',
+];
+
+// ─── PDF Parsing Logic ────────────────────────────────────────────────────────
+
+function parseWorkplanFromText(text: string, fileName: string): ParsedWorkplanData {
+  const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const fullText = lines.join(' ');
+
+  // ── Staff info extraction ──
+  let staffName = '';
+  let jobTitle = '';
+  let directorate = '';
+  let supervisorName = '';
+
+  // Name: look for "Name:" or "Employee:" patterns
+  const nameMatch = fullText.match(/(?:Name|Employee)\s*[:\-]\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,3})/);
+  if (nameMatch) staffName = nameMatch[1].trim();
+
+  // Job title
+  const jobMatch = fullText.match(/(?:Job Title|Position|Title)\s*[:\-]\s*([^\n,]{5,60}?)(?:\s{2,}|Directorate|Cluster|Supervisor)/i);
+  if (jobMatch) jobTitle = jobMatch[1].trim();
+
+  // Directorate / Cluster
+  const dirMatch = fullText.match(/(?:Directorate|Cluster)\s*[:\-]\s*([^\n,]{3,50}?)(?:\s{2,}|Supervisor|Name|$)/i);
+  if (dirMatch) directorate = dirMatch[1].trim();
+
+  // Supervisor
+  const supMatch = fullText.match(/(?:Supervisor|Reporting to)\s*[:\-]\s*([A-Z][a-zA-Z\s\.]{3,50}?)(?:\s{2,}|Job Title|Date|$)/i);
+  if (supMatch) supervisorName = supMatch[1].trim();
+
+  // Fiscal year
+  let fiscalYear = 'FY 2026-2027 (Jul–Jun)';
+  let reviewYear = 2026;
+  const fyMatch = fullText.match(/(?:FY|Fiscal Year|Review Period)\s*[:\-]?\s*(20\d{2}[-–\/]20?\d{2})/i);
+  if (fyMatch) {
+    const yearStr = fyMatch[1];
+    const startYear = parseInt(yearStr.match(/20\d{2}/)?.[0] ?? '2026');
+    fiscalYear = `FY ${yearStr} (Jul–Jun)`;
+    reviewYear = startYear;
+  } else {
+    // Try to find year range in text
+    const yearRangeMatch = fullText.match(/July\s+(20\d{2})\s*[–\-to]+\s*June\s+(20\d{2})/i);
+    if (yearRangeMatch) {
+      fiscalYear = `FY ${yearRangeMatch[1]}-${yearRangeMatch[2]} (Jul–Jun)`;
+      reviewYear = parseInt(yearRangeMatch[1]);
+    }
+  }
+
+  // ── Scorecard rows extraction ──
+  const perspectivesObjectives: PerspectiveRow[] = [];
+
+  // Try to find perspective sections and extract rows
+  // Look for weight patterns like "Weight: 5" or just a number 1-5 near KPI text
+  const weightPattern = /\b([1-5])\b/g;
+
+  // Try structured extraction: find perspective labels and associated content
+  let currentPerspective = '';
+  let rowIndex = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Detect perspective headers
+    const perspMatch = BSC_PERSPECTIVES.find((p) =>
+      line.toLowerCase().includes(p.toLowerCase().substring(0, 15))
+    );
+    if (perspMatch) {
+      currentPerspective = perspMatch;
+      continue;
+    }
+
+    // Detect rows with objectives (lines that look like objectives/activities)
+    // An objective line is typically 10+ words and not a header
+    const wordCount = line.split(/\s+/).length;
+    if (
+      currentPerspective &&
+      wordCount >= 8 &&
+      wordCount <= 80 &&
+      !line.match(/^(Part|Section|Total|Weight|Score|Rating|Signature|Date|Name|Job|Supervisor|Directorate)/i)
+    ) {
+      // Look ahead for KPI and target
+      const kpiLabel = line;
+      let target = '';
+      let weight = 3; // default weight
+
+      // Look in next few lines for target and weight
+      for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+        const nextLine = lines[j];
+        const targetMatch = nextLine.match(/(?:Target|Goal)\s*[:\-]\s*(.+)/i);
+        if (targetMatch) target = targetMatch[1].trim();
+
+        const wMatch = nextLine.match(/(?:Weight|W)\s*[:\-]?\s*([1-5])\b/i);
+        if (wMatch) weight = parseInt(wMatch[1]);
+        else if (/^\s*[1-5]\s*$/.test(nextLine)) weight = parseInt(nextLine.trim());
+      }
+
+      rowIndex++;
+      perspectivesObjectives.push({
+        id: `row-pdf-${rowIndex}`,
+        perspective: currentPerspective,
+        objective: kpiLabel.length > 100 ? kpiLabel.substring(0, 100) + '...' : kpiLabel,
+        keyActivities: kpiLabel,
+        kpis: [
+          {
+            id: `kpi-pdf-${rowIndex}`,
+            label: kpiLabel,
+            target: target || 'As per workplan',
+          },
+        ],
+        weight,
+      });
+
+      if (perspectivesObjectives.length >= 12) break;
+    }
+  }
+
+  // ── Competencies extraction ──
+  // Extract weights for standard competencies from text
+  const generalCompetencies: Competency[] = STANDARD_COMPETENCIES.map((c, idx) => {
+    // Try to find weight near competency name
+    const escapedName = c.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const compRegex = new RegExp(escapedName + '[^\\d]{0,30}([1-5])\\b', 'i');
+    const match = fullText.match(compRegex);
+    let weight = match ? parseInt(match[1]) : (idx < 5 ? 5 : idx === 5 ? 4 : 2);
+    return { ...c, weight };
+  });
+
+  // ── Support required ──
+  let supportRequired = '';
+  const supportMatch = fullText.match(/(?:Support Required|Management Support)[^\n]{0,30}[:\-]\s*([^]{10,300}?)(?:Employee Signature|Supervisor Signature|$)/i);
+  if (supportMatch) supportRequired = supportMatch[1].replace(/\s+/g, ' ').trim();
+
+  // ── Fallback: if we couldn't parse much, use filename hint ──
+  if (!staffName && fileName) {
+    // Try to extract name from filename like "John_Doe_ECSA-HC..."
+    const fnMatch = fileName.replace(/[-_]/g, ' ').match(/^([A-Z][a-z]+\s+[A-Z][a-z]+)/);
+    if (fnMatch) staffName = fnMatch[1];
+  }
+
+  return {
+    staffName: staffName || 'Unknown Staff',
+    jobTitle: jobTitle || 'Staff Member',
+    directorate: directorate || 'ECSA-HC',
+    supervisorName: supervisorName || 'Supervisor',
+    fiscalYear,
+    reviewYear,
+    perspectivesObjectives,
+    generalCompetencies,
+    supportRequired,
+  };
+}
+
+type Step = 'upload' | 'parsing' | 'preview' | 'importing' | 'done';
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -137,18 +227,30 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [parsedData, setParsedData] = useState<ParsedWorkplanData | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const supabase = createClient();
 
-  const handleFileSelect = useCallback((file: File) => {
+  const handleFileSelect = useCallback(async (file: File) => {
     if (file.type !== 'application/pdf') {
       toast.error('Please upload a PDF file.');
       return;
     }
     setUploadedFile(file);
-    // Simulate PDF parsing — use the pre-extracted Ayebare Timothy data
-    setParsedData(AYEBARE_TIMOTHY_DATA);
-    setStep('preview');
+    setParseError(null);
+    setStep('parsing');
+
+    try {
+      const text = await extractTextFromPDF(file);
+      const data = parseWorkplanFromText(text, file.name);
+      setParsedData(data);
+      setStep('preview');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to read PDF. Please try again.';
+      setParseError(msg);
+      setStep('upload');
+      toast.error('PDF parsing failed: ' + msg);
+    }
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -176,18 +278,34 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
         .ilike('full_name', `%${parsedData.staffName}%`)
         .limit(1);
 
-      const staffId = staffRows?.[0]?.id ?? null;
+      const staffRecord = staffRows?.[0] ?? null;
+      const staffId = staffRecord?.id ?? null;
 
-      // Build workplan rows payload
-      const workplanRows = parsedData.perspectivesObjectives.map((row) => ({
+      // Look up supervisor by name if we have one
+      let supervisorId: string | null = null;
+      if (parsedData.supervisorName && parsedData.supervisorName !== 'Supervisor') {
+        const { data: supRows } = await supabase
+          .from('staff')
+          .select('id')
+          .ilike('full_name', `%${parsedData.supervisorName.split(' ').slice(-1)[0]}%`)
+          .limit(1);
+        supervisorId = supRows?.[0]?.id ?? staffRecord?.supervisor_id ?? null;
+      } else if (staffRecord?.supervisor_id) {
+        supervisorId = staffRecord.supervisor_id;
+      }
+
+      // Map to correct workplan_settings schema
+      const perspectivesObjectives = parsedData.perspectivesObjectives.map((row) => ({
+        id: row.id,
         perspective: row.perspective,
         objective: row.objective,
-        key_activities: row.keyActivities,
+        keyActivities: row.keyActivities,
         kpis: row.kpis,
         weight: row.weight,
       }));
 
-      const competencyRows = parsedData.generalCompetencies.map((c) => ({
+      const generalCompetencies = parsedData.generalCompetencies.map((c) => ({
+        id: c.id,
         name: c.name,
         description: c.description,
         weight: c.weight,
@@ -195,18 +313,15 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
 
       const payload = {
         staff_id: staffId,
-        staff_name: parsedData.staffName,
-        job_title: parsedData.jobTitle,
-        directorate: parsedData.directorate,
-        supervisor_name: parsedData.supervisorName,
+        supervisor_id: supervisorId,
         fiscal_year: parsedData.fiscalYear,
         review_year: parsedData.reviewYear,
-        workplan_rows: workplanRows,
-        competency_rows: competencyRows,
-        support_required: parsedData.supportRequired,
+        perspectives_objectives: perspectivesObjectives,
+        general_competencies: generalCompetencies,
         status: 'draft',
         workflow_stage: 'workplan_pending',
-        source: 'pdf_import',
+        review_type: 'annual',
+        custom_kpis: [],
       };
 
       const { error } = await supabase
@@ -231,6 +346,7 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
     setUploadedFile(null);
     setParsedData(null);
     setImportError(null);
+    setParseError(null);
     onClose();
   }
 
@@ -270,8 +386,16 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
           {step === 'upload' && (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Upload the staff member's ECSA-HC Individual Performance Contract PDF. The system will parse and import it as a workplan record.
+                Upload a staff member's ECSA-HC Individual Performance Contract PDF. The system will extract staff info, scorecard KPIs, and competencies automatically.
               </p>
+
+              {/* Parse error */}
+              {parseError && (
+                <div className="flex items-start gap-2.5 p-3 rounded-xl bg-red-50 border border-red-200">
+                  <Icon name="ExclamationTriangleIcon" size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-red-800">{parseError}</p>
+                </div>
+              )}
 
               {/* Drop zone */}
               <div
@@ -308,8 +432,28 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
               <div className="flex items-start gap-2.5 p-3 rounded-xl bg-sky-50 border border-sky-200">
                 <Icon name="InformationCircleIcon" size={16} className="text-sky-600 flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-sky-800">
-                  Upload the <strong>Ayebare Timothy ECSA-HC Individual Performance Contract</strong> PDF. The system will extract staff info, scorecard KPIs, and competencies automatically.
+                  Upload any <strong>ECSA-HC Individual Performance Contract</strong> PDF. The system will parse the scorecard objectives, KPIs, weights, and competencies from the document.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Step: Parsing ── */}
+          {step === 'parsing' && (
+            <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
+              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                <Icon name="DocumentMagnifyingGlassIcon" size={32} className="text-primary animate-pulse" />
+              </div>
+              <div>
+                <p className="text-base font-700 text-foreground">Parsing PDF…</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Extracting workplan data from <strong>{uploadedFile?.name}</strong>
+                </p>
+              </div>
+              <div className="flex gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
             </div>
           )}
@@ -322,7 +466,7 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
                 <Icon name="DocumentCheckIcon" size={20} className="text-emerald-600 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-600 text-emerald-800">PDF parsed successfully</p>
-                  <p className="text-[11px] text-emerald-700 truncate">{uploadedFile?.name ?? 'Ayebare_Timothy_ECSA-HC_INDIVIDUAL_PERFORMANCE_CONTRACT.pdf'}</p>
+                  <p className="text-[11px] text-emerald-700 truncate">{uploadedFile?.name}</p>
                 </div>
                 <span className="text-[10px] font-700 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex-shrink-0">Ready</span>
               </div>
@@ -332,6 +476,16 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
                 <div className="flex items-start gap-2.5 p-3 rounded-xl bg-red-50 border border-red-200">
                   <Icon name="ExclamationTriangleIcon" size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
                   <p className="text-xs text-red-800">{importError}</p>
+                </div>
+              )}
+
+              {/* Partial parse warning */}
+              {parsedData.perspectivesObjectives.length === 0 && (
+                <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200">
+                  <Icon name="ExclamationTriangleIcon" size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-800">
+                    No scorecard rows were detected in this PDF. The workplan will be imported with staff info only — you can add objectives manually after import.
+                  </p>
                 </div>
               )}
 
@@ -347,7 +501,6 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
                   <div className="p-3 rounded-xl bg-muted/30 border border-border">
                     <p className="text-[10px] font-600 text-muted-foreground uppercase tracking-wide mb-0.5">Supervisor</p>
                     <p className="text-sm font-600 text-foreground">{parsedData.supervisorName}</p>
-                    <p className="text-xs text-muted-foreground">HEPRR MPA Coordinator</p>
                   </div>
                   <div className="p-3 rounded-xl bg-muted/30 border border-border">
                     <p className="text-[10px] font-600 text-muted-foreground uppercase tracking-wide mb-0.5">Cluster / Directorate</p>
@@ -362,45 +515,47 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
               </div>
 
               {/* Scorecard summary */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-700 uppercase tracking-wide text-muted-foreground">Part 1 — Scorecard (80%)</h3>
-                  <span className={`text-[11px] font-700 px-2 py-0.5 rounded-full ${bscTotal <= 80 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                    Total weight: {bscTotal}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {parsedData.perspectivesObjectives.map((row, i) => (
-                    <div key={row.id} className="p-3 rounded-xl border border-border bg-white">
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className="w-5 h-5 rounded-full bg-violet-100 text-violet-700 text-[10px] font-700 flex items-center justify-center flex-shrink-0">{i + 1}</span>
-                          <span className="text-[10px] font-600 text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full">{row.perspective}</span>
-                        </div>
-                        <span className="text-[11px] font-700 text-foreground bg-muted px-2 py-0.5 rounded-full flex-shrink-0">W: {row.weight}</span>
-                      </div>
-                      <p className="text-xs font-500 text-foreground mb-1 pl-7">{row.objective}</p>
-                      <div className="pl-7 space-y-1">
-                        {row.kpis.map((kpi) => (
-                          <div key={kpi.id} className="flex items-start gap-1.5">
-                            <div className="w-1 h-1 rounded-full bg-primary mt-1.5 flex-shrink-0" />
-                            <p className="text-[11px] text-muted-foreground leading-snug">
-                              <span className="font-500 text-foreground">{kpi.label}</span>
-                              {kpi.target && <span className="text-muted-foreground"> — Target: {kpi.target}</span>}
-                            </p>
+              {parsedData.perspectivesObjectives.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-xs font-700 uppercase tracking-wide text-muted-foreground">Part 1 — Scorecard (80%)</h3>
+                    <span className={`text-[11px] font-700 px-2 py-0.5 rounded-full ${bscTotal <= 80 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                      Total weight: {bscTotal}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {parsedData.perspectivesObjectives.map((row, i) => (
+                      <div key={row.id} className="p-3 rounded-xl border border-border bg-white">
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className="w-5 h-5 rounded-full bg-violet-100 text-violet-700 text-[10px] font-700 flex items-center justify-center flex-shrink-0">{i + 1}</span>
+                            <span className="text-[10px] font-600 text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full">{row.perspective}</span>
                           </div>
-                        ))}
+                          <span className="text-[11px] font-700 text-foreground bg-muted px-2 py-0.5 rounded-full flex-shrink-0">W: {row.weight}</span>
+                        </div>
+                        <p className="text-xs font-500 text-foreground mb-1 pl-7">{row.objective}</p>
+                        <div className="pl-7 space-y-1">
+                          {row.kpis.map((kpi) => (
+                            <div key={kpi.id} className="flex items-start gap-1.5">
+                              <div className="w-1 h-1 rounded-full bg-primary mt-1.5 flex-shrink-0" />
+                              <p className="text-[11px] text-muted-foreground leading-snug">
+                                <span className="font-500 text-foreground">{kpi.label}</span>
+                                {kpi.target && <span className="text-muted-foreground"> — Target: {kpi.target}</span>}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Competencies */}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-xs font-700 uppercase tracking-wide text-muted-foreground">Part 2 — General Competencies (20%)</h3>
-                  <span className={`text-[11px] font-700 px-2 py-0.5 rounded-full ${compTotal === 20 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                  <span className={`text-[11px] font-700 px-2 py-0.5 rounded-full ${compTotal === 31 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                     Total weight: {compTotal}
                   </span>
                 </div>
@@ -473,7 +628,10 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
             >
               {step === 'importing' ? (
                 <>
-                  <Icon name="EcsaRefreshIcon" size={16} className="animate-spin" />
+                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
                   Importing…
                 </>
               ) : (
