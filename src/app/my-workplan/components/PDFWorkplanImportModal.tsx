@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
+import { createClient } from '@/lib/supabase/client';
 import { extractTextFromPDF, validateExtractedWorkplan, type ValidationResult } from '@/lib/pdfExtract';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -38,6 +39,7 @@ export interface ImportedWorkplanData {
   perspectivesObjectives: PerspectiveRow[];
   generalCompetencies: Competency[];
   supportRequired: string;
+  resolvedStaffId?: string | null;
 }
 
 interface PDFWorkplanImportModalProps {
@@ -58,6 +60,7 @@ const STANDARD_COMPETENCIES: Omit<Competency, 'weight'>[] = [
   { id: 'c7', name: 'Leadership (GS3+)', description: 'Acts as a role model and provides timely specific feedback to staff.' },
 ];
 
+// Standard BSC perspective labels — used as fallback when PDF uses non-standard headers
 const BSC_PERSPECTIVES = [
   'Financial/Stewardship',
   'Customer/Stakeholder',
@@ -65,7 +68,224 @@ const BSC_PERSPECTIVES = [
   'Innovation Learning & Growth Perspective',
 ];
 
+// ─── Staff Name Lookup ────────────────────────────────────────────────────────
+
+/**
+ * Looks up a staff record by name, handling reversed first/last name order.
+ * Strategy:
+ *  1. Direct ilike substring match (fast path)
+ *  2. Token-based match — splits name into words and checks all tokens appear
+ *     in the DB full_name regardless of order (handles "Ayebare Timothy" → "Timothy Ayebare")
+ *  3. Longest-token search — fetches candidates by the longest name token, then
+ *     filters to those containing ALL tokens
+ */
+async function lookupStaffByName(
+  supabase: ReturnType<typeof createClient>,
+  extractedName: string
+): Promise<{ id: string; full_name: string } | null> {
+  if (!extractedName || extractedName === 'Unknown Staff') return null;
+
+  const normalise = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+
+  // ── 1. Direct substring match ──────────────────────────────────────────────
+  const { data: directRows } = await supabase
+    .from('staff')
+    .select('id, full_name')
+    .ilike('full_name', `%${extractedName}%`)
+    .limit(1);
+
+  if (directRows && directRows.length > 0) return directRows[0];
+
+  // ── 2. Token-based match (handles reversed name order) ────────────────────
+  const tokens = extractedName.trim().split(/\s+/).filter((t) => t.length > 1);
+  if (tokens.length < 2) return null;
+
+  // Use the longest token for the initial DB filter to minimise result set
+  const longestToken = tokens.reduce((a, b) => (a.length >= b.length ? a : b));
+
+  const { data: candidates } = await supabase
+    .from('staff')
+    .select('id, full_name')
+    .ilike('full_name', `%${longestToken}%`)
+    .limit(30);
+
+  if (!candidates || candidates.length === 0) return null;
+
+  const normTokens = tokens.map(normalise);
+  const match = candidates.find((row) => {
+    const normFull = normalise(row.full_name);
+    return normTokens.every((tok) => normFull.includes(tok));
+  });
+
+  return match ?? null;
+}
+
 // ─── PDF Parsing Logic ────────────────────────────────────────────────────────
+
+/**
+ * Detects whether a line looks like a perspective/section header.
+ * Accepts both standard BSC headers and non-standard ones (e.g. HEPRR-MPA Component...).
+ */
+function detectPerspectiveHeader(line: string): string | null {
+  // Check standard BSC perspectives first
+  const stdMatch = BSC_PERSPECTIVES.find((p) =>
+    line.toLowerCase().includes(p.toLowerCase().substring(0, 15))
+  );
+  if (stdMatch) return stdMatch;
+
+  // Detect non-standard component/subcomponent headers (e.g. "HEPRR-MPA Component Subcomponent 1.4")
+  if (
+    /\b(component|subcomponent|programme|program|cluster|pillar|strategic\s+objective)\b/i.test(line) &&
+    line.split(/\s+/).length <= 12
+  ) {
+    return line.trim();
+  }
+
+  // Detect "Part X" or "Section X" headers that introduce scorecard sections
+  if (/^(Part|Section)\s+[1-9IVX]/i.test(line) && line.split(/\s+/).length <= 8) {
+    return line.trim();
+  }
+
+  return null;
+}
+
+/**
+ * Extracts scorecard rows from PDF text lines using a flexible multi-pass strategy:
+ *  Pass 1 — Structured: detect perspective headers, then collect objective/activity/KPI/target/weight blocks
+ *  Pass 2 — Fallback: if Pass 1 yields nothing, scan for lines that look like objectives
+ *            (medium length, followed by a weight digit) and group them under a generic perspective
+ */
+function extractScorecardRows(lines: string[]): PerspectiveRow[] {
+  const rows: PerspectiveRow[] = [];
+  let currentPerspective = '';
+  let rowIndex = 0;
+
+  // ── Pass 1: Structured extraction ─────────────────────────────────────────
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Detect perspective/section header
+    const perspHeader = detectPerspectiveHeader(line);
+    if (perspHeader) {
+      currentPerspective = perspHeader;
+      continue;
+    }
+
+    if (!currentPerspective) continue;
+
+    // Skip header-like lines
+    if (/^(Part|Section|Total|Weight|Score|Rating|Signature|Date|Name|Job|Supervisor|Directorate|Employee|Staff)\b/i.test(line)) continue;
+    // Skip very short or very long lines
+    const wordCount = line.split(/\s+/).length;
+    if (wordCount < 5 || wordCount > 100) continue;
+    // Skip lines that are purely numeric or look like table headers
+    if (/^\d+(\.\d+)?$/.test(line)) continue;
+
+    // Look ahead for KPI label, target, and weight within the next 10 lines
+    let objective = line;
+    let kpiLabel = '';
+    let target = '';
+    let weight = 3;
+    let lookaheadConsumed = 0;
+
+    for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+      const next = lines[j];
+
+      // Stop if we hit another perspective header
+      if (detectPerspectiveHeader(next)) break;
+
+      // KPI line
+      if (/^(KPI|Key Performance Indicator|Indicator)\s*[:\-]/i.test(next)) {
+        kpiLabel = next.replace(/^(KPI|Key Performance Indicator|Indicator)\s*[:\-]\s*/i, '').trim();
+        lookaheadConsumed = j - i;
+        continue;
+      }
+
+      // Target line
+      const targetMatch = next.match(/^(?:Target|Goal|Expected Result)\s*[:\-]\s*(.+)/i);
+      if (targetMatch) {
+        target = targetMatch[1].trim();
+        lookaheadConsumed = j - i;
+        continue;
+      }
+
+      // Weight line — explicit "Weight: N" or standalone digit 1-5
+      const wMatch = next.match(/^(?:Weight|W)\s*[:\-]?\s*([1-5])\b/i);
+      if (wMatch) {
+        weight = parseInt(wMatch[1]);
+        lookaheadConsumed = j - i;
+        break;
+      }
+      if (/^\s*[1-5]\s*$/.test(next)) {
+        weight = parseInt(next.trim());
+        lookaheadConsumed = j - i;
+        break;
+      }
+
+      // If we hit another substantial line (new objective candidate), stop lookahead
+      if (next.split(/\s+/).length >= 8 && !targetMatch && !wMatch) break;
+    }
+
+    // Only add if the line looks like a meaningful objective (not a stray label)
+    if (wordCount >= 6) {
+      rowIndex++;
+      const label = kpiLabel || objective;
+      rows.push({
+        id: `row-pdf-${rowIndex}`,
+        perspective: currentPerspective,
+        objective: objective.length > 120 ? objective.substring(0, 120) + '…' : objective,
+        keyActivities: objective,
+        kpis: [{ id: `kpi-pdf-${rowIndex}`, label: label.length > 120 ? label.substring(0, 120) + '…' : label, target: target || 'As per workplan' }],
+        weight,
+      });
+
+      // Skip lines consumed by lookahead to avoid double-processing
+      i += lookaheadConsumed;
+
+      if (rows.length >= 16) break;
+    }
+  }
+
+  if (rows.length > 0) return rows;
+
+  // ── Pass 2: Fallback — scan for objective-like lines followed by a weight ──
+  const fallbackPerspective = 'Performance Objectives';
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const wordCount = line.split(/\s+/).length;
+
+    // Skip header/footer lines
+    if (/^(Part|Section|Total|Weight|Score|Rating|Signature|Date|Name|Job|Supervisor|Directorate|Employee|Staff|Page)\b/i.test(line)) continue;
+    if (wordCount < 8 || wordCount > 60) continue;
+    if (/^\d+(\.\d+)?$/.test(line)) continue;
+
+    // Look ahead for a weight digit within 5 lines
+    let weight = 3;
+    let target = '';
+    for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+      const next = lines[j];
+      const wMatch = next.match(/^(?:Weight|W)\s*[:\-]?\s*([1-5])\b/i);
+      if (wMatch) { weight = parseInt(wMatch[1]); break; }
+      if (/^\s*[1-5]\s*$/.test(next)) { weight = parseInt(next.trim()); break; }
+      const tMatch = next.match(/^(?:Target|Goal)\s*[:\-]\s*(.+)/i);
+      if (tMatch) target = tMatch[1].trim();
+    }
+
+    rowIndex++;
+    rows.push({
+      id: `row-pdf-${rowIndex}`,
+      perspective: fallbackPerspective,
+      objective: line.length > 120 ? line.substring(0, 120) + '…' : line,
+      keyActivities: line,
+      kpis: [{ id: `kpi-pdf-${rowIndex}`, label: line.length > 120 ? line.substring(0, 120) + '…' : line, target: target || 'As per workplan' }],
+      weight,
+    });
+
+    if (rows.length >= 12) break;
+  }
+
+  return rows;
+}
 
 function parseWorkplanFromText(text: string, fileName: string): ImportedWorkplanData {
   const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
@@ -77,16 +297,26 @@ function parseWorkplanFromText(text: string, fileName: string): ImportedWorkplan
   let directorate = '';
   let supervisorName = '';
 
+  // Name: look for "Name:" or "Employee:" patterns — also handles ALL-CAPS names
   const nameMatch = fullText.match(/(?:Name|Employee)\s*[:\-]\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,3})/);
   if (nameMatch) staffName = nameMatch[1].trim();
+
+  // Fallback: ALL-CAPS name pattern (common in ECSA-HC PDFs)
+  if (!staffName) {
+    const capsMatch = fullText.match(/(?:Name|Employee)\s*[:\-]\s*([A-Z]{2,}(?:\s+[A-Z]{2,}){1,3})/);
+    if (capsMatch) {
+      // Convert "AYEBARE TIMOTHY" → "Ayebare Timothy"
+      staffName = capsMatch[1].trim().replace(/\b\w+/g, (w) => w.charAt(0) + w.slice(1).toLowerCase());
+    }
+  }
 
   const jobMatch = fullText.match(/(?:Job Title|Position|Title)\s*[:\-]\s*([^\n,]{5,60}?)(?:\s{2,}|Directorate|Cluster|Supervisor)/i);
   if (jobMatch) jobTitle = jobMatch[1].trim();
 
-  const dirMatch = fullText.match(/(?:Directorate|Cluster)\s*[:\-]\s*([^\n,]{3,50}?)(?:\s{2,}|Supervisor|Name|$)/i);
+  const dirMatch = fullText.match(/(?:Directorate|Cluster)\s*[:\-]\s*([^\n,]{3,60}?)(?:\s{2,}|Supervisor|Name|$)/i);
   if (dirMatch) directorate = dirMatch[1].trim();
 
-  const supMatch = fullText.match(/(?:Supervisor|Reporting to)\s*[:\-]\s*([A-Z][a-zA-Z\s\.]{3,50}?)(?:\s{2,}|Job Title|Date|$)/i);
+  const supMatch = fullText.match(/(?:Supervisor|Reporting to)\s*[:\-]\s*([A-Z][a-zA-Z\s\.]{3,60}?)(?:\s{2,}|Job Title|Date|$)/i);
   if (supMatch) supervisorName = supMatch[1].trim();
 
   // Fiscal year
@@ -106,67 +336,13 @@ function parseWorkplanFromText(text: string, fileName: string): ImportedWorkplan
     }
   }
 
-  // ── Scorecard rows extraction ──
-  const perspectivesObjectives: PerspectiveRow[] = [];
-  let currentPerspective = '';
-  let rowIndex = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    const perspMatch = BSC_PERSPECTIVES.find((p) =>
-      line.toLowerCase().includes(p.toLowerCase().substring(0, 15))
-    );
-    if (perspMatch) {
-      currentPerspective = perspMatch;
-      continue;
-    }
-
-    const wordCount = line.split(/\s+/).length;
-    if (
-      currentPerspective &&
-      wordCount >= 8 &&
-      wordCount <= 80 &&
-      !line.match(/^(Part|Section|Total|Weight|Score|Rating|Signature|Date|Name|Job|Supervisor|Directorate)/i)
-    ) {
-      const kpiLabel = line;
-      let target = '';
-      let weight = 3;
-
-      for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
-        const nextLine = lines[j];
-        const targetMatch = nextLine.match(/(?:Target|Goal)\s*[:\-]\s*(.+)/i);
-        if (targetMatch) target = targetMatch[1].trim();
-
-        const wMatch = nextLine.match(/(?:Weight|W)\s*[:\-]?\s*([1-5])\b/i);
-        if (wMatch) weight = parseInt(wMatch[1]);
-        else if (/^\s*[1-5]\s*$/.test(nextLine)) weight = parseInt(nextLine.trim());
-      }
-
-      rowIndex++;
-      perspectivesObjectives.push({
-        id: `row-pdf-${rowIndex}`,
-        perspective: currentPerspective,
-        objective: kpiLabel.length > 100 ? kpiLabel.substring(0, 100) + '...' : kpiLabel,
-        keyActivities: kpiLabel,
-        kpis: [
-          {
-            id: `kpi-pdf-${rowIndex}`,
-            label: kpiLabel,
-            target: target || 'As per workplan',
-          },
-        ],
-        weight,
-      });
-
-      if (perspectivesObjectives.length >= 12) break;
-    }
-  }
+  // ── Scorecard rows extraction (improved multi-pass) ──
+  const perspectivesObjectives = extractScorecardRows(lines);
 
   // ── Competencies extraction ──
   const generalCompetencies: Competency[] = STANDARD_COMPETENCIES.map((c, idx) => {
     const escapedName = c.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const compRegex = new RegExp(escapedName + '[^\\d]{0,30}([1-5])\\b', 'i');
+    const compRegex = new RegExp(escapedName + '[^\\d]{0,40}([1-5])\\b', 'i');
     const match = fullText.match(compRegex);
     let weight = match ? parseInt(match[1]) : (idx < 5 ? 5 : idx === 5 ? 4 : 2);
     return { ...c, weight };
@@ -177,6 +353,7 @@ function parseWorkplanFromText(text: string, fileName: string): ImportedWorkplan
   const supportMatch = fullText.match(/(?:Support Required|Management Support)[^\n]{0,30}[:\-]\s*([^]{10,300}?)(?:Employee Signature|Supervisor Signature|$)/i);
   if (supportMatch) supportRequired = supportMatch[1].replace(/\s+/g, ' ').trim();
 
+  // ── Fallback: derive name from filename ──
   if (!staffName && fileName) {
     const fnMatch = fileName.replace(/[-_]/g, ' ').match(/^([A-Z][a-z]+\s+[A-Z][a-z]+)/);
     if (fnMatch) staffName = fnMatch[1];
@@ -192,6 +369,7 @@ function parseWorkplanFromText(text: string, fileName: string): ImportedWorkplan
     perspectivesObjectives,
     generalCompetencies,
     supportRequired,
+    resolvedStaffId: undefined, // will be populated after DB lookup
   };
 }
 
@@ -206,30 +384,43 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
   const [parsedData, setParsedData] = useState<ImportedWorkplanData | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [staffMatchInfo, setStaffMatchInfo] = useState<{ found: boolean; name?: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const supabase = createClient();
 
   const handleFileSelect = useCallback(async (file: File) => {
-    if (file.type !== 'application/pdf') {
-      return;
-    }
+    if (file.type !== 'application/pdf') return;
+
     setUploadedFile(file);
     setParseError(null);
     setValidationResult(null);
+    setStaffMatchInfo(null);
     setStep('parsing');
 
     try {
       const text = await extractTextFromPDF(file);
       const data = parseWorkplanFromText(text, file.name);
 
-      // ── Schema validation before showing preview ──────────────────────────
-      // staffId is null here (no DB lookup in this modal — that happens in the parent form)
+      // ── Staff DB lookup (token-based, handles reversed names) ─────────────
+      let resolvedStaffId: string | null = null;
+      if (data.staffName && data.staffName !== 'Unknown Staff') {
+        const staffRecord = await lookupStaffByName(supabase, data.staffName);
+        resolvedStaffId = staffRecord?.id ?? null;
+        setStaffMatchInfo(
+          staffRecord
+            ? { found: true, name: staffRecord.full_name }
+            : { found: false }
+        );
+        data.resolvedStaffId = resolvedStaffId;
+      }
+
+      // ── Schema validation (pass resolved staffId so warning only fires when truly unmatched) ──
       const vResult = validateExtractedWorkplan(
-        null,
+        resolvedStaffId,
         data.perspectivesObjectives,
         data.generalCompetencies
       );
       setValidationResult(vResult);
-      // ─────────────────────────────────────────────────────────────────────
 
       setParsedData(data);
       setStep('preview');
@@ -238,6 +429,7 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
       setParseError(msg);
       setStep('upload');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -265,6 +457,7 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
     setParsedData(null);
     setParseError(null);
     setValidationResult(null);
+    setStaffMatchInfo(null);
   }
 
   function handleClose() {
@@ -390,6 +583,26 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
                 <span className="text-[10px] font-700 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex-shrink-0">Ready</span>
               </div>
 
+              {/* Staff match status */}
+              {staffMatchInfo && (
+                staffMatchInfo.found ? (
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                    <Icon name="CheckCircleIcon" size={16} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-emerald-800">
+                      Staff matched: <strong>{staffMatchInfo.name}</strong>
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200">
+                    <Icon name="ExclamationTriangleIcon" size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-800">
+                      Staff member <strong>&quot;{parsedData.staffName}&quot;</strong> could not be matched in the database.
+                      The workplan will be pre-filled — please select the correct staff member in the form before saving.
+                    </p>
+                  </div>
+                )
+              )}
+
               {/* Validation errors */}
               {validationResult && validationResult.errors.length > 0 && (
                 <div className="p-3 rounded-xl bg-red-50 border border-red-200 space-y-1.5">
@@ -403,16 +616,18 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
                 </div>
               )}
 
-              {/* Validation warnings */}
-              {validationResult && validationResult.warnings.length > 0 && (
+              {/* Validation warnings (excluding staffId warning — shown above as staff match status) */}
+              {validationResult && validationResult.warnings.filter((w) => w.field !== 'staffId').length > 0 && (
                 <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 space-y-1.5">
                   <div className="flex items-center gap-2 mb-1">
                     <Icon name="ExclamationTriangleIcon" size={16} className="text-amber-600 flex-shrink-0" />
                     <p className="text-xs font-700 text-amber-800">Warnings</p>
                   </div>
-                  {validationResult.warnings.map((w, i) => (
-                    <p key={i} className="text-xs text-amber-700 pl-6">• {w.message}</p>
-                  ))}
+                  {validationResult.warnings
+                    .filter((w) => w.field !== 'staffId')
+                    .map((w, i) => (
+                      <p key={i} className="text-xs text-amber-700 pl-6">• {w.message}</p>
+                    ))}
                 </div>
               )}
 
@@ -515,7 +730,7 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
                 </div>
               )}
 
-              {/* Warning note */}
+              {/* Info note */}
               <div className="flex items-start gap-2.5 p-3 rounded-xl bg-sky-50 border border-sky-200">
                 <Icon name="InformationCircleIcon" size={16} className="text-sky-600 flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-sky-800">

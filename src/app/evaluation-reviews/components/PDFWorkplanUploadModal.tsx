@@ -4,7 +4,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import { extractTextFromPDF, validateExtractedWorkplan, type ValidationResult } from '@/lib/pdfExtract';
+import { extractTextFromPDF, validateExtractedWorkplan, parseWorkplanFromText, type ValidationResult } from '@/lib/pdfExtract';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,39 +48,22 @@ interface PDFWorkplanUploadModalProps {
   onImported: () => void;
 }
 
-// ─── ECSA-HC Standard Competencies ───────────────────────────────────────────
-
-const STANDARD_COMPETENCIES: Omit<Competency, 'weight'>[] = [
-  { id: 'c1', name: 'Teamwork', description: 'Creates a culture of teamwork and responds rationally to feedback.' },
-  { id: 'c2', name: 'Respect for Diversity', description: 'Values individual differences and promotes a peaceful work environment.' },
-  { id: 'c3', name: 'Integrity', description: 'Reliable, meets all deadlines, and takes credit only for own work.' },
-  { id: 'c4', name: 'Communication', description: 'Explains complex issues clearly and uses visual aids effectively.' },
-  { id: 'c5', name: 'Results Oriented', description: 'Prioritizes activities and matches tasks with team capabilities.' },
-  { id: 'c6', name: 'Innovation', description: 'Thinks "outside the box" to foster team creativity.' },
-  { id: 'c7', name: 'Leadership (GS3+)', description: 'Acts as a role model and provides timely specific feedback to staff.' },
-];
-
-const BSC_PERSPECTIVES = [
-  'Financial/Stewardship',
-  'Customer/Stakeholder',
-  'Internal Business Processes',
-  'Innovation Learning & Growth Perspective',
-];
-
-// ─── PDF Parsing Logic ────────────────────────────────────────────────────────
+// ─── Staff Name Lookup ────────────────────────────────────────────────────────
 
 /**
  * Attempts to find a staff record by name, handling reversed first/last name order.
  * Strategy:
  *  1. Exact ilike substring match (fast path)
- *  2. Split the extracted name into tokens and search for each token individually,
- *     then pick the candidate whose tokens all appear in the DB full_name.
+ *  2. Token-based match — splits name into words and checks all tokens appear
+ *     in the DB full_name regardless of order (handles "Ayebare Timothy" → "Timothy Ayebare")
  */
 async function lookupStaffByName(
   supabase: ReturnType<typeof createClient>,
   extractedName: string
 ): Promise<{ id: string; full_name: string; job_title: string | null; supervisor_id: string | null } | null> {
   if (!extractedName || extractedName === 'Unknown Staff') return null;
+
+  const normalise = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, '').trim();
 
   // ── 1. Direct substring match ──────────────────────────────────────────────
   const { data: directRows } = await supabase
@@ -92,179 +75,25 @@ async function lookupStaffByName(
   if (directRows && directRows.length > 0) return directRows[0];
 
   // ── 2. Token-based match (handles reversed name order) ────────────────────
-  // Split extracted name into individual word tokens (e.g. ["Ayabare", "Timothy"])
   const tokens = extractedName.trim().split(/\s+/).filter((t) => t.length > 1);
   if (tokens.length < 2) return null;
 
-  // Fetch all staff whose full_name contains ANY of the tokens
-  // Use the longest token for the initial DB filter to minimise result set
   const longestToken = tokens.reduce((a, b) => (a.length >= b.length ? a : b));
   const { data: candidates } = await supabase
     .from('staff')
     .select('id, full_name, job_title, supervisor_id')
     .ilike('full_name', `%${longestToken}%`)
-    .limit(20);
+    .limit(30);
 
   if (!candidates || candidates.length === 0) return null;
 
-  // Among candidates, find one whose full_name contains ALL extracted tokens
-  const normalise = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, '');
   const normTokens = tokens.map(normalise);
-
   const match = candidates.find((row) => {
     const normFull = normalise(row.full_name);
     return normTokens.every((tok) => normFull.includes(tok));
   });
 
   return match ?? null;
-}
-
-function parseWorkplanFromText(text: string, fileName: string): ParsedWorkplanData {
-  const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
-  const fullText = lines.join(' ');
-
-  // ── Staff info extraction ──
-  let staffName = '';
-  let jobTitle = '';
-  let directorate = '';
-  let supervisorName = '';
-
-  // Name: look for "Name:" or "Employee:" patterns
-  const nameMatch = fullText.match(/(?:Name|Employee)\s*[:\-]\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,3})/);
-  if (nameMatch) staffName = nameMatch[1].trim();
-
-  // Job title
-  const jobMatch = fullText.match(/(?:Job Title|Position|Title)\s*[:\-]\s*([^\n,]{5,60}?)(?:\s{2,}|Directorate|Cluster|Supervisor)/i);
-  if (jobMatch) jobTitle = jobMatch[1].trim();
-
-  // Directorate / Cluster
-  const dirMatch = fullText.match(/(?:Directorate|Cluster)\s*[:\-]\s*([^\n,]{3,50}?)(?:\s{2,}|Supervisor|Name|$)/i);
-  if (dirMatch) directorate = dirMatch[1].trim();
-
-  // Supervisor
-  const supMatch = fullText.match(/(?:Supervisor|Reporting to)\s*[:\-]\s*([A-Z][a-zA-Z\s\.]{3,50}?)(?:\s{2,}|Job Title|Date|$)/i);
-  if (supMatch) supervisorName = supMatch[1].trim();
-
-  // Fiscal year
-  let fiscalYear = 'FY 2026-2027 (Jul–Jun)';
-  let reviewYear = 2026;
-  const fyMatch = fullText.match(/(?:FY|Fiscal Year|Review Period)\s*[:\-]?\s*(20\d{2}[-–\/]20?\d{2})/i);
-  if (fyMatch) {
-    const yearStr = fyMatch[1];
-    const startYear = parseInt(yearStr.match(/20\d{2}/)?.[0] ?? '2026');
-    fiscalYear = `FY ${yearStr} (Jul–Jun)`;
-    reviewYear = startYear;
-  } else {
-    // Try to find year range in text
-    const yearRangeMatch = fullText.match(/July\s+(20\d{2})\s*[–\-to]+\s*June\s+(20\d{2})/i);
-    if (yearRangeMatch) {
-      fiscalYear = `FY ${yearRangeMatch[1]}-${yearRangeMatch[2]} (Jul–Jun)`;
-      reviewYear = parseInt(yearRangeMatch[1]);
-    }
-  }
-
-  // ── Scorecard rows extraction ──
-  const perspectivesObjectives: PerspectiveRow[] = [];
-
-  // Try to find perspective sections and extract rows
-  // Look for weight patterns like "Weight: 5" or just a number 1-5 near KPI text
-  const weightPattern = /\b([1-5])\b/g;
-
-  // Try structured extraction: find perspective labels and associated content
-  let currentPerspective = '';
-  let rowIndex = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // Detect perspective headers
-    const perspMatch = BSC_PERSPECTIVES.find((p) =>
-      line.toLowerCase().includes(p.toLowerCase().substring(0, 15))
-    );
-    if (perspMatch) {
-      currentPerspective = perspMatch;
-      continue;
-    }
-
-    // Detect rows with objectives (lines that look like objectives/activities)
-    // An objective line is typically 10+ words and not a header
-    const wordCount = line.split(/\s+/).length;
-    if (
-      currentPerspective &&
-      wordCount >= 8 &&
-      wordCount <= 80 &&
-      !line.match(/^(Part|Section|Total|Weight|Score|Rating|Signature|Date|Name|Job|Supervisor|Directorate)/i)
-    ) {
-      // Look ahead for KPI and target
-      const kpiLabel = line;
-      let target = '';
-      let weight = 3; // default weight
-
-      // Look in next few lines for target and weight
-      for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
-        const nextLine = lines[j];
-        const targetMatch = nextLine.match(/(?:Target|Goal)\s*[:\-]\s*(.+)/i);
-        if (targetMatch) target = targetMatch[1].trim();
-
-        const wMatch = nextLine.match(/(?:Weight|W)\s*[:\-]?\s*([1-5])\b/i);
-        if (wMatch) weight = parseInt(wMatch[1]);
-        else if (/^\s*[1-5]\s*$/.test(nextLine)) weight = parseInt(nextLine.trim());
-      }
-
-      rowIndex++;
-      perspectivesObjectives.push({
-        id: `row-pdf-${rowIndex}`,
-        perspective: currentPerspective,
-        objective: kpiLabel.length > 100 ? kpiLabel.substring(0, 100) + '...' : kpiLabel,
-        keyActivities: kpiLabel,
-        kpis: [
-          {
-            id: `kpi-pdf-${rowIndex}`,
-            label: kpiLabel,
-            target: target || 'As per workplan',
-          },
-        ],
-        weight,
-      });
-
-      if (perspectivesObjectives.length >= 12) break;
-    }
-  }
-
-  // ── Competencies extraction ──
-  // Extract weights for standard competencies from text
-  const generalCompetencies: Competency[] = STANDARD_COMPETENCIES.map((c, idx) => {
-    // Try to find weight near competency name
-    const escapedName = c.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const compRegex = new RegExp(escapedName + '[^\\d]{0,30}([1-5])\\b', 'i');
-    const match = fullText.match(compRegex);
-    let weight = match ? parseInt(match[1]) : (idx < 5 ? 5 : idx === 5 ? 4 : 2);
-    return { ...c, weight };
-  });
-
-  // ── Support required ──
-  let supportRequired = '';
-  const supportMatch = fullText.match(/(?:Support Required|Management Support)[^\n]{0,30}[:\-]\s*([^]{10,300}?)(?:Employee Signature|Supervisor Signature|$)/i);
-  if (supportMatch) supportRequired = supportMatch[1].replace(/\s+/g, ' ').trim();
-
-  // ── Fallback: if we couldn't parse much, use filename hint ──
-  if (!staffName && fileName) {
-    // Try to extract name from filename like "John_Doe_ECSA-HC..."
-    const fnMatch = fileName.replace(/[-_]/g, ' ').match(/^([A-Z][a-z]+\s+[A-Z][a-z]+)/);
-    if (fnMatch) staffName = fnMatch[1];
-  }
-
-  return {
-    staffName: staffName || 'Unknown Staff',
-    jobTitle: jobTitle || 'Staff Member',
-    directorate: directorate || 'ECSA-HC',
-    supervisorName: supervisorName || 'Supervisor',
-    fiscalYear,
-    reviewYear,
-    perspectivesObjectives,
-    generalCompetencies,
-    supportRequired,
-  };
 }
 
 type Step = 'upload' | 'parsing' | 'preview' | 'importing' | 'done';
