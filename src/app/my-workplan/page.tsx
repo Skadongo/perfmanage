@@ -7,7 +7,11 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { Toaster } from 'sonner';
-import PDFWorkplanImportModal, { ImportedWorkplanData } from './components/PDFWorkplanImportModal';
+import dynamic from 'next/dynamic';
+import type { ImportedWorkplanData } from './components/PDFWorkplanImportModal';
+
+// ── PDF import modal — loaded only when the user triggers it ─────────────
+const PDFWorkplanImportModal = dynamic(() => import('./components/PDFWorkplanImportModal'), { ssr: false });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

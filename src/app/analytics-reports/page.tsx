@@ -2,20 +2,24 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
-import HEPRRProgressChart from './components/HEPRRProgressChart';
-import JEESPARChart from './components/JEESPARChart';
-import WBNoPipelineTable from './components/WBNoPipelineTable';
-import BSCScorecardMatrix from './components/BSCScorecardMatrix';
-import KPIYearOnYearChart from './components/KPIYearOnYearChart';
-import ReportsExportPanel from './components/ReportsExportPanel';
-import DataValidationPanel from './components/DataValidationPanel';
-import KPIStaffDrillDown from './components/KPIStaffDrillDown';
 import Icon from '@/components/ui/AppIcon';
 import { Toaster, toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { cachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 import RoleGuard from '@/components/RoleGuard';
 import { ROLE_LABELS } from '@/lib/constants';
+import dynamic from 'next/dynamic';
+import { ChartSkeleton, TableSkeleton } from '@/components/ui/SkeletonLoader';
+
+// ── Dynamic imports — only loaded when the relevant tab is active ──────────
+const HEPRRProgressChart  = dynamic(() => import('./components/HEPRRProgressChart'),  { ssr: false, loading: () => <ChartSkeleton height={280} /> });
+const JEESPARChart        = dynamic(() => import('./components/JEESPARChart'),        { ssr: false, loading: () => <ChartSkeleton height={280} /> });
+const WBNoPipelineTable   = dynamic(() => import('./components/WBNoPipelineTable'),   { ssr: false, loading: () => <TableSkeleton rows={6} cols={5} /> });
+const BSCScorecardMatrix  = dynamic(() => import('./components/BSCScorecardMatrix'),  { ssr: false, loading: () => <ChartSkeleton height={320} /> });
+const KPIYearOnYearChart  = dynamic(() => import('./components/KPIYearOnYearChart'),  { ssr: false, loading: () => <ChartSkeleton height={280} /> });
+const ReportsExportPanel  = dynamic(() => import('./components/ReportsExportPanel'),  { ssr: false, loading: () => <div className="animate-pulse bg-muted/40 rounded-xl h-40" /> });
+const DataValidationPanel = dynamic(() => import('./components/DataValidationPanel'), { ssr: false, loading: () => <div className="animate-pulse bg-muted/40 rounded-xl h-40" /> });
+const KPIStaffDrillDown   = dynamic(() => import('./components/KPIStaffDrillDown'),   { ssr: false });
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: 'EcsaPerformanceIcon' },

@@ -6,8 +6,11 @@ import Icon from '@/components/ui/AppIcon';
 import { CardListSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
 import { roleCachedFetch, TTL_STAFF_LIST } from '@/lib/cache';
-import BulkWorkplanUploadModal from './components/BulkWorkplanUploadModal';
-import ZipWorkplanUploadModal from './components/ZipWorkplanUploadModal';
+import dynamic from 'next/dynamic';
+
+// ── Heavy upload modals — loaded only when triggered ─────────────────────
+const BulkWorkplanUploadModal = dynamic(() => import('./components/BulkWorkplanUploadModal'), { ssr: false });
+const ZipWorkplanUploadModal  = dynamic(() => import('./components/ZipWorkplanUploadModal'),  { ssr: false });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

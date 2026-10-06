@@ -6,7 +6,6 @@ import RoleGuard from '@/components/RoleGuard';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import * as XLSX from 'xlsx';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -761,7 +760,8 @@ function PerformanceImportTab({ supabase, showToast }: {
     supabase.from('staff').select('id, full_name').then(({ data }) => setStaffList(data || []));
   }, [supabase]);
 
-  const downloadTemplate = () => {
+  const downloadTemplate = async () => {
+    const XLSX = (await import('xlsx')).default;
     const wb = XLSX.utils.book_new();
     const sampleData = [
       IMPORT_TEMPLATE_COLS,
@@ -783,6 +783,7 @@ function PerformanceImportTab({ supabase, showToast }: {
 
     try {
       const buffer = await file.arrayBuffer();
+      const XLSX = (await import('xlsx')).default;
       const wb = XLSX.read(buffer, { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });

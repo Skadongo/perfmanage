@@ -2,11 +2,9 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import AppLayout from '@/components/AppLayout';
+import dynamic from 'next/dynamic';
 import ReviewTable from './components/ReviewTable';
 import ReviewStatsDashboard from './components/ReviewStatsDashboard';
-import WorkplanSettingForm from './components/WorkplanSettingForm';
-import SelfEvaluationForm from './components/SelfEvaluationForm';
-import SupervisorReviewForm from './components/SupervisorReviewForm';
 import WorkflowProgressPanel from './components/WorkflowProgressPanel';
 import WorkplanListView from './components/WorkplanListView';
 import { Toaster, toast } from 'sonner';
@@ -14,8 +12,28 @@ import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { cachedFetch, TTL_WORKPLAN_LIST, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 import { mapStatus, computeProgress } from '@/lib/constants';
-import PDFWorkplanUploadModal from './components/PDFWorkplanUploadModal';
-import BulkWorkplanUploadModal from '../mid-year-reviews/components/BulkWorkplanUploadModal';
+import SupervisorReviewForm from '@/app/evaluation-reviews/components/SupervisorReviewForm';
+
+
+// ── Heavy form components — loaded only when the modal is opened ──────────
+const WorkplanSettingForm = dynamic(() => import('./components/WorkplanSettingForm'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center py-20">
+      <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+    </div>
+  ),
+});
+const SelfEvaluationForm = dynamic(() => import('./components/SelfEvaluationForm'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center py-20">
+      <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+    </div>
+  ),
+});
+const PDFWorkplanUploadModal = dynamic(() => import('./components/PDFWorkplanUploadModal'), { ssr: false });
+const BulkWorkplanUploadModal = dynamic(() => import('../mid-year-reviews/components/BulkWorkplanUploadModal'), { ssr: false });
 
 interface ReviewSummary {
   id: string;

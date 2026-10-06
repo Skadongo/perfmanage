@@ -3,11 +3,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import Image from 'next/image';
-import NotificationCenter from './NotificationCenter';
+import dynamic from 'next/dynamic';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useServiceWorker } from '@/hooks/useServiceWorker';
 import Sidebar from './Sidebar';
+
+// NotificationCenter has its own Supabase subscription — load it after hydration
+const NotificationCenter = dynamic(() => import('./NotificationCenter'), { ssr: false });
 
 interface AppLayoutProps {
   children: React.ReactNode;
