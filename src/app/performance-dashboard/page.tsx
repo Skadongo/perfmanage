@@ -13,7 +13,7 @@ import {
   getRoleDashboardConfig,
   type RoleDashboardConfig,
 } from './config/roleDashboardConfig';
-import type { DrillDownFilter } from './components/StaffDrillDownModal';
+import type { DrillDownFilter } from './types';
 
 // ── Dynamic imports (next/dynamic replaces React.lazy to fix webpack chunk resolution) ──
 const DashboardMetricCards  = dynamic(() => import('./components/DashboardMetricCards'), { ssr: false });
