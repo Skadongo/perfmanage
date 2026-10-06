@@ -39,6 +39,12 @@ if (dev) {
   });
 }
 
+    // Alias pdfjs-dist to its legacy webpack-compatible build
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'pdfjs-dist': 'pdfjs-dist/legacy/build/pdf.js',
+    };
+
     return config;
   }
 };
