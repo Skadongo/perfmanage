@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
+import { roleCachedFetch, TTL_WORKPLAN_LIST } from '@/lib/cache';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -154,7 +155,8 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const [stageAdvanced, setStageAdvanced] = useState(false);
 
-  const supabase = createClient();
+  // Stable supabase client ref
+  const supabaseRef = useRef(createClient());
 
   const periodLabel = reviewPeriod === 'mid-year' ? 'Mid-Year' : 'End-Year';
   const periodColor = reviewPeriod === 'mid-year' ? 'bg-sky-600' : 'bg-violet-600';
@@ -202,19 +204,26 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
       setWorkplansLoading(true);
       try {
         const allowedStages = STAGE_GATE[reviewPeriod];
-        const { data, error } = await supabase
-          .from('workplan_settings')
-          .select(`
-            id, fiscal_year, review_year, status, workflow_stage,
-            perspectives_objectives,
-            staff:staff_id ( id, full_name ),
-            supervisor:supervisor_id ( id, full_name )
-          `)
-          .eq('status', 'signed')
-          .in('workflow_stage', allowedStages)
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
+        const data = await roleCachedFetch(
+          `workplan-signed-list-${reviewPeriod}`,
+          'all',
+          async () => {
+            const { data: rows, error } = await supabaseRef.current
+              .from('workplan_settings')
+              .select(`
+                id, fiscal_year, review_year, status, workflow_stage,
+                perspectives_objectives,
+                staff:staff_id ( id, full_name ),
+                supervisor:supervisor_id ( id, full_name )
+              `)
+              .eq('status', 'signed')
+              .in('workflow_stage', allowedStages)
+              .order('created_at', { ascending: false });
+            if (error) throw error;
+            return rows ?? [];
+          },
+          TTL_WORKPLAN_LIST
+        );
 
         const mapped: WorkplanOption[] = (data ?? []).map((row: any) => ({
           id: row.id,
@@ -345,7 +354,7 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
         submitted_at: new Date().toISOString(),
       };
 
-      const { data, error } = await supabase.from('mid_year_reviews').insert(payload).select('id').single();
+      const { data, error } = await supabaseRef.current.from('mid_year_reviews').insert(payload).select('id').single();
       if (error) {
         setSaveError(error.message || 'Failed to save evaluation. Please try again.');
         return;
@@ -353,13 +362,13 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
 
       // Mark workplan stage as pending supervisor approval for this period
       const pendingStage = reviewPeriod === 'mid-year' ? 'mid_year_pending' : 'end_year_pending';
-      await supabase
+      await supabaseRef.current
         .from('workplan_settings')
         .update({ workflow_stage: pendingStage })
         .eq('id', form.workplanId);
 
       // Log activity
-      await supabase.from('activity_logs').insert({
+      await supabaseRef.current.from('activity_logs').insert({
         activity_type: `${reviewPeriod}_submitted`,
         actor_name: form.staffName || 'Staff',
         action_description: `submitted ${periodLabel} self-evaluation — awaiting supervisor approval`,
@@ -374,7 +383,7 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
 
       // Notify supervisor that appraisal is ready for evaluation
       if (form.supervisorId) {
-        await supabase.from('notifications').insert({
+        await supabaseRef.current.from('notifications').insert({
           recipient_staff_id: form.supervisorId,
           type: 'appraisal_submitted',
           title: 'Appraisal Ready for Evaluation',
@@ -403,7 +412,7 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
     setApprovalError(null);
     try {
       // Approve the review record
-      const { error: reviewError } = await supabase
+      const { error: reviewError } = await supabaseRef.current
         .from('mid_year_reviews')
         .update({
           review_status: 'approved',
@@ -421,7 +430,7 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
       }
 
       // Advance workplan workflow stage
-      const { error: stageError } = await supabase
+      const { error: stageError } = await supabaseRef.current
         .from('workplan_settings')
         .update({
           workflow_stage: nextWorkflowStage,
@@ -435,7 +444,7 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
       }
 
       // Log activity
-      await supabase.from('activity_logs').insert({
+      await supabaseRef.current.from('activity_logs').insert({
         activity_type: `${reviewPeriod}_approved`,
         actor_name: form.supervisorName || 'Supervisor',
         action_description: `approved ${periodLabel} evaluation — ${reviewPeriod === 'mid-year' ? 'End-Year evaluation now unlocked' : 'evaluation cycle complete'}`,

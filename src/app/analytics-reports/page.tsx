@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import HEPRRProgressChart from './components/HEPRRProgressChart';
 import JEESPARChart from './components/JEESPARChart';
@@ -13,7 +13,9 @@ import KPIStaffDrillDown from './components/KPIStaffDrillDown';
 import Icon from '@/components/ui/AppIcon';
 import { Toaster, toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
+import { cachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 import RoleGuard from '@/components/RoleGuard';
+import { ROLE_LABELS } from '@/lib/constants';
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: 'EcsaPerformanceIcon' },
@@ -31,18 +33,6 @@ interface ReviewSummary {
   byRole: Record<string, { avgSup: number; avgSelf: number; submissionRate: number; approvalRate: number; count: number }>;
 }
 
-const ROLE_LABELS: Record<string, string> = {
-  executive_director: 'Executive Director',
-  deputy_director: 'Deputy Director',
-  programme_manager: 'Programme Manager',
-  finance_manager: 'Finance Manager',
-  hr_admin_officer: 'HR & Admin Officer',
-  programme_officer: 'Programme Officer',
-  finance_officer: 'Finance Officer',
-  admin_officer: 'Admin Officer',
-  project_coordinator: 'Project Coordinator',
-};
-
 export default function AnalyticsReportsPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [summary, setSummary] = useState<ReviewSummary | null>(null);
@@ -50,72 +40,102 @@ export default function AnalyticsReportsPage() {
   const [drillMetric, setDrillMetric] = useState<{
     id: string; label: string; value: string; sub: string; color: string; icon: string; bg: string;
   } | null>(null);
+  // Stable client ref — never recreated across renders
+  const supabaseRef = useRef(createClient());
+  const isMounted = useRef(true);
 
   useEffect(() => {
+    isMounted.current = true;
+
     async function fetchSummary() {
       try {
-        const supabase = createClient();
-        const { data: reviews, error } = await supabase
-          .from('mid_year_reviews')
-          .select(`
-            review_status,
-            supervisor_rating,
-            self_rating,
-            staff:staff_id (
-              system_role
-            )
-          `);
+        const result = await cachedFetch<ReviewSummary>(
+          'analytics-summary',
+          async () => {
+            const { data: reviews, error } = await supabaseRef.current
+              .from('mid_year_reviews')
+              // Limit columns — only fetch what the aggregation needs
+              .select('review_status, supervisor_rating, self_rating, staff:staff_id(system_role)');
 
-        if (error) throw error;
+            if (error) throw error;
 
-        if (!reviews || reviews.length === 0) {
-          setSummary({ total: 0, approved: 0, submitted: 0, avgScore: 0, byRole: {} });
-          return;
-        }
+            if (!reviews || reviews.length === 0) {
+              return { total: 0, approved: 0, submitted: 0, avgScore: 0, byRole: {} };
+            }
 
-        const total = reviews.length;
-        const approved = reviews.filter(r => r.review_status === 'approved').length;
-        const submitted = reviews.filter(r => ['submitted', 'reviewed', 'approved'].includes(r.review_status)).length;
+            const total = reviews.length;
+            let approvedCount = 0;
+            let submittedCount = 0;
+            let supRatingSum = 0;
+            let supRatingCount = 0;
 
-        const supRatings = reviews.filter(r => r.supervisor_rating).map(r => r.supervisor_rating as number);
-        const avgScore = supRatings.length > 0
-          ? Math.round((supRatings.reduce((a, b) => a + b, 0) / supRatings.length) * 20 * 10) / 10
-          : 0;
+            // Single-pass aggregation — compute totals and per-role buckets simultaneously
+            const roleMap: Record<string, {
+              supSum: number; supCount: number;
+              selfSum: number; selfCount: number;
+              subCount: number; appCount: number; total: number;
+            }> = {};
 
-        // Group by role
-        const byRole: ReviewSummary['byRole'] = {};
-        reviews.forEach((r: { review_status: string; supervisor_rating: number | null; self_rating: number | null; staff: { system_role: string | null } | null }) => {
-          const role = r.staff?.system_role || 'unknown';
-          if (role === 'unknown') return;
-          if (!byRole[role]) byRole[role] = { avgSup: 0, avgSelf: 0, submissionRate: 0, approvalRate: 0, count: 0 };
-          byRole[role].count++;
-        });
+            for (const r of reviews as Array<{
+              review_status: string;
+              supervisor_rating: number | null;
+              self_rating: number | null;
+              staff: { system_role: string | null } | null;
+            }>) {
+              const isApproved = r.review_status === 'approved';
+              const isSubmitted = ['submitted', 'reviewed', 'approved'].includes(r.review_status);
 
-        // Compute per-role averages
-        const byRoleDetailed: ReviewSummary['byRole'] = {};
-        Object.keys(byRole).forEach(role => {
-          const roleReviews = reviews.filter((r: { staff: { system_role: string | null } | null }) => r.staff?.system_role === role);
-          const supR = roleReviews.filter(r => r.supervisor_rating).map(r => r.supervisor_rating as number);
-          const selfR = roleReviews.filter(r => r.self_rating).map(r => r.self_rating as number);
-          const subCount = roleReviews.filter(r => ['submitted', 'reviewed', 'approved'].includes(r.review_status)).length;
-          const appCount = roleReviews.filter(r => r.review_status === 'approved').length;
-          byRoleDetailed[role] = {
-            avgSup: supR.length > 0 ? Math.round((supR.reduce((a, b) => a + b, 0) / supR.length) * 20 * 10) / 10 : 0,
-            avgSelf: selfR.length > 0 ? Math.round((selfR.reduce((a, b) => a + b, 0) / selfR.length) * 20 * 10) / 10 : 0,
-            submissionRate: roleReviews.length > 0 ? Math.round((subCount / roleReviews.length) * 100) : 0,
-            approvalRate: roleReviews.length > 0 ? Math.round((appCount / roleReviews.length) * 100) : 0,
-            count: roleReviews.length,
-          };
-        });
+              if (isApproved) approvedCount++;
+              if (isSubmitted) submittedCount++;
+              if (r.supervisor_rating != null) {
+                supRatingSum += r.supervisor_rating;
+                supRatingCount++;
+              }
 
-        setSummary({ total, approved, submitted, avgScore, byRole: byRoleDetailed });
+              const role = r.staff?.system_role || 'unknown';
+              if (role === 'unknown') continue;
+
+              if (!roleMap[role]) {
+                roleMap[role] = { supSum: 0, supCount: 0, selfSum: 0, selfCount: 0, subCount: 0, appCount: 0, total: 0 };
+              }
+              const bucket = roleMap[role];
+              bucket.total++;
+              if (isSubmitted) bucket.subCount++;
+              if (isApproved) bucket.appCount++;
+              if (r.supervisor_rating != null) { bucket.supSum += r.supervisor_rating; bucket.supCount++; }
+              if (r.self_rating != null) { bucket.selfSum += r.self_rating; bucket.selfCount++; }
+            }
+
+            const avgScore = supRatingCount > 0
+              ? Math.round((supRatingSum / supRatingCount) * 20 * 10) / 10
+              : 0;
+
+            const byRole: ReviewSummary['byRole'] = {};
+            for (const [role, b] of Object.entries(roleMap)) {
+              byRole[role] = {
+                avgSup: b.supCount > 0 ? Math.round((b.supSum / b.supCount) * 20 * 10) / 10 : 0,
+                avgSelf: b.selfCount > 0 ? Math.round((b.selfSum / b.selfCount) * 20 * 10) / 10 : 0,
+                submissionRate: b.total > 0 ? Math.min(100, Math.round((b.subCount / b.total) * 100)) : 0,
+                approvalRate: b.total > 0 ? Math.min(100, Math.round((b.appCount / b.total) * 100)) : 0,
+                count: b.total,
+              };
+            }
+
+            return { total, approved: approvedCount, submitted: submittedCount, avgScore, byRole };
+          },
+          TTL_DASHBOARD_METRICS
+        );
+
+        if (isMounted.current) setSummary(result);
       } catch {
         // silently fail — summary strip will show static fallback
       } finally {
-        setSummaryLoading(false);
+        if (isMounted.current) setSummaryLoading(false);
       }
     }
     fetchSummary();
+
+    return () => { isMounted.current = false; };
   }, []);
 
   const bscScore = summary
@@ -123,11 +143,11 @@ export default function AnalyticsReportsPage() {
     : 0;
 
   const submissionPct = summary && summary.total > 0
-    ? Math.round((summary.submitted / summary.total) * 100)
+    ? Math.min(100, Math.round((summary.submitted / summary.total) * 100))
     : 0;
 
   const approvalPct = summary && summary.total > 0
-    ? Math.round((summary.approved / summary.total) * 100)
+    ? Math.min(100, Math.round((summary.approved / summary.total) * 100))
     : 0;
 
   const roleEntries = summary ? Object.entries(summary.byRole).slice(0, 6) : [];
@@ -168,14 +188,14 @@ export default function AnalyticsReportsPage() {
     },
     {
       id: 'astat-bsc',
-      label: 'Avg Supervisor Rating',
-      value: summaryLoading ? '—' : `${bscScore.toFixed(1)}`,
-      sub: summaryLoading ? 'Loading…' : `Across ${summary?.total ?? 0} reviews`,
-      color: bscScore >= 70 ? 'text-emerald-700' : bscScore >= 55 ? 'text-amber-700' : 'text-red-700',
+      label: 'Avg BSC Score (0–100%)',
+      value: summaryLoading ? '—' : `${bscScore.toFixed(1)}%`,
+      sub: summaryLoading ? 'Loading…' : `Across ${summary?.total ?? 0} reviews · max 100%`,
+      color: bscScore >= 75 ? 'text-emerald-700' : bscScore >= 50 ? 'text-amber-700' : 'text-red-700',
       icon: 'EcsaCapacityIcon',
-      bg: bscScore >= 70 ? 'bg-emerald-50' : bscScore >= 55 ? 'bg-amber-50' : 'bg-red-50',
-      trend: bscScore >= 70 ? 'On track' : 'Needs attention',
-      positive: bscScore >= 70,
+      bg: bscScore >= 75 ? 'bg-emerald-50' : bscScore >= 50 ? 'bg-amber-50' : 'bg-red-50',
+      trend: bscScore >= 75 ? 'On track' : 'Needs attention',
+      positive: bscScore >= 75,
     },
   ];
 

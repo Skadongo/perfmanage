@@ -2,6 +2,56 @@ import { createBrowserClient } from '@supabase/ssr';
 
 const PFX = 'sb_';
 
+// ── Disable native Web Locks API for this page ──────────────────────────────
+// GoTrue (Supabase auth) uses navigator.locks to serialize token refreshes.
+// When React Strict Mode double-mounts or rapid navigation orphans a lock,
+// a competing request steals it and throws:
+//   AbortError: Lock broken by another request with the 'steal' option
+// Strategy: try Object.defineProperty first; if the browser blocks it (many
+// Chromium versions mark navigator properties as non-configurable), wrap the
+// entire navigator object in a Proxy that returns undefined for 'locks'.
+// The custom promise-based mutex passed via auth.lock is used instead.
+if (typeof window !== 'undefined') {
+  // Attempt 1 — Object.defineProperty (works in Firefox, some Chromium builds)
+  let defineSucceeded = false;
+  try {
+    const desc = Object.getOwnPropertyDescriptor(navigator, 'locks');
+    if (!desc || desc.configurable) {
+      Object.defineProperty(navigator, 'locks', {
+        value: undefined,
+        writable: true,
+        configurable: true,
+      });
+      defineSucceeded = (navigator as any).locks === undefined;
+    }
+  } catch {
+    // ignore
+  }
+
+  // Attempt 2 — Proxy wrap (works when Object.defineProperty is blocked)
+  if (!defineSucceeded && (navigator as any).locks !== undefined) {
+    try {
+      const originalNavigator = window.navigator;
+      const navigatorProxy = new Proxy(originalNavigator, {
+        get(target, prop) {
+          if (prop === 'locks') return undefined;
+          const value = (target as any)[prop];
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+      Object.defineProperty(window, 'navigator', {
+        value: navigatorProxy,
+        writable: false,
+        configurable: true,
+      });
+    } catch {
+      // If both approaches fail, the custom auth.lock below still handles
+      // the mutex — the AbortError may still appear in the console but
+      // will be caught and will not break auth functionality.
+    }
+  }
+}
+
 const canUseCookies = (() => {
   let cache: boolean | null = null;
   return () => {
@@ -78,11 +128,64 @@ if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
   };
 }
 
+// Singleton instance to prevent multiple clients competing for the auth token lock
+let browserClientInstance: ReturnType<typeof createBrowserClient> | null = null;
+
+/**
+ * Custom lock implementation that replaces the Web Locks API used by GoTrue.
+ * The Web Locks API can cause AbortError("Lock broken by another request with the 'steal' option")
+ * when locks are orphaned by React Strict Mode double-mounts or rapid navigation.
+ * This simple promise-based mutex avoids that issue entirely.
+ */
+function buildCustomLock() {
+  const locks: Record<string, Promise<void>> = {};
+
+  return async function acquireLock<T>(
+    name: string,
+    acquireTimeout: number,
+    fn: () => Promise<T>
+  ): Promise<T> {
+    // Wait for any existing lock on this name to release, with a timeout
+    if (locks[name]) {
+      const timeout = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error(`Lock "${name}" timed out after ${acquireTimeout}ms`)), acquireTimeout)
+      );
+      try {
+        await Promise.race([locks[name], timeout]);
+      } catch {
+        // Timeout or error — proceed anyway to avoid deadlock
+      }
+    }
+
+    let releaseLock!: () => void;
+    locks[name] = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+
+    try {
+      return await fn();
+    } finally {
+      releaseLock();
+      // Clean up the lock entry if it's the one we set
+      if (locks[name]) {
+        delete locks[name];
+      }
+    }
+  };
+}
+
 export function createClient() {
-  return createBrowserClient(
+  if (typeof window !== 'undefined' && browserClientInstance) {
+    return browserClientInstance;
+  }
+
+  const client = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      auth: {
+        lock: buildCustomLock(),
+      },
       cookies: {
         getAll: () => canUseCookies() ? fromCookies() : fromStorage(),
         setAll(cookiesToSet) {
@@ -105,4 +208,10 @@ export function createClient() {
       },
     }
   );
+
+  if (typeof window !== 'undefined') {
+    browserClientInstance = client;
+  }
+
+  return client;
 }

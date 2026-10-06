@@ -18,6 +18,17 @@ function injectTokenFromHeader(request: NextRequest): void {
 const PUBLIC_PATHS = ['/login', '/auth/callback', '/auth/auth-code-error', '/change-password'];
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Fast-path: skip middleware entirely for static files and API routes
+  if (
+    pathname.startsWith('/_next/') ||
+    pathname.startsWith('/api/') ||
+    pathname.includes('.') // static files with extensions
+  ) {
+    return NextResponse.next({ request });
+  }
+
   injectTokenFromHeader(request);
 
   let supabaseResponse = NextResponse.next({ request });
@@ -44,8 +55,6 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
-
   // Allow public paths
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 
@@ -68,6 +77,14 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|assets/.*|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    /*
+     * Match all request paths EXCEPT:
+     * - _next/static (static files)
+     * - _next/image (image optimization)
+     * - favicon.ico
+     * - public assets
+     * - files with extensions (images, fonts, etc.)
+     */
+    '/((?!_next/static|_next/image|favicon\\.ico|assets/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff|woff2|ttf|otf|eot)$).*)',
   ],
 };

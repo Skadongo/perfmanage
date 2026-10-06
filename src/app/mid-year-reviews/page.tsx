@@ -1,9 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
+import { CardListSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
+import { roleCachedFetch, TTL_STAFF_LIST } from '@/lib/cache';
+import BulkWorkplanUploadModal from './components/BulkWorkplanUploadModal';
+import ZipWorkplanUploadModal from './components/ZipWorkplanUploadModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,6 +75,8 @@ const RATING_LABELS: Record<number, string> = {
   4: 'Exceeds Expectations',
   5: 'Outstanding',
 };
+
+const PAGE_SIZE = 20;
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 
@@ -530,9 +536,10 @@ function ReviewCard({ review, onAction }: { review: MidYearReview; onAction: (r:
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function MidYearReviewsPage() {
-  const supabase = createClient();
-  const [reviews, setReviews] = useState<MidYearReview[]>([]);
+  // Stable supabase client — created once, never recreated on re-render
+  const supabaseRef = useRef(createClient());
   const [timeline, setTimeline] = useState<ReviewTimeline | null>(null);
+  const [reviews, setReviews] = useState<MidYearReview[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -544,19 +551,41 @@ export default function MidYearReviewsPage() {
   const [showNewReviewModal, setShowNewReviewModal] = useState(false);
   const [newReviewStaffId, setNewReviewStaffId] = useState('');
   const [creatingReview, setCreatingReview] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showZipUploadModal, setShowZipUploadModal] = useState(false);
+  // Pagination
+  const [page, setPage] = useState(0);
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => {
     setToast({ message, type });
   }, []);
 
   const fetchData = useCallback(async () => {
+    const supabase = supabaseRef.current;
     setLoading(true);
     setError(null);
     try {
-      const [timelineRes, reviewsRes, staffRes] = await Promise.all([
+      // Staff list is rarely-changing — cache for 5 minutes, scoped by role
+      const staffData = await roleCachedFetch(
+        'staff-active-list',
+        'all',
+        async () => {
+          const { data, error } = await supabase
+            .from('staff')
+            .select('id, full_name, job_title, supervisor_id, departments(name)')
+            .eq('employment_status', 'active')
+            .order('full_name');
+          if (error) throw error;
+          return data;
+        },
+        TTL_STAFF_LIST
+      );
+
+      // Timeline + reviews run in parallel; reviews paginated
+      const [timelineRes, reviewsRes] = await Promise.all([
         supabase
           .from('review_timelines')
-          .select('*')
+          .select('id, review_year, review_period, submission_open_date, submission_deadline, supervisor_review_deadline, approval_deadline, is_active')
           .eq('is_active', true)
           .order('review_year', { ascending: false })
           .limit(1)
@@ -564,31 +593,32 @@ export default function MidYearReviewsPage() {
         supabase
           .from('mid_year_reviews')
           .select(`
-            *,
+            id, staff_id, supervisor_id, timeline_id,
+            review_status, review_year, review_period,
+            kpi_achievements, challenges_faced, support_needed,
+            self_rating, supervisor_comments, supervisor_rating,
+            supervisor_reviewed_at, approved_by, approval_comments,
+            approved_at, submitted_at, rejected_reason,
+            created_at, updated_at,
             staff:staff_id(full_name, job_title, departments(name)),
             supervisor:supervisor_id(full_name, job_title)
           `)
-          .order('updated_at', { ascending: false }),
-        supabase
-          .from('staff')
-          .select('id, full_name, job_title, supervisor_id, departments(name)')
-          .eq('employment_status', 'active')
-          .order('full_name'),
+          .order('updated_at', { ascending: false })
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1),
       ]);
 
       if (timelineRes.error) throw timelineRes.error;
       if (reviewsRes.error) throw reviewsRes.error;
-      if (staffRes.error) throw staffRes.error;
 
       setTimeline(timelineRes.data);
       setReviews((reviewsRes.data as MidYearReview[]) || []);
-      setStaff((staffRes.data as StaffMember[]) || []);
+      setStaff((staffData as StaffMember[]) || []);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load reviews');
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [page]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -618,7 +648,7 @@ export default function MidYearReviewsPage() {
         updates.review_status = 'rejected';
       }
 
-      const { error } = await supabase
+      const { error } = await supabaseRef.current
         .from('mid_year_reviews')
         .update(updates)
         .eq('id', selectedReview.id);
@@ -637,14 +667,14 @@ export default function MidYearReviewsPage() {
       showToast(err instanceof Error ? err.message : 'Action failed', 'error');
       throw err;
     }
-  }, [selectedReview, supabase, showToast, fetchData]);
+  }, [selectedReview, supabaseRef.current, showToast, fetchData]);
 
   const handleCreateReview = useCallback(async () => {
     if (!newReviewStaffId || !timeline) return;
     setCreatingReview(true);
     try {
       const staffMember = staff.find(s => s.id === newReviewStaffId);
-      const { error } = await supabase.from('mid_year_reviews').insert({
+      const { error } = await supabaseRef.current.from('mid_year_reviews').insert({
         staff_id: newReviewStaffId,
         supervisor_id: staffMember?.supervisor_id || null,
         timeline_id: timeline.id,
@@ -662,7 +692,7 @@ export default function MidYearReviewsPage() {
     } finally {
       setCreatingReview(false);
     }
-  }, [newReviewStaffId, timeline, staff, supabase, showToast, fetchData]);
+  }, [newReviewStaffId, timeline, staff, supabaseRef.current, showToast, fetchData]);
 
   // Stats
   const stats = useMemo(() => {
@@ -702,13 +732,29 @@ export default function MidYearReviewsPage() {
             <h1 className="text-2xl font-700 text-foreground">Mid-Year Reviews</h1>
             <p className="text-sm text-muted-foreground mt-0.5">2026 performance review submission and approval workflow</p>
           </div>
-          <button
-            onClick={() => setShowNewReviewModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-600 hover:bg-primary/90 transition-colors shadow-sm"
-          >
-            <Icon name="EcsaNewIcon" size={16} />
-            New Review
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowZipUploadModal(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 text-white rounded-xl text-sm font-600 hover:bg-violet-700 transition-colors shadow-sm"
+            >
+              <Icon name="ArchiveBoxArrowDownIcon" size={16} />
+              Upload ZIP
+            </button>
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-white border border-border text-foreground rounded-xl text-sm font-600 hover:bg-muted transition-colors shadow-sm"
+            >
+              <Icon name="ArrowUpTrayIcon" size={16} />
+              Upload Workplans
+            </button>
+            <button
+              onClick={() => setShowNewReviewModal(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-600 hover:bg-primary/90 transition-colors shadow-sm"
+            >
+              <Icon name="EcsaNewIcon" size={16} />
+              New Review
+            </button>
+          </div>
         </div>
 
         {/* Timeline Banner */}
@@ -758,10 +804,7 @@ export default function MidYearReviewsPage() {
 
         {/* Content */}
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <Icon name="EcsaRefreshIcon" size={24} className="animate-spin text-primary" />
-            <span className="ml-3 text-muted-foreground">Loading reviews...</span>
-          </div>
+          <CardListSkeleton count={5} />
         ) : error ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Icon name="EcsaWarningIcon" size={32} className="text-rose-400 mb-3" />
@@ -846,6 +889,29 @@ export default function MidYearReviewsPage() {
       )}
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+      {/* Bulk Workplan Upload Modal */}
+      {showUploadModal && (
+        <BulkWorkplanUploadModal
+          onClose={() => setShowUploadModal(false)}
+          onImportComplete={(count) => {
+            setShowUploadModal(false);
+            showToast(`${count} workplan${count !== 1 ? 's' : ''} imported successfully`, 'success');
+          }}
+        />
+      )}
+
+      {/* ZIP Workplan Upload Modal */}
+      {showZipUploadModal && (
+        <ZipWorkplanUploadModal
+          onClose={() => setShowZipUploadModal(false)}
+          onImportComplete={(count) => {
+            setShowZipUploadModal(false);
+            showToast(`${count} workplan${count !== 1 ? 's' : ''} imported from ZIP successfully`, 'success');
+            fetchData();
+          }}
+        />
+      )}
     </AppLayout>
   );
 }
