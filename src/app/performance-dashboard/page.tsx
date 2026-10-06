@@ -253,7 +253,6 @@ export default function PerformanceDashboardPage() {
               staffId={scopedStaffId}
               supervisorId={supervisorStaffId}
               systemRole={systemRole}
-              key={`metrics-${refreshKey}`}
             />
           </Suspense>
         </section>
@@ -270,12 +269,12 @@ export default function PerformanceDashboardPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {config.showKPITrendChart && (
                 <Suspense fallback={<ChartSkeleton height={240} />}>
-                  <KPITrendChart onPointClick={handleDrillDown} key={`kpi-${refreshKey}`} />
+                  <KPITrendChart onPointClick={handleDrillDown} />
                 </Suspense>
               )}
               {config.showBSCChart && (
                 <Suspense fallback={<ChartSkeleton height={240} />}>
-                  <BSCPerspectiveChart onBarClick={handleDrillDown} key={`bsc-${refreshKey}`} />
+                  <BSCPerspectiveChart onBarClick={handleDrillDown} />
                 </Suspense>
               )}
             </div>
@@ -302,14 +301,14 @@ export default function PerformanceDashboardPage() {
               {config.showAtRiskTable && (
                 <div className={config.showActivityFeed ? 'xl:col-span-2' : ''}>
                   <Suspense fallback={<TableSkeleton rows={5} cols={5} />}>
-                    <AtRiskStaffTable supervisorId={supervisorStaffId} key={`risk-${refreshKey}`} />
+                    <AtRiskStaffTable supervisorId={supervisorStaffId} />
                   </Suspense>
                 </div>
               )}
               {config.showActivityFeed && (
                 <div>
                   <Suspense fallback={<div className="animate-pulse bg-muted/40 rounded-xl h-64" />}>
-                    <ActivityFeed staffId={scopedStaffId} supervisorId={supervisorStaffId} key={`feed-${refreshKey}`} />
+                    <ActivityFeed staffId={scopedStaffId} supervisorId={supervisorStaffId} />
                   </Suspense>
                 </div>
               )}
@@ -324,7 +323,7 @@ export default function PerformanceDashboardPage() {
             <span className="text-[11px] text-muted-foreground">Individual Performance Contracts</span>
           </div>
           <Suspense fallback={<div className="animate-pulse bg-muted/40 rounded-xl h-32" />}>
-            <WorkplanSummaryPanel key={`workplans-${refreshKey}`} />
+            <WorkplanSummaryPanel />
           </Suspense>
         </section>
       </div>

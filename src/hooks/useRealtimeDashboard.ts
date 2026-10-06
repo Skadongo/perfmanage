@@ -44,7 +44,6 @@ export function useRealtimeDashboard({
 }: UseRealtimeDashboardOptions = {}): UseRealtimeDashboardReturn {
   const [liveStats, setLiveStats] = useState<LiveStats | null>(null);
   const [realtimeActive, setRealtimeActive] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
   const isMounted = useRef(true);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetching = useRef(false);
@@ -173,14 +172,16 @@ export function useRealtimeDashboard({
   const debouncedFetch = useCallback(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => {
-      fetchLiveStats(true); // force refresh on realtime event
-      setRefreshKey(k => k + 1);
+      fetchLiveStats(true); // force refresh on realtime event — updates live strip only
+      // NOTE: refreshKey is intentionally NOT incremented here.
+      // Incrementing refreshKey caused all dashboard components to unmount+remount,
+      // discarding their SWR cache and firing duplicate Supabase queries.
+      // Each component manages its own SWR revalidation independently.
     }, 500);
   }, [fetchLiveStats]);
 
   const refetch = useCallback(() => {
     fetchLiveStats(true);
-    setRefreshKey(k => k + 1);
   }, [fetchLiveStats]);
 
   useEffect(() => {
@@ -217,7 +218,7 @@ export function useRealtimeDashboard({
           if (newRow?.system_role !== oldRow?.system_role || newRow?.role !== oldRow?.role) {
             onRoleChange?.();
           }
-          setRefreshKey(k => k + 1);
+          // Do not increment refreshKey — role changes are handled via onRoleChange callback
         }
       )
       .subscribe(status => {
@@ -232,5 +233,5 @@ export function useRealtimeDashboard({
     };
   }, [fetchLiveStats, debouncedFetch, onStaffChange, onRoleChange, onPerformanceChange]);
 
-  return { liveStats, realtimeActive, refreshKey, refetch };
+  return { liveStats, realtimeActive, refreshKey: 0, refetch };
 }

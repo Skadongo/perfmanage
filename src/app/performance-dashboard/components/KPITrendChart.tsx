@@ -88,11 +88,17 @@ export default React.memo(function KPITrendChart({ onPointClick }: Props) {
         const points = await cachedFetch<TrendPoint[]>(
           'kpi-trend-data',
           async () => {
+            // Scope to current fiscal year to avoid fetching all historical rows
+            const now = new Date();
+            const fyStartYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+            const fyStartDate = `${fyStartYear}-07-01`;
+
             const { data: reviews } = await supabaseRef.current
               .from('mid_year_reviews')
-              // Only fetch the columns we actually need — avoids transferring unused data
               .select('review_status, supervisor_rating, created_at')
-              .order('created_at', { ascending: true });
+              .gte('created_at', fyStartDate)
+              .order('created_at', { ascending: true })
+              .limit(500);
 
             const reviewList = reviews || [];
 
