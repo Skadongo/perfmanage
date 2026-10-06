@@ -4,7 +4,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import { extractTextFromPDF, validateExtractedWorkplan, parseWorkplanFromText, type ValidationResult } from '@/lib/pdfExtract';
+import { parseWorkplanFromPDF, validateExtractedWorkplan, type ValidationResult } from '@/lib/pdfExtract';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -121,8 +121,8 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
     setStep('parsing');
 
     try {
-      const text = await extractTextFromPDF(file);
-      const data = parseWorkplanFromText(text, file.name);
+      // Use the full positional pipeline (table-aware extraction)
+      const data = await parseWorkplanFromPDF(file);
       setParsedData(data);
       setStep('preview');
     } catch (err: unknown) {

@@ -3,7 +3,12 @@
 import React, { useState, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
-import { extractTextFromPDF, validateExtractedWorkplan, type ValidationResult } from '@/lib/pdfExtract';
+import {
+  parseWorkplanFromPDF,
+  validateExtractedWorkplan,
+  type ValidationResult,
+  type ParsedWorkplanData,
+} from '@/lib/pdfExtract';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,26 +52,6 @@ interface PDFWorkplanImportModalProps {
   onClose: () => void;
   onImport: (data: ImportedWorkplanData) => void;
 }
-
-// ─── ECSA-HC Standard Competencies ───────────────────────────────────────────
-
-const STANDARD_COMPETENCIES: Omit<Competency, 'weight'>[] = [
-  { id: 'c1', name: 'Teamwork', description: 'Creates a culture of teamwork and responds rationally to feedback.' },
-  { id: 'c2', name: 'Respect for Diversity', description: 'Values individual differences and promotes a peaceful work environment.' },
-  { id: 'c3', name: 'Integrity', description: 'Reliable, meets all deadlines, and takes credit only for own work.' },
-  { id: 'c4', name: 'Communication', description: 'Explains complex issues clearly and uses visual aids effectively.' },
-  { id: 'c5', name: 'Results Oriented', description: 'Prioritizes activities and matches tasks with team capabilities.' },
-  { id: 'c6', name: 'Innovation', description: 'Thinks "outside the box" to foster team creativity.' },
-  { id: 'c7', name: 'Leadership (GS3+)', description: 'Acts as a role model and provides timely specific feedback to staff.' },
-];
-
-// Standard BSC perspective labels — used as fallback when PDF uses non-standard headers
-const BSC_PERSPECTIVES = [
-  'Financial/Stewardship',
-  'Customer/Stakeholder',
-  'Internal Business Processes',
-  'Innovation Learning & Growth Perspective',
-];
 
 // ─── Staff Name Lookup ────────────────────────────────────────────────────────
 
@@ -120,259 +105,6 @@ async function lookupStaffByName(
   return match ?? null;
 }
 
-// ─── PDF Parsing Logic ────────────────────────────────────────────────────────
-
-/**
- * Detects whether a line looks like a perspective/section header.
- * Accepts both standard BSC headers and non-standard ones (e.g. HEPRR-MPA Component...).
- */
-function detectPerspectiveHeader(line: string): string | null {
-  // Check standard BSC perspectives first
-  const stdMatch = BSC_PERSPECTIVES.find((p) =>
-    line.toLowerCase().includes(p.toLowerCase().substring(0, 15))
-  );
-  if (stdMatch) return stdMatch;
-
-  // Detect non-standard component/subcomponent headers (e.g. "HEPRR-MPA Component Subcomponent 1.4")
-  if (
-    /\b(component|subcomponent|programme|program|cluster|pillar|strategic\s+objective)\b/i.test(line) &&
-    line.split(/\s+/).length <= 12
-  ) {
-    return line.trim();
-  }
-
-  // Detect "Part X" or "Section X" headers that introduce scorecard sections
-  if (/^(Part|Section)\s+[1-9IVX]/i.test(line) && line.split(/\s+/).length <= 8) {
-    return line.trim();
-  }
-
-  return null;
-}
-
-/**
- * Extracts scorecard rows from PDF text lines using a flexible multi-pass strategy:
- *  Pass 1 — Structured: detect perspective headers, then collect objective/activity/KPI/target/weight blocks
- *  Pass 2 — Fallback: if Pass 1 yields nothing, scan for lines that look like objectives
- *            (medium length, followed by a weight digit) and group them under a generic perspective
- */
-function extractScorecardRows(lines: string[]): PerspectiveRow[] {
-  const rows: PerspectiveRow[] = [];
-  let currentPerspective = '';
-  let rowIndex = 0;
-
-  // ── Pass 1: Structured extraction ─────────────────────────────────────────
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // Detect perspective/section header
-    const perspHeader = detectPerspectiveHeader(line);
-    if (perspHeader) {
-      currentPerspective = perspHeader;
-      continue;
-    }
-
-    if (!currentPerspective) continue;
-
-    // Skip header-like lines
-    if (/^(Part|Section|Total|Weight|Score|Rating|Signature|Date|Name|Job|Supervisor|Directorate|Employee|Staff)\b/i.test(line)) continue;
-    // Skip very short or very long lines
-    const wordCount = line.split(/\s+/).length;
-    if (wordCount < 5 || wordCount > 100) continue;
-    // Skip lines that are purely numeric or look like table headers
-    if (/^\d+(\.\d+)?$/.test(line)) continue;
-
-    // Look ahead for KPI label, target, and weight within the next 10 lines
-    let objective = line;
-    let kpiLabel = '';
-    let target = '';
-    let weight = 3;
-    let lookaheadConsumed = 0;
-
-    for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
-      const next = lines[j];
-
-      // Stop if we hit another perspective header
-      if (detectPerspectiveHeader(next)) break;
-
-      // KPI line
-      if (/^(KPI|Key Performance Indicator|Indicator)\s*[:\-]/i.test(next)) {
-        kpiLabel = next.replace(/^(KPI|Key Performance Indicator|Indicator)\s*[:\-]\s*/i, '').trim();
-        lookaheadConsumed = j - i;
-        continue;
-      }
-
-      // Target line
-      const targetMatch = next.match(/^(?:Target|Goal|Expected Result)\s*[:\-]\s*(.+)/i);
-      if (targetMatch) {
-        target = targetMatch[1].trim();
-        lookaheadConsumed = j - i;
-        continue;
-      }
-
-      // Weight line — explicit "Weight: N" or standalone digit 1-5
-      const wMatch = next.match(/^(?:Weight|W)\s*[:\-]?\s*([1-5])\b/i);
-      if (wMatch) {
-        weight = parseInt(wMatch[1]);
-        lookaheadConsumed = j - i;
-        break;
-      }
-      if (/^\s*[1-5]\s*$/.test(next)) {
-        weight = parseInt(next.trim());
-        lookaheadConsumed = j - i;
-        break;
-      }
-
-      // If we hit another substantial line (new objective candidate), stop lookahead
-      if (next.split(/\s+/).length >= 8 && !targetMatch && !wMatch) break;
-    }
-
-    // Only add if the line looks like a meaningful objective (not a stray label)
-    if (wordCount >= 6) {
-      rowIndex++;
-      const label = kpiLabel || objective;
-      rows.push({
-        id: `row-pdf-${rowIndex}`,
-        perspective: currentPerspective,
-        objective: objective.length > 120 ? objective.substring(0, 120) + '…' : objective,
-        keyActivities: objective,
-        kpis: [{ id: `kpi-pdf-${rowIndex}`, label: label.length > 120 ? label.substring(0, 120) + '…' : label, target: target || 'As per workplan' }],
-        weight,
-      });
-
-      // Skip lines consumed by lookahead to avoid double-processing
-      i += lookaheadConsumed;
-
-      if (rows.length >= 16) break;
-    }
-  }
-
-  if (rows.length > 0) return rows;
-
-  // ── Pass 2: Fallback — scan for objective-like lines followed by a weight ──
-  const fallbackPerspective = 'Performance Objectives';
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const wordCount = line.split(/\s+/).length;
-
-    // Skip header/footer lines
-    if (/^(Part|Section|Total|Weight|Score|Rating|Signature|Date|Name|Job|Supervisor|Directorate|Employee|Staff|Page)\b/i.test(line)) continue;
-    if (wordCount < 8 || wordCount > 60) continue;
-    if (/^\d+(\.\d+)?$/.test(line)) continue;
-
-    // Look ahead for a weight digit within 5 lines
-    let weight = 3;
-    let target = '';
-    for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
-      const next = lines[j];
-      const wMatch = next.match(/^(?:Weight|W)\s*[:\-]?\s*([1-5])\b/i);
-      if (wMatch) { weight = parseInt(wMatch[1]); break; }
-      if (/^\s*[1-5]\s*$/.test(next)) { weight = parseInt(next.trim()); break; }
-      const tMatch = next.match(/^(?:Target|Goal)\s*[:\-]\s*(.+)/i);
-      if (tMatch) target = tMatch[1].trim();
-    }
-
-    rowIndex++;
-    rows.push({
-      id: `row-pdf-${rowIndex}`,
-      perspective: fallbackPerspective,
-      objective: line.length > 120 ? line.substring(0, 120) + '…' : line,
-      keyActivities: line,
-      kpis: [{ id: `kpi-pdf-${rowIndex}`, label: line.length > 120 ? line.substring(0, 120) + '…' : line, target: target || 'As per workplan' }],
-      weight,
-    });
-
-    if (rows.length >= 12) break;
-  }
-
-  return rows;
-}
-
-function parseWorkplanFromText(text: string, fileName: string): ImportedWorkplanData {
-  const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
-  const fullText = lines.join(' ');
-
-  // ── Staff info extraction ──
-  let staffName = '';
-  let jobTitle = '';
-  let directorate = '';
-  let supervisorName = '';
-
-  // Name: look for "Name:" or "Employee:" patterns — also handles ALL-CAPS names
-  const nameMatch = fullText.match(/(?:Name|Employee)\s*[:\-]\s*([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,3})/);
-  if (nameMatch) staffName = nameMatch[1].trim();
-
-  // Fallback: ALL-CAPS name pattern (common in ECSA-HC PDFs)
-  if (!staffName) {
-    const capsMatch = fullText.match(/(?:Name|Employee)\s*[:\-]\s*([A-Z]{2,}(?:\s+[A-Z]{2,}){1,3})/);
-    if (capsMatch) {
-      // Convert "AYEBARE TIMOTHY" → "Ayebare Timothy"
-      staffName = capsMatch[1].trim().replace(/\b\w+/g, (w) => w.charAt(0) + w.slice(1).toLowerCase());
-    }
-  }
-
-  const jobMatch = fullText.match(/(?:Job Title|Position|Title)\s*[:\-]\s*([^\n,]{5,60}?)(?:\s{2,}|Directorate|Cluster|Supervisor)/i);
-  if (jobMatch) jobTitle = jobMatch[1].trim();
-
-  const dirMatch = fullText.match(/(?:Directorate|Cluster)\s*[:\-]\s*([^\n,]{3,60}?)(?:\s{2,}|Supervisor|Name|$)/i);
-  if (dirMatch) directorate = dirMatch[1].trim();
-
-  const supMatch = fullText.match(/(?:Supervisor|Reporting to)\s*[:\-]\s*([A-Z][a-zA-Z\s\.]{3,60}?)(?:\s{2,}|Job Title|Date|$)/i);
-  if (supMatch) supervisorName = supMatch[1].trim();
-
-  // Fiscal year
-  let fiscalYear = 'FY 2026-2027 (Jul–Jun)';
-  let reviewYear = 2026;
-  const fyMatch = fullText.match(/(?:FY|Fiscal Year|Review Period)\s*[:\-]?\s*(20\d{2}[-–\/]20?\d{2})/i);
-  if (fyMatch) {
-    const yearStr = fyMatch[1];
-    const startYear = parseInt(yearStr.match(/20\d{2}/)?.[0] ?? '2026');
-    fiscalYear = `FY ${yearStr} (Jul–Jun)`;
-    reviewYear = startYear;
-  } else {
-    const yearRangeMatch = fullText.match(/July\s+(20\d{2})\s*[–\-to]+\s*June\s+(20\d{2})/i);
-    if (yearRangeMatch) {
-      fiscalYear = `FY ${yearRangeMatch[1]}-${yearRangeMatch[2]} (Jul–Jun)`;
-      reviewYear = parseInt(yearRangeMatch[1]);
-    }
-  }
-
-  // ── Scorecard rows extraction (improved multi-pass) ──
-  const perspectivesObjectives = extractScorecardRows(lines);
-
-  // ── Competencies extraction ──
-  const generalCompetencies: Competency[] = STANDARD_COMPETENCIES.map((c, idx) => {
-    const escapedName = c.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const compRegex = new RegExp(escapedName + '[^\\d]{0,40}([1-5])\\b', 'i');
-    const match = fullText.match(compRegex);
-    let weight = match ? parseInt(match[1]) : (idx < 5 ? 5 : idx === 5 ? 4 : 2);
-    return { ...c, weight };
-  });
-
-  // ── Support required ──
-  let supportRequired = '';
-  const supportMatch = fullText.match(/(?:Support Required|Management Support)[^\n]{0,30}[:\-]\s*([^]{10,300}?)(?:Employee Signature|Supervisor Signature|$)/i);
-  if (supportMatch) supportRequired = supportMatch[1].replace(/\s+/g, ' ').trim();
-
-  // ── Fallback: derive name from filename ──
-  if (!staffName && fileName) {
-    const fnMatch = fileName.replace(/[-_]/g, ' ').match(/^([A-Z][a-z]+\s+[A-Z][a-z]+)/);
-    if (fnMatch) staffName = fnMatch[1];
-  }
-
-  return {
-    staffName: staffName || 'Unknown Staff',
-    jobTitle: jobTitle || 'Staff Member',
-    directorate: directorate || 'ECSA-HC',
-    supervisorName: supervisorName || 'Supervisor',
-    fiscalYear,
-    reviewYear,
-    perspectivesObjectives,
-    generalCompetencies,
-    supportRequired,
-    resolvedStaffId: undefined, // will be populated after DB lookup
-  };
-}
-
 type Step = 'upload' | 'parsing' | 'preview';
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -398,8 +130,22 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
     setStep('parsing');
 
     try {
-      const text = await extractTextFromPDF(file);
-      const data = parseWorkplanFromText(text, file.name);
+      // Use the full positional pipeline (table-aware extraction)
+      const parsed: ParsedWorkplanData = await parseWorkplanFromPDF(file);
+
+      // Build ImportedWorkplanData from ParsedWorkplanData
+      const data: ImportedWorkplanData = {
+        staffName: parsed.staffName,
+        jobTitle: parsed.jobTitle,
+        directorate: parsed.directorate,
+        supervisorName: parsed.supervisorName,
+        fiscalYear: parsed.fiscalYear,
+        reviewYear: parsed.reviewYear,
+        perspectivesObjectives: parsed.perspectivesObjectives,
+        generalCompetencies: parsed.generalCompetencies,
+        supportRequired: parsed.supportRequired,
+        resolvedStaffId: undefined,
+      };
 
       // ── Staff DB lookup (token-based, handles reversed names) ─────────────
       let resolvedStaffId: string | null = null;
@@ -414,7 +160,7 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
         data.resolvedStaffId = resolvedStaffId;
       }
 
-      // ── Schema validation (pass resolved staffId so warning only fires when truly unmatched) ──
+      // ── Schema validation ──────────────────────────────────────────────────
       const vResult = validateExtractedWorkplan(
         resolvedStaffId,
         data.perspectivesObjectives,
@@ -691,7 +437,9 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
                               <div className="w-1 h-1 rounded-full bg-primary mt-1.5 flex-shrink-0" />
                               <p className="text-[11px] text-muted-foreground leading-snug">
                                 <span className="font-500 text-foreground">{kpi.label}</span>
-                                {kpi.target && <span className="text-muted-foreground"> — Target: {kpi.target}</span>}
+                                {kpi.target && kpi.target !== 'As per workplan' && (
+                                  <span className="text-muted-foreground"> — Target: {kpi.target}</span>
+                                )}
                               </p>
                             </div>
                           ))}
@@ -706,7 +454,7 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-xs font-700 uppercase tracking-wide text-muted-foreground">Part 2 — General Competencies (20%)</h3>
-                  <span className={`text-[11px] font-700 px-2 py-0.5 rounded-full ${compTotal === 31 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                  <span className={`text-[11px] font-700 px-2 py-0.5 rounded-full ${compTotal >= 20 && compTotal <= 35 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                     Total weight: {compTotal}
                   </span>
                 </div>
