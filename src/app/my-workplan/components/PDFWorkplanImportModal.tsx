@@ -93,22 +93,54 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
       };
 
       // ── Server-side validation (staff ID, weights, BSC structure) ─────────
-      const response = await fetch('/api/validate-workplan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          staffId: null,
-          staffName: data.staffName,
-          scorecardRows: data.perspectivesObjectives,
-          competencies: data.generalCompetencies,
-        }),
-      });
+      let vResult: ValidationResult & { resolvedStaffId?: string | null };
 
-      if (!response.ok) {
-        throw new Error(`Validation service error: ${response.status}`);
+      try {
+        const response = await fetch('/api/validate-workplan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            staffId: null,
+            staffName: data.staffName,
+            scorecardRows: data.perspectivesObjectives,
+            competencies: data.generalCompetencies,
+          }),
+        });
+
+        if (!response.ok) {
+          // Endpoint unavailable — skip server validation, proceed with import
+          console.warn(`Validation endpoint returned ${response.status}. Skipping server-side validation.`);
+          vResult = {
+            valid: true,
+            errors: [],
+            warnings: [
+              {
+                field: 'server',
+                severity: 'warning',
+                message: `Server-side validation is temporarily unavailable (${response.status}). You can still import — please review the data manually.`,
+              },
+            ],
+            resolvedStaffId: null,
+          };
+        } else {
+          vResult = await response.json();
+        }
+      } catch (_fetchErr) {
+        // Network error — skip server validation gracefully
+        console.warn('Could not reach validation endpoint. Skipping server-side validation.');
+        vResult = {
+          valid: true,
+          errors: [],
+          warnings: [
+            {
+              field: 'server',
+              severity: 'warning',
+              message: 'Server-side validation could not be reached. You can still import — please review the data manually.',
+            },
+          ],
+          resolvedStaffId: null,
+        };
       }
-
-      const vResult: ValidationResult & { resolvedStaffId?: string | null } = await response.json();
 
       // Apply the server-resolved staffId back to the data
       const resolvedStaffId = vResult.resolvedStaffId ?? null;

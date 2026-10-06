@@ -90,23 +90,25 @@ function isValidCompetency(c: unknown): boolean {
 
 /**
  * Verifies a staffId exists in the database.
- * Returns true if the staff record is found.
  */
 async function verifyStaffIdExists(
   supabase: Awaited<ReturnType<typeof createClient>>,
   staffId: string
 ): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('staff')
-    .select('id')
-    .eq('id', staffId)
-    .single();
-  return !error && data !== null;
+  try {
+    const { data, error } = await supabase
+      .from('staff')
+      .select('id')
+      .eq('id', staffId)
+      .single();
+    return !error && data !== null;
+  } catch (_e) {
+    return false;
+  }
 }
 
 /**
  * Attempts to resolve a staff name to a DB record server-side.
- * Uses the same two-stage token-based strategy as the client.
  */
 async function resolveStaffByName(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -114,45 +116,69 @@ async function resolveStaffByName(
 ): Promise<{ id: string; full_name: string } | null> {
   if (!staffName || staffName === 'Unknown Staff') return null;
 
-  const normalise = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, '').trim();
+  try {
+    const normalise = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, '').trim();
 
-  // Stage 1: direct substring match
-  const { data: direct } = await supabase
-    .from('staff')
-    .select('id, full_name')
-    .ilike('full_name', `%${staffName}%`)
-    .limit(1);
+    // Stage 1: direct substring match
+    const { data: direct } = await supabase
+      .from('staff')
+      .select('id, full_name')
+      .ilike('full_name', `%${staffName}%`)
+      .limit(1);
 
-  if (direct && direct.length > 0) return direct[0];
+    if (direct && direct.length > 0) return direct[0];
 
-  // Stage 2: token-based match (handles reversed names)
-  const tokens = staffName.trim().split(/\s+/).filter((t) => t.length > 1);
-  if (tokens.length < 2) return null;
+    // Stage 2: token-based match (handles reversed names)
+    const tokens = staffName.trim().split(/\s+/).filter((t) => t.length > 1);
+    if (tokens.length < 2) return null;
 
-  const longestToken = tokens.reduce((a, b) => (a.length >= b.length ? a : b));
+    const longestToken = tokens.reduce((a, b) => (a.length >= b.length ? a : b));
 
-  const { data: candidates } = await supabase
-    .from('staff')
-    .select('id, full_name')
-    .ilike('full_name', `%${longestToken}%`)
-    .limit(30);
+    const { data: candidates } = await supabase
+      .from('staff')
+      .select('id, full_name')
+      .ilike('full_name', `%${longestToken}%`)
+      .limit(30);
 
-  if (!candidates || candidates.length === 0) return null;
+    if (!candidates || candidates.length === 0) return null;
 
-  const normTokens = tokens.map(normalise);
-  const match = candidates.find((row: { id: string; full_name: string }) => {
-    const normFull = normalise(row.full_name);
-    return normTokens.every((tok) => normFull.includes(tok));
-  });
+    const normTokens = tokens.map(normalise);
+    const match = candidates.find((row: { id: string; full_name: string }) => {
+      const normFull = normalise(row.full_name);
+      return normTokens.every((tok) => normFull.includes(tok));
+    });
 
-  return match ?? null;
+    return match ?? null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+// ─── GET /api/validate-workplan — health check ────────────────────────────────
+
+export async function GET(): Promise<NextResponse> {
+  return NextResponse.json({ status: 'ok', endpoint: 'validate-workplan' }, { status: 200 });
 }
 
 // ─── POST /api/validate-workplan ──────────────────────────────────────────────
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    const body: ValidateWorkplanBody = await req.json();
+    let body: ValidateWorkplanBody;
+    try {
+      body = await req.json();
+    } catch (_parseErr) {
+      return NextResponse.json(
+        {
+          valid: false,
+          errors: [{ field: 'request', severity: 'error', message: 'Invalid JSON body.' }],
+          warnings: [],
+          resolvedStaffId: null,
+        },
+        { status: 400 }
+      );
+    }
+
     const { staffId, staffName, scorecardRows, competencies } = body;
 
     const supabase = await createClient();
@@ -162,10 +188,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // ── 1. Staff ID verification ───────────────────────────────────────────
     if (resolvedStaffId && typeof resolvedStaffId === 'string' && resolvedStaffId.trim().length > 0) {
-      // Verify the provided staffId actually exists in the DB
       const exists = await verifyStaffIdExists(supabase, resolvedStaffId);
       if (!exists) {
-        // staffId was provided but not found — try to re-resolve by name
         resolvedStaffId = null;
         if (staffName) {
           const found = await resolveStaffByName(supabase, staffName);
@@ -181,7 +205,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
       }
     } else if (staffName) {
-      // No staffId provided — attempt server-side name resolution
       const found = await resolveStaffByName(supabase, staffName);
       resolvedStaffId = found?.id ?? null;
       if (!resolvedStaffId) {
@@ -196,8 +219,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       warnings.push({
         field: 'staffId',
         severity: 'warning',
-        message:
-          'No staff ID or name provided. The workplan will be saved without a linked staff record.',
+        message: 'No staff ID or name provided. The workplan will be saved without a linked staff record.',
       });
     }
 
