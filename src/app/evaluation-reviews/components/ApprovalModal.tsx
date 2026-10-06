@@ -84,32 +84,45 @@ export default function ApprovalModal({ open, onClose, review, onActionComplete 
       return;
     }
 
+    const capturedAction = selectedAction;
+    const capturedComments = comments;
+    const capturedReviewId = review.id;
+
+    // Optimistically close modal and update parent list immediately
     setSubmitting(true);
+    onActionComplete(review.id, selectedAction);
+    handleClose();
+
+    const cfg = ACTION_CONFIG[capturedAction];
+    const toastId = toast.success(cfg.toastMsg, { description: cfg.toastDesc, duration: 4000 });
+
     try {
       const supabase = createClient();
-      const cfg = ACTION_CONFIG[selectedAction];
 
       const updatePayload: Record<string, unknown> = {
         review_status: cfg.dbStatus,
-        supervisor_comments: comments.trim() || null,
+        supervisor_comments: capturedComments.trim() || null,
       };
-      if (selectedAction === 'approve') {
+      if (capturedAction === 'approve') {
         updatePayload.approved_at = new Date().toISOString();
       }
 
       const { error } = await supabase
         .from('mid_year_reviews')
         .update(updatePayload)
-        .eq('id', review.id);
+        .eq('id', capturedReviewId);
 
       if (error) throw error;
-
-      toast.success(cfg.toastMsg, { description: cfg.toastDesc });
-      onActionComplete(review.id, selectedAction);
-      handleClose();
     } catch (err) {
       console.error('Approval action failed:', err);
-      toast.error('Action failed', { description: 'Please try again. If the problem persists, contact support.' });
+      // Rollback: revert the optimistic update in parent
+      const rollbackAction: ApprovalAction = capturedAction === 'approve' ? 'reject' : 'approve';
+      onActionComplete(capturedReviewId, rollbackAction);
+      toast.dismiss(toastId);
+      toast.error('Action failed — changes reverted', {
+        description: 'Please try again. If the problem persists, contact support.',
+        duration: 6000,
+      });
     } finally {
       setSubmitting(false);
     }

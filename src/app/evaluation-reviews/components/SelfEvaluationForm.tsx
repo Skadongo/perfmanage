@@ -5,6 +5,7 @@ import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { useAutosave, AutosaveStatus, autosaveStatusLabel } from '@/hooks/useAutosave';
 import { roleCachedFetch, TTL_WORKPLAN_LIST } from '@/lib/cache';
+import { toast } from 'sonner';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -329,9 +330,18 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
       return;
     }
 
-    setSaving(true);
     setSaveError(null);
 
+    // ── Optimistic: show success state immediately ──────────────────────────
+    setSubmitted(true);
+    setSaving(false);
+
+    const toastId = toast.success(`${periodLabel} self-evaluation submitted`, {
+      description: 'Awaiting supervisor approval.',
+      duration: 4000,
+    });
+
+    // ── Fire server request in background ──────────────────────────────────
     try {
       const selfAssessmentText = form.evalRows
         .map((r) => {
@@ -355,10 +365,9 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
       };
 
       const { data, error } = await supabaseRef.current.from('mid_year_reviews').insert(payload).select('id').single();
-      if (error) {
-        setSaveError(error.message || 'Failed to save evaluation. Please try again.');
-        return;
-      }
+      if (error) throw error;
+
+      setSavedReviewId(data?.id ?? null);
 
       // Mark workplan stage as pending supervisor approval for this period
       const pendingStage = reviewPeriod === 'mid-year' ? 'mid_year_pending' : 'end_year_pending';
@@ -367,8 +376,8 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
         .update({ workflow_stage: pendingStage })
         .eq('id', form.workplanId);
 
-      // Log activity
-      await supabaseRef.current.from('activity_logs').insert({
+      // Log activity (fire-and-forget)
+      supabaseRef.current.from('activity_logs').insert({
         activity_type: `${reviewPeriod}_submitted`,
         actor_name: form.staffName || 'Staff',
         action_description: `submitted ${periodLabel} self-evaluation — awaiting supervisor approval`,
@@ -379,37 +388,45 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
         icon_color: reviewPeriod === 'mid-year' ? 'text-sky-600' : 'text-violet-600',
       }).then(() => {});
 
-      setSavedReviewId(data?.id ?? null);
-
-      // Notify supervisor that appraisal is ready for evaluation
+      // Notify supervisor (fire-and-forget)
       if (form.supervisorId) {
-        await supabaseRef.current.from('notifications').insert({
+        supabaseRef.current.from('notifications').insert({
           recipient_staff_id: form.supervisorId,
           type: 'appraisal_submitted',
           title: 'Appraisal Ready for Evaluation',
           message: `${form.staffName || 'A staff member'} has submitted their ${periodLabel} self-evaluation and it is ready for your review and approval.`,
           related_id: form.workplanId,
           related_type: 'workplan',
-        });
+        }).then(() => {});
       }
 
-      // Clear draft after successful submission
+      // Clear draft (fire-and-forget)
       if (form.staffId) {
-        await clearDraft(form.workplanId, form.staffId, reviewPeriod);
+        clearDraft(form.workplanId, form.staffId, reviewPeriod);
       }
-
-      setSubmitted(true);
     } catch (err: any) {
-      setSaveError('An unexpected error occurred. Please try again.');
-    } finally {
-      setSaving(false);
+      // ── Rollback: revert optimistic success state ──────────────────────
+      setSubmitted(false);
+      setSaveError(err?.message || 'Submission failed. Please try again.');
+      toast.dismiss(toastId);
+      toast.error('Submission failed — please try again', {
+        description: err?.message,
+        duration: 6000,
+      });
     }
   }
 
   async function handleSupervisorApprove() {
     if (!savedReviewId || !form.workplanId) return;
-    setApproving(true);
     setApprovalError(null);
+
+    // ── Optimistic: advance UI immediately ────────────────────────────────
+    setStageAdvanced(true);
+    const toastId = toast.success(`${periodLabel} approved`, {
+      description: reviewPeriod === 'mid-year' ? 'End-Year evaluation now unlocked.' : 'Evaluation cycle complete.',
+      duration: 4000,
+    });
+
     try {
       // Approve the review record
       const { error: reviewError } = await supabaseRef.current
@@ -424,10 +441,7 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
         })
         .eq('id', savedReviewId);
 
-      if (reviewError) {
-        setApprovalError(reviewError.message || 'Failed to approve evaluation.');
-        return;
-      }
+      if (reviewError) throw reviewError;
 
       // Advance workplan workflow stage
       const { error: stageError } = await supabaseRef.current
@@ -438,13 +452,10 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
         })
         .eq('id', form.workplanId);
 
-      if (stageError) {
-        setApprovalError(stageError.message || 'Failed to advance workflow stage.');
-        return;
-      }
+      if (stageError) throw stageError;
 
-      // Log activity
-      await supabaseRef.current.from('activity_logs').insert({
+      // Log activity (fire-and-forget)
+      supabaseRef.current.from('activity_logs').insert({
         activity_type: `${reviewPeriod}_approved`,
         actor_name: form.supervisorName || 'Supervisor',
         action_description: `approved ${periodLabel} evaluation — ${reviewPeriod === 'mid-year' ? 'End-Year evaluation now unlocked' : 'evaluation cycle complete'}`,
@@ -455,10 +466,16 @@ export default function SelfEvaluationForm({ reviewPeriod, onClose, onSubmit }: 
         icon_color: 'text-emerald-600',
       }).then(() => {});
 
-      setStageAdvanced(true);
       onSubmit?.();
     } catch (err: any) {
-      setApprovalError('An unexpected error occurred.');
+      // ── Rollback ──────────────────────────────────────────────────────
+      setStageAdvanced(false);
+      setApprovalError(err?.message || 'An unexpected error occurred.');
+      toast.dismiss(toastId);
+      toast.error('Approval failed — changes reverted', {
+        description: err?.message,
+        duration: 6000,
+      });
     } finally {
       setApproving(false);
     }

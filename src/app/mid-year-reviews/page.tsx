@@ -632,70 +632,121 @@ export default function MidYearReviewsPage() {
 
   const handleSave = useCallback(async (data: Partial<MidYearReview>, action: string) => {
     if (!selectedReview) return;
+    const now = new Date().toISOString();
+    let updates: Partial<MidYearReview> = { ...data, updated_at: now };
+
+    if (action === 'submit') {
+      updates.review_status = 'submitted';
+      updates.submitted_at = now;
+    } else if (action === 'save_draft') {
+      updates.review_status = 'draft';
+    } else if (action === 'mark_reviewed') {
+      updates.review_status = 'reviewed';
+      updates.supervisor_reviewed_at = now;
+    } else if (action === 'approve') {
+      updates.review_status = 'approved';
+      updates.approved_at = now;
+    } else if (action === 'reject') {
+      updates.review_status = 'rejected';
+    }
+
+    // Snapshot for rollback
+    const previousReviews = reviews;
+    const reviewId = selectedReview.id;
+
+    // ── Optimistic: update list immediately ──────────────────────────────
+    setReviews((prev) =>
+      prev.map((r) => (r.id === reviewId ? { ...r, ...updates } : r))
+    );
+
+    const successMsg =
+      action === 'submit' ? 'Review submitted successfully' :
+      action === 'save_draft' ? 'Draft saved' :
+      action === 'mark_reviewed' ? 'Review marked as reviewed' :
+      action === 'approve' ? 'Review approved' : 'Review rejected';
+
+    const toastId = showToast(successMsg, 'success');
+
     try {
-      const now = new Date().toISOString();
-      let updates: Partial<MidYearReview> = { ...data, updated_at: now };
-
-      if (action === 'submit') {
-        updates.review_status = 'submitted';
-        updates.submitted_at = now;
-      } else if (action === 'save_draft') {
-        updates.review_status = 'draft';
-      } else if (action === 'mark_reviewed') {
-        updates.review_status = 'reviewed';
-        updates.supervisor_reviewed_at = now;
-      } else if (action === 'approve') {
-        updates.review_status = 'approved';
-        updates.approved_at = now;
-      } else if (action === 'reject') {
-        updates.review_status = 'rejected';
-      }
-
       const { error } = await supabaseRef.current
         .from('mid_year_reviews')
         .update(updates)
-        .eq('id', selectedReview.id);
+        .eq('id', reviewId);
 
       if (error) throw error;
-
-      showToast(
-        action === 'submit' ? 'Review submitted successfully' :
-        action === 'save_draft' ? 'Draft saved' :
-        action === 'mark_reviewed' ? 'Review marked as reviewed' :
-        action === 'approve'? 'Review approved' : 'Review rejected',
-        'success'
-      );
-      await fetchData();
     } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Action failed', 'error');
+      // ── Rollback ─────────────────────────────────────────────────────
+      setReviews(previousReviews);
+      if (typeof toastId === 'string' || typeof toastId === 'number') {
+        // dismiss optimistic toast if showToast returns an id
+      }
+      showToast(err instanceof Error ? err.message : 'Action failed — changes reverted', 'error');
       throw err;
     }
-  }, [selectedReview, supabaseRef.current, showToast, fetchData]);
+  }, [selectedReview, reviews, supabaseRef.current, showToast]);
 
   const handleCreateReview = useCallback(async () => {
     if (!newReviewStaffId || !timeline) return;
     setCreatingReview(true);
+
+    const staffMember = staff.find(s => s.id === newReviewStaffId);
+    const optimisticReview: MidYearReview = {
+      id: `optimistic-${Date.now()}`,
+      staff_id: newReviewStaffId,
+      supervisor_id: staffMember?.supervisor_id || null,
+      timeline_id: timeline.id,
+      review_status: 'draft',
+      review_year: timeline.review_year,
+      review_period: timeline.review_period,
+      staff: staffMember ? { full_name: staffMember.full_name, job_title: staffMember.job_title, departments: null } : undefined,
+      supervisor: null,
+      kpi_achievements: null,
+      challenges_faced: null,
+      support_needed: null,
+      self_rating: null,
+      supervisor_comments: null,
+      supervisor_rating: null,
+      supervisor_reviewed_at: null,
+      approved_by: null,
+      approval_comments: null,
+      approved_at: null,
+      submitted_at: null,
+      rejected_reason: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } as any;
+
+    // Optimistic: add to list immediately
+    setReviews((prev) => [optimisticReview, ...prev]);
+    setShowNewReviewModal(false);
+    setNewReviewStaffId('');
+    showToast('Review record created', 'success');
+
     try {
-      const staffMember = staff.find(s => s.id === newReviewStaffId);
-      const { error } = await supabaseRef.current.from('mid_year_reviews').insert({
+      const { data, error } = await supabaseRef.current.from('mid_year_reviews').insert({
         staff_id: newReviewStaffId,
         supervisor_id: staffMember?.supervisor_id || null,
         timeline_id: timeline.id,
         review_status: 'draft',
         review_year: timeline.review_year,
         review_period: timeline.review_period,
-      });
+      }).select('id').single();
       if (error) throw error;
-      showToast('Review record created', 'success');
-      setShowNewReviewModal(false);
-      setNewReviewStaffId('');
-      await fetchData();
+
+      // Replace optimistic entry with real id
+      if (data?.id) {
+        setReviews((prev) =>
+          prev.map((r) => (r.id === optimisticReview.id ? { ...r, id: data.id } : r))
+        );
+      }
     } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Failed to create review', 'error');
+      // Rollback: remove optimistic entry
+      setReviews((prev) => prev.filter((r) => r.id !== optimisticReview.id));
+      showToast(err instanceof Error ? err.message : 'Failed to create review — changes reverted', 'error');
     } finally {
       setCreatingReview(false);
     }
-  }, [newReviewStaffId, timeline, staff, supabaseRef.current, showToast, fetchData]);
+  }, [newReviewStaffId, timeline, staff, supabaseRef.current, showToast]);
 
   // Stats
   const stats = useMemo(() => {

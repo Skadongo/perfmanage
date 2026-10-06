@@ -609,7 +609,6 @@ export default function MyWorkplanPage() {
       return;
     }
 
-    setSubmitStatus('submitting');
     const supabase = supabaseRef.current;
 
     const payload = {
@@ -626,6 +625,18 @@ export default function MyWorkplanPage() {
       updated_at: new Date().toISOString(),
     };
 
+    // ── Optimistic: update UI immediately ────────────────────────────────
+    const previousStatus = workplanStatus;
+    const previousSubmitStatus = submitStatus;
+    setWorkplanStatus('submitted');
+    setSubmitStatus('submitted');
+
+    const toastId = toast.success('Workplan submitted successfully!', {
+      description: 'Your supervisor will review it.',
+      duration: 4000,
+    });
+
+    // ── Fire server request in background ────────────────────────────────
     try {
       if (workplanId) {
         const { error } = await supabase.from('workplan_settings').update(payload).eq('id', workplanId);
@@ -639,16 +650,13 @@ export default function MyWorkplanPage() {
         if (error) throw error;
         if (data?.id && isMounted.current) setWorkplanId(data.id);
       }
-
-      if (isMounted.current) {
-        setWorkplanStatus('submitted');
-        setSubmitStatus('submitted');
-        toast.success('Workplan submitted successfully! Your supervisor will review it.');
-      }
     } catch (err: any) {
+      // ── Rollback on failure ───────────────────────────────────────────
       if (isMounted.current) {
-        setSubmitStatus('idle');
-        toast.error(`Submission failed: ${err.message}`);
+        setWorkplanStatus(previousStatus);
+        setSubmitStatus(previousSubmitStatus);
+        toast.dismiss(toastId);
+        toast.error(`Submission failed — changes reverted`, { description: err.message, duration: 6000 });
       }
     }
   }
