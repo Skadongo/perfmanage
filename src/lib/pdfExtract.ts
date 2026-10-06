@@ -39,12 +39,12 @@ interface TextItem {
   str: string;
   x: number;
   y: number;
+  width: number;
   page: number;
 }
 
 /**
  * Extracts text with positional data (x, y coordinates) from each page.
- * This allows us to reconstruct table rows by grouping items with similar Y values.
  */
 export async function extractTextItemsFromPDF(file: File): Promise<TextItem[]> {
   const pdfjsLib = await loadPdfjsFromCDN();
@@ -57,12 +57,13 @@ export async function extractTextItemsFromPDF(file: File): Promise<TextItem[]> {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    for (const item of content.items as Array<{ str?: string; transform?: number[] }>) {
+    for (const item of content.items as Array<{ str?: string; transform?: number[]; width?: number }>) {
       const str = (item.str ?? '').trim();
       if (!str) continue;
       const x = item.transform ? item.transform[4] : 0;
       const y = item.transform ? item.transform[5] : 0;
-      items.push({ str, x, y, page: i });
+      const width = item.width ?? 0;
+      items.push({ str, x, y, width, page: i });
     }
   }
 
@@ -86,19 +87,21 @@ export async function extractTextFromPDF(file: File): Promise<string> {
     const content = await page.getTextContent();
 
     // Group items by Y position to reconstruct lines
-    const byY: Map<number, string[]> = new Map();
+    const byY: Map<number, Array<{ str: string; x: number }>> = new Map();
     for (const item of content.items as Array<{ str?: string; transform?: number[] }>) {
       const str = (item.str ?? '').trim();
       if (!str) continue;
       const y = item.transform ? Math.round(item.transform[5]) : 0;
+      const x = item.transform ? item.transform[4] : 0;
       if (!byY.has(y)) byY.set(y, []);
-      byY.get(y)!.push(str);
+      byY.get(y)!.push({ str, x });
     }
 
-    // Sort by Y descending (top of page first) and join each line
+    // Sort by Y descending (top of page first) and join each line left-to-right
     const sortedYs = Array.from(byY.keys()).sort((a, b) => b - a);
     for (const y of sortedYs) {
-      textParts.push(byY.get(y)!.join(' '));
+      const lineItems = byY.get(y)!.sort((a, b) => a.x - b.x);
+      textParts.push(lineItems.map((i) => i.str).join(' '));
     }
     textParts.push(''); // page break
   }
@@ -154,7 +157,10 @@ const STANDARD_COMPETENCIES: Omit<CompetencyEntry, 'weight'>[] = [
   { id: 'c7', name: 'Leadership (GS3+)', description: 'Acts as a role model and provides timely specific feedback to staff.' },
 ];
 
-// Standard BSC perspective labels
+// Default competency weights from the ECSA-HC standard template
+const DEFAULT_COMPETENCY_WEIGHTS = [5, 5, 5, 5, 5, 4, 2];
+
+// Standard BSC perspective labels (from blank template)
 const BSC_PERSPECTIVES = [
   'Financial/Stewardship',
   'Customer/Stakeholder',
@@ -167,147 +173,540 @@ const BSC_PERSPECTIVES = [
 export function detectPerspectiveHeader(line: string): string | null {
   const trimmed = line.trim();
 
-  // Check standard BSC perspectives first
+  // Check standard BSC perspectives
   for (const p of BSC_PERSPECTIVES) {
-    if (trimmed.toLowerCase().includes(p.toLowerCase().substring(0, 15))) {
+    if (trimmed.toLowerCase().includes(p.toLowerCase().substring(0, 12))) {
       return p;
     }
   }
 
-  // Detect non-standard component/subcomponent headers (no word-count limit — HEPRR headers can be long)
+  // Detect non-standard component/subcomponent headers (HEPRR, Programme, etc.)
   if (
     /\b(component|subcomponent|programme|program|cluster|pillar|strategic\s+objective)\b/i.test(trimmed)
   ) {
     return trimmed.length > 80 ? trimmed.substring(0, 80) + '…' : trimmed;
   }
 
-  // Detect "Part X" or "Section X" headers
-  if (/^(Part|Section)\s+[1-9IVX]/i.test(trimmed) && trimmed.split(/\s+/).length <= 8) {
-    return trimmed;
-  }
-
   return null;
 }
 
-// ─── Table-aware scorecard extraction ────────────────────────────────────────
+// ─── ECSA-HC BSC Table Column Layout ─────────────────────────────────────────
+//
+// The ECSA-HC BSC template has 6 columns in this order (left to right):
+//   Col 0: Perspective          (narrowest, ~60-80pt wide)
+//   Col 1: Key Work Objective   (~100-120pt wide)
+//   Col 2: Key Activities       (~120-150pt wide)  ← often the widest text column
+//   Col 3: Measure / KPI        (~120-150pt wide)
+//   Col 4: Target               (~40-60pt wide, numeric)
+//   Col 5: Weight (1-5)         (~30-50pt wide, single digit)
+//
+// pdfjs extracts items in reading order within each visual row band.
+// We detect column boundaries from the header row, then assign each item
+// to a column bucket based on its X coordinate.
+
+interface ColumnBounds {
+  minX: number;
+  maxX: number;
+  label: string;
+}
 
 /**
- * Reconstructs table rows from positional text items.
+ * Detects the X-coordinate boundaries of each column by finding the
+ * table header row ("Perspective | Key Work Objective | Key activities | ...").
  *
- * Strategy:
- *  1. Group items by Y coordinate (same row = within 4pt of each other)
- *  2. Sort each row's items by X (left to right = column order)
- *  3. Map columns to: Perspective | Objective | Activities | KPI | Target | Weight
- *  4. Detect perspective headers and carry them forward
+ * Returns null if the header row cannot be found (fallback to heuristic).
+ */
+function detectColumnBounds(items: TextItem[]): ColumnBounds[] | null {
+  // Find items that match the known column header labels
+  const headerKeywords = ['perspective', 'key work', 'key activ', 'measure', 'kpi', 'target', 'weight'];
+
+  // Collect all items whose text matches a header keyword
+  const headerItems = items.filter((item) => {
+    const lower = item.str.toLowerCase();
+    return headerKeywords.some((kw) => lower.includes(kw));
+  });
+
+  if (headerItems.length < 3) return null;
+
+  // Group header items by Y coordinate (within 6pt tolerance) to find the header row
+  const yGroups: Map<number, TextItem[]> = new Map();
+  for (const item of headerItems) {
+    const roundedY = Math.round(item.y / 6) * 6;
+    if (!yGroups.has(roundedY)) yGroups.set(roundedY, []);
+    yGroups.get(roundedY)!.push(item);
+  }
+
+  // Find the Y group with the most header keyword matches
+  let bestGroup: TextItem[] = [];
+  for (const [, group] of yGroups) {
+    if (group.length > bestGroup.length) bestGroup = group;
+  }
+
+  if (bestGroup.length < 3) return null;
+
+  // Sort by X to get column order
+  bestGroup.sort((a, b) => a.x - b.x);
+
+  // Build column bounds: each column starts at its header item's X
+  // and ends just before the next column's X
+  const bounds: ColumnBounds[] = bestGroup.map((item, idx) => ({
+    minX: item.x - 5, // small left margin
+    maxX: idx < bestGroup.length - 1 ? bestGroup[idx + 1].x - 5 : 9999,
+    label: item.str,
+  }));
+
+  return bounds;
+}
+
+/**
+ * Assigns a text item to a column index based on its X coordinate.
+ * Returns -1 if no column matches.
+ */
+function assignToColumn(x: number, bounds: ColumnBounds[]): number {
+  for (let i = 0; i < bounds.length; i++) {
+    if (x >= bounds[i].minX && x < bounds[i].maxX) return i;
+  }
+  // Fallback: assign to closest column
+  let closest = 0;
+  let minDist = Infinity;
+  for (let i = 0; i < bounds.length; i++) {
+    const mid = (bounds[i].minX + bounds[i].maxX) / 2;
+    const dist = Math.abs(x - mid);
+    if (dist < minDist) { minDist = dist; closest = i; }
+  }
+  return closest;
+}
+
+// ─── Template-aware scorecard extraction ─────────────────────────────────────
+
+/**
+ * Main extraction algorithm — teaches the system the ECSA-HC BSC table structure.
  *
- * This handles the ECSA-HC table format where pdfjs extracts cells in column order.
+ * Algorithm:
+ *  1. Find the scorecard table section (after "Part 1" or "Scorecard Performance")
+ *  2. Detect column X-boundaries from the header row
+ *  3. Group all table items into visual row bands (Y-tolerance = 3pt)
+ *  4. For each row band, assign items to columns by X coordinate
+ *  5. Accumulate multi-line cell content within a logical row
+ *     (a new logical row starts when the Weight column gets a value 1-5)
+ *  6. Build PerspectiveRow objects from accumulated column content
+ *
+ * Fallback: if column detection fails, use heuristic positional grouping.
  */
 function extractScorecardRowsFromItems(items: TextItem[]): PerspectiveRow[] {
   if (items.length === 0) return [];
 
   const rows: PerspectiveRow[] = [];
+
+  // ── Step 1: Find the scorecard section boundaries ─────────────────────────
+  // We look for "Part 1" or "Scorecard Performance" to find where the table starts
+  // and "Part 2" or "General Competencies" to find where it ends.
+
+  let scorecardStartY = -1;
+  let scorecardEndY = -1;
+  let scorecardPage = -1;
+  let endPage = -1;
+
+  // Sort items top-to-bottom, left-to-right across all pages
+  const allSorted = [...items].sort((a, b) =>
+    a.page !== b.page ? a.page - b.page : b.y - a.y || a.x - b.x
+  );
+
+  for (const item of allSorted) {
+    const lower = item.str.toLowerCase();
+    if (scorecardStartY < 0 && (
+      lower.includes('part 1') ||
+      lower.includes('scorecard performance') ||
+      lower.includes('scorecard')
+    )) {
+      scorecardStartY = item.y;
+      scorecardPage = item.page;
+    }
+    if (scorecardStartY >= 0 && scorecardEndY < 0 && (
+      lower.includes('part 2') ||
+      lower.includes('general competenc') ||
+      lower.includes('competencies')
+    ) && item.page >= scorecardPage) {
+      scorecardEndY = item.y;
+      endPage = item.page;
+    }
+  }
+
+  // Filter items to the scorecard section only
+  let tableItems = allSorted.filter((item) => {
+    if (scorecardPage < 0) return true; // no boundary found, use all
+    if (item.page < scorecardPage) return false;
+    if (item.page === scorecardPage && item.y > scorecardStartY) return false; // above start
+    if (endPage > 0 && item.page === endPage && item.y > scorecardEndY) return false; // at/after end
+    if (endPage > 0 && item.page > endPage) return false;
+    return true;
+  });
+
+  if (tableItems.length === 0) tableItems = allSorted; // fallback: use all items
+
+  // ── Step 2: Detect column boundaries ─────────────────────────────────────
+  const columnBounds = detectColumnBounds(tableItems);
+
+  // ── Step 3: Group items into visual row bands (3pt Y tolerance) ───────────
+  // Process page by page
+  const pageMap = new Map<number, TextItem[]>();
+  for (const item of tableItems) {
+    if (!pageMap.has(item.page)) pageMap.set(item.page, []);
+    pageMap.get(item.page)!.push(item);
+  }
+
+  // Collect all visual row bands across pages
+  interface VisualRowBand {
+    y: number;
+    page: number;
+    items: TextItem[];
+  }
+  const allBands: VisualRowBand[] = [];
+
+  for (const [pageNum, pageItems] of Array.from(pageMap.entries()).sort((a, b) => a[0] - b[0])) {
+    // Sort top-to-bottom
+    const sorted = [...pageItems].sort((a, b) => b.y - a.y || a.x - b.x);
+
+    let currentBand: TextItem[] = [];
+    let bandY = -9999;
+
+    for (const item of sorted) {
+      if (Math.abs(item.y - bandY) > 3 && currentBand.length > 0) {
+        allBands.push({ y: bandY, page: pageNum, items: currentBand });
+        currentBand = [];
+      }
+      currentBand.push(item);
+      bandY = item.y;
+    }
+    if (currentBand.length > 0) allBands.push({ y: bandY, page: pageNum, items: currentBand });
+  }
+
+  // ── Step 4: Assign items to columns and accumulate logical rows ───────────
+  //
+  // ECSA-HC BSC table structure (from template analysis):
+  //   - Each data row has: Perspective | Objective | Activity | KPI | Target | Weight
+  //   - Cells can span multiple visual lines (tall rows)
+  //   - A new logical row is identified when the Weight column (col 5) has a digit 1-5
+  //   - OR when the Perspective column changes
+  //
+  // Column index mapping (0-based, left to right):
+  //   0 = Perspective
+  //   1 = Key Work Objective
+  //   2 = Key Activities
+  //   3 = Measure / KPI
+  //   4 = Target
+  //   5 = Weight
+
+  // Heuristic column bounds if detection failed
+  // Based on typical ECSA-HC PDF layout (A4, ~595pt wide, margins ~40pt each side)
+  const fallbackBounds: ColumnBounds[] = [
+    { minX: 35,  maxX: 110, label: 'Perspective' },
+    { minX: 110, maxX: 195, label: 'Key Work Objective' },
+    { minX: 195, maxX: 310, label: 'Key Activities' },
+    { minX: 310, maxX: 430, label: 'KPI' },
+    { minX: 430, maxX: 510, label: 'Target' },
+    { minX: 510, maxX: 600, label: 'Weight' },
+  ];
+
+  const bounds = columnBounds && columnBounds.length >= 4 ? columnBounds : fallbackBounds;
+
+  // Accumulate column content per logical row
+  interface LogicalRowAccum {
+    col0: string[]; // Perspective
+    col1: string[]; // Objective
+    col2: string[]; // Activities
+    col3: string[]; // KPI
+    col4: string[]; // Target
+    col5: string[]; // Weight
+  }
+
+  const logicalRows: LogicalRowAccum[] = [];
+  let current: LogicalRowAccum = { col0: [], col1: [], col2: [], col3: [], col4: [], col5: [] };
   let currentPerspective = '';
   let rowIndex = 0;
 
-  // Group items by page then by Y coordinate (within 4pt tolerance)
-  const pages = new Map<number, TextItem[]>();
-  for (const item of items) {
-    if (!pages.has(item.page)) pages.set(item.page, []);
-    pages.get(item.page)!.push(item);
+  // Helper: flush current accumulator to rows array
+  const flushRow = () => {
+    const perspective = current.col0.join(' ').trim() || currentPerspective;
+    let objective = current.col1.join(' ').trim();
+    const activities = current.col2.join(' ').trim();
+    const kpi = current.col3.join(' ').trim();
+    const targetStr = current.col4.join(' ').trim();
+    const weightStr = current.col5.join(' ').trim();
+
+    // Need at least some content to be a valid row
+    const hasContent = (objective + activities + kpi).length > 10;
+    if (!hasContent) return;
+
+    // Parse weight
+    const weightMatch = weightStr.match(/([1-5])/);
+    let weight = weightMatch ? parseInt(weightMatch[1]) : 0;
+    if (weight === 0) return; // no weight = not a data row
+
+    // Parse target
+    let target = targetStr || 'As per workplan';
+
+    // Update current perspective if this row has one
+    if (perspective && perspective.length > 2) {
+      currentPerspective = perspective;
+    }
+
+    rowIndex++;
+    const rowPerspective = currentPerspective || 'Performance Objectives';
+    const rowObjective = objective || activities || kpi;
+    const rowActivity = activities || objective;
+    const rowKPI = kpi || activities || objective;
+
+    logicalRows.push({ col0: [], col1: [], col2: [], col3: [], col4: [], col5: [] });
+    rows.push({
+      id: `row-pdf-${rowIndex}`,
+      perspective: rowPerspective,
+      objective: rowObjective.length > 200 ? rowObjective.substring(0, 200) + '…' : rowObjective,
+      keyActivities: rowActivity.length > 300 ? rowActivity.substring(0, 300) + '…' : rowActivity,
+      kpis: [{
+        id: `kpi-pdf-${rowIndex}`,
+        label: rowKPI.length > 150 ? rowKPI.substring(0, 150) + '…' : rowKPI,
+        target,
+      }],
+      weight,
+    });
+  };
+
+  // Skip header/label rows
+  const isHeaderBand = (band: VisualRowBand): boolean => {
+    const text = band.items.map((i) => i.str).join(' ').toLowerCase();
+    return (
+      /\b(perspective|key work objective|key activities|measure\s*\/\s*kpi|smart|target|weight\s*\(1-5\))\b/.test(text) ||
+      /\b(part\s+[12]|scorecard performance|general competenc|ratings|salary|increment|commitment|sign.?off)\b/.test(text) ||
+      /\b(achievement for each|will be multiplied|weighted score|total weight)\b/.test(text)
+    );
+  };
+
+  for (const band of allBands) {
+    if (isHeaderBand(band)) continue;
+
+    // Sort band items left-to-right
+    band.items.sort((a, b) => a.x - b.x);
+
+    // Check if this band contains a weight value (col 5 = rightmost)
+    // A weight value is a standalone digit 1-5 in the rightmost column
+    let bandHasWeight = false;
+    let bandWeightValue = '';
+
+    for (const item of band.items) {
+      if (/^[1-5]$/.test(item.str)) {
+        const colIdx = assignToColumn(item.x, bounds);
+        // Weight column is the last one (index 5 or the rightmost)
+        if (colIdx >= bounds.length - 1 || colIdx === 5) {
+          bandHasWeight = true;
+          bandWeightValue = item.str;
+        }
+      }
+    }
+
+    // Assign each item in this band to its column
+    for (const item of band.items) {
+      const colIdx = assignToColumn(item.x, bounds);
+      const key = `col${colIdx}` as keyof LogicalRowAccum;
+      if (key in current) {
+        current[key].push(item.str);
+      }
+    }
+
+    // If this band has a weight, it marks the end of a logical row
+    if (bandHasWeight) {
+      // Ensure weight is in col5
+      if (!current.col5.includes(bandWeightValue)) {
+        current.col5.push(bandWeightValue);
+      }
+      flushRow();
+      current = { col0: [], col1: [], col2: [], col3: [], col4: [], col5: [] };
+    }
   }
 
-  for (const [, pageItems] of Array.from(pages.entries()).sort((a, b) => a[0] - b[0])) {
-    // Sort by Y descending (top of page first), then X ascending
-    const sorted = [...pageItems].sort((a, b) => b.y - a.y || a.x - b.x);
+  // Flush any remaining content
+  if ((current.col1.join('') + current.col2.join('') + current.col3.join('')).length > 5) {
+    flushRow();
+  }
 
-    // Group into visual rows (items within 4pt Y of each other)
-    const visualRows: TextItem[][] = [];
-    let currentRow: TextItem[] = [];
-    let lastY = -9999;
+  return rows;
+}
 
-    for (const item of sorted) {
-      if (Math.abs(item.y - lastY) > 4 && currentRow.length > 0) {
-        visualRows.push(currentRow);
-        currentRow = [];
-      }
-      currentRow.push(item);
-      lastY = item.y;
+// ─── Competency weight extraction from positional items ───────────────────────
+
+/**
+ * Extracts competency weights from the competency section of the PDF.
+ *
+ * The ECSA-HC competency table structure (from template):
+ *   Competency Name | Behavioral Expectation | Weight (1-5)
+ *
+ * Strategy:
+ *  1. Find "Part 2" or "General Competencies" section in items
+ *  2. Within that section, find each competency name
+ *  3. The weight is the rightmost digit 1-5 on the same visual row as the competency name
+ *  4. Fallback: scan full text for "CompetencyName ... digit" patterns
+ */
+function extractCompetencyWeightsFromItems(items: TextItem[]): number[] {
+  const weights: number[] = new Array(STANDARD_COMPETENCIES.length).fill(0);
+
+  // Find the competency section
+  const allSorted = [...items].sort((a, b) =>
+    a.page !== b.page ? a.page - b.page : b.y - a.y || a.x - b.x
+  );
+
+  let compSectionStart = -1;
+  let compSectionPage = -1;
+  let compSectionEnd = -1;
+  let compEndPage = -1;
+
+  for (const item of allSorted) {
+    const lower = item.str.toLowerCase();
+    if (compSectionStart < 0 && (
+      lower.includes('part 2') ||
+      lower.includes('general competenc')
+    )) {
+      compSectionStart = item.y;
+      compSectionPage = item.page;
     }
-    if (currentRow.length > 0) visualRows.push(currentRow);
+    if (compSectionStart >= 0 && compSectionEnd < 0 && (
+      lower.includes('part 3') ||
+      lower.includes('ratings') ||
+      lower.includes('salary increment') ||
+      lower.includes('commitment') ||
+      lower.includes('sign-off') ||
+      lower.includes('sign off')
+    ) && item.page >= compSectionPage) {
+      compSectionEnd = item.y;
+      compEndPage = item.page;
+    }
+  }
 
-    for (const vRow of visualRows) {
-      // Sort items in this row by X (left to right)
-      vRow.sort((a, b) => a.x - b.x);
-      const rowText = vRow.map((i) => i.str).join(' ').trim();
+  // Filter to competency section
+  const compItems = allSorted.filter((item) => {
+    if (compSectionPage < 0) return true;
+    if (item.page < compSectionPage) return false;
+    if (item.page === compSectionPage && item.y > compSectionStart) return false;
+    if (compEndPage > 0 && item.page === compEndPage && item.y > compSectionEnd) return false;
+    if (compEndPage > 0 && item.page > compEndPage) return false;
+    return true;
+  });
 
-      // Check if this row is a perspective header
-      const perspHeader = detectPerspectiveHeader(rowText);
-      if (perspHeader) {
-        currentPerspective = perspHeader;
-        continue;
-      }
+  if (compItems.length === 0) return weights;
 
-      // Skip table header rows
-      if (/^(Perspective|Key Work Objective|Key activities|Measure|KPI|Target|Weight|Part|Section|Score|Rating|Signature|Date|Employee|Staff|Supervisor|Directorate|Name|Job Title)\b/i.test(rowText)) continue;
+  // Group competency section items into visual row bands (3pt tolerance)
+  const compBands: TextItem[][] = [];
+  let currentBand: TextItem[] = [];
+  let lastY = -9999;
 
-      // Skip very short rows (page numbers, single chars)
-      if (rowText.length < 15) continue;
+  for (const item of compItems) {
+    if (Math.abs(item.y - lastY) > 3 && currentBand.length > 0) {
+      compBands.push(currentBand);
+      currentBand = [];
+    }
+    currentBand.push(item);
+    lastY = item.y;
+  }
+  if (currentBand.length > 0) compBands.push(currentBand);
 
-      // Skip rows that are purely numeric
-      if (/^\d+(\.\d+)?$/.test(rowText)) continue;
+  // For each competency, find the band containing its name and extract the weight
+  for (let ci = 0; ci < STANDARD_COMPETENCIES.length; ci++) {
+    const comp = STANDARD_COMPETENCIES[ci];
+    const compNameLower = comp.name.toLowerCase();
+    const firstWord = compNameLower.split(' ')[0];
 
-      // Try to extract weight from the rightmost cell (last token that is 1-5)
-      const tokens = vRow.map((i) => i.str.trim()).filter(Boolean);
-      let weight = 0;
-      let weightTokenIdx = -1;
+    // Find bands that contain this competency name
+    for (const band of compBands) {
+      const bandText = band.map((i) => i.str).join(' ').toLowerCase();
+      if (!bandText.includes(firstWord)) continue;
 
-      // Look for weight in rightmost tokens first
-      for (let t = tokens.length - 1; t >= 0; t--) {
-        if (/^[1-5]$/.test(tokens[t])) {
-          weight = parseInt(tokens[t]);
-          weightTokenIdx = t;
+      // Check if the full name (or enough of it) is present
+      const nameWords = compNameLower.split(' ');
+      const matchCount = nameWords.filter((w) => bandText.includes(w)).length;
+      if (matchCount < Math.ceil(nameWords.length * 0.6)) continue;
+
+      // Sort band left-to-right and find the rightmost digit 1-5
+      const sorted = [...band].sort((a, b) => b.x - a.x); // rightmost first
+      for (const item of sorted) {
+        if (/^[1-5]$/.test(item.str)) {
+          weights[ci] = parseInt(item.str);
           break;
         }
       }
 
-      // Build objective text from non-weight tokens
-      const contentTokens = weightTokenIdx >= 0
-        ? tokens.filter((_, i) => i !== weightTokenIdx)
-        : tokens;
-      const objectiveText = contentTokens.join(' ').trim();
+      // Also check the next 2 bands (weight might be on the next line)
+      if (weights[ci] === 0) {
+        const bandIdx = compBands.indexOf(band);
+        for (let nb = bandIdx + 1; nb < Math.min(bandIdx + 3, compBands.length); nb++) {
+          const nextBand = compBands[nb];
+          const nextText = nextBand.map((i) => i.str).join(' ');
+          // Only look at bands that don't contain another competency name
+          const isAnotherComp = STANDARD_COMPETENCIES.some((c, idx) =>
+            idx !== ci && nextText.toLowerCase().includes(c.name.toLowerCase().split(' ')[0])
+          );
+          if (isAnotherComp) break;
 
-      // Skip if too short after removing weight
-      const wordCount = objectiveText.split(/\s+/).length;
-      if (wordCount < 4) continue;
+          const nextSorted = [...nextBand].sort((a, b) => b.x - a.x);
+          for (const item of nextSorted) {
+            if (/^[1-5]$/.test(item.str)) {
+              weights[ci] = parseInt(item.str);
+              break;
+            }
+          }
+          if (weights[ci] > 0) break;
+        }
+      }
 
-      // Skip lines that look like competency names (handled separately)
-      if (/^(Teamwork|Respect for Diversity|Integrity|Communication|Results Oriented|Innovation|Leadership)\b/i.test(objectiveText)) continue;
-
-      // Skip support/signature lines
-      if (/^(Support Required|Management Support|Employee Signature|Supervisor Signature|Commitment)\b/i.test(objectiveText)) continue;
-
-      // Use a default perspective if none detected yet
-      const perspective = currentPerspective || 'Performance Objectives';
-
-      rowIndex++;
-      rows.push({
-        id: `row-pdf-${rowIndex}`,
-        perspective,
-        objective: objectiveText.length > 200 ? objectiveText.substring(0, 200) + '…' : objectiveText,
-        keyActivities: objectiveText,
-        kpis: [{
-          id: `kpi-pdf-${rowIndex}`,
-          label: objectiveText.length > 150 ? objectiveText.substring(0, 150) + '…' : objectiveText,
-          target: 'As per workplan',
-        }],
-        weight: weight || 3,
-      });
-
-      if (rows.length >= 20) break;
+      if (weights[ci] > 0) break;
     }
   }
 
-  return rows;
+  return weights;
+}
+
+/**
+ * Extracts competency weights from plain text (fallback).
+ */
+function extractCompetencyWeightsFromText(fullText: string, tokens: string[]): number[] {
+  const weights: number[] = new Array(STANDARD_COMPETENCIES.length).fill(0);
+
+  for (let ci = 0; ci < STANDARD_COMPETENCIES.length; ci++) {
+    const comp = STANDARD_COMPETENCIES[ci];
+    const escapedName = comp.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Strategy 1: Find name in text, look for digit within next 200 chars
+    const nameIdx = fullText.toLowerCase().indexOf(comp.name.toLowerCase());
+    if (nameIdx >= 0) {
+      const window = fullText.substring(nameIdx, nameIdx + 200);
+      const digitMatch = window.match(/\b([1-5])\b(?!\d)/);
+      if (digitMatch) {
+        weights[ci] = parseInt(digitMatch[1]);
+        continue;
+      }
+    }
+
+    // Strategy 2: Token stream proximity
+    const compTokenIdx = tokens.findIndex((t) =>
+      t.toLowerCase().includes(comp.name.toLowerCase().split(' ')[0])
+    );
+    if (compTokenIdx >= 0) {
+      for (let t = compTokenIdx + 1; t < Math.min(compTokenIdx + 6, tokens.length); t++) {
+        if (/^[1-5]$/.test(tokens[t])) {
+          weights[ci] = parseInt(tokens[t]);
+          break;
+        }
+      }
+      if (weights[ci] > 0) continue;
+    }
+
+    // Strategy 3: Regex with wider window
+    const compRegex = new RegExp(escapedName + '[^\\d]{0,80}([1-5])\\b', 'i');
+    const match = fullText.match(compRegex);
+    if (match) {
+      weights[ci] = parseInt(match[1]);
+    }
+  }
+
+  return weights;
 }
 
 // ─── Line-based scorecard extraction (fallback) ───────────────────────────────
@@ -316,50 +715,70 @@ function extractScorecardRowsFromItems(items: TextItem[]): PerspectiveRow[] {
  * Extracts scorecard rows from plain text lines.
  * Used as fallback when positional extraction yields nothing.
  *
- * Pass 1 — Structured: detect perspective headers, then collect objective blocks.
- * Pass 2 — Fallback: scan for any substantial text lines.
+ * The ECSA-HC BSC table in plain text typically looks like:
+ *   [Perspective header line]
+ *   [Objective text - possibly multi-line]
+ *   [Activity text - possibly multi-line]
+ *   [KPI text]
+ *   [Target value]
+ *   [Weight digit]
+ *
+ * We use a state machine to track which section we're in.
  */
 export function extractScorecardRows(lines: string[]): PerspectiveRow[] {
   const rows: PerspectiveRow[] = [];
   let currentPerspective = '';
   let rowIndex = 0;
 
-  // ── Pass 1: Structured extraction ─────────────────────────────────────────
-  for (let i = 0; i < lines.length; i++) {
+  // ── Pass 1: Structured extraction with perspective detection ──────────────
+  let i = 0;
+  while (i < lines.length) {
     const line = lines[i].trim();
-    if (!line) continue;
+    if (!line) { i++; continue; }
 
     // Detect perspective/section header
     const perspHeader = detectPerspectiveHeader(line);
     if (perspHeader) {
       currentPerspective = perspHeader;
+      i++;
       continue;
     }
 
-    if (!currentPerspective) continue;
+    if (!currentPerspective) { i++; continue; }
 
-    // Skip header-like lines
-    if (/^(Part|Section|Total|Weight|Score|Rating|Signature|Date|Name|Job|Supervisor|Directorate|Employee|Staff|Perspective|Key Work|Key activities|Measure|KPI|Target)\b/i.test(line)) continue;
+    // Skip table header rows
+    if (/^(Part|Section|Total|Weight|Score|Rating|Signature|Date|Name|Job|Supervisor|Directorate|Employee|Staff|Perspective|Key Work|Key activities|Measure|KPI|Target|Achievement|Multiply|Weighted)\b/i.test(line)) {
+      i++;
+      continue;
+    }
 
-    // Skip competency names
-    if (/^(Teamwork|Respect for Diversity|Integrity|Communication|Results Oriented|Innovation|Leadership)\b/i.test(line)) continue;
+    // Skip competency names (handled separately)
+    if (/^(Teamwork|Respect for Diversity|Integrity|Communication|Results Oriented|Innovation|Leadership)\b/i.test(line)) {
+      i++;
+      continue;
+    }
+
+    // Stop at Part 2
+    if (/^Part\s+2\b/i.test(line) || /^General Competenc/i.test(line)) break;
 
     const wordCount = line.split(/\s+/).length;
-    if (wordCount < 4 || wordCount > 120) continue;
-    if (/^\d+(\.\d+)?$/.test(line)) continue;
+    if (wordCount < 3 || wordCount > 150) { i++; continue; }
+    if (/^\d+(\.\d+)?$/.test(line)) { i++; continue; }
 
-    // Look ahead for KPI label, target, and weight within the next 12 lines
+    // This looks like an objective/activity line — collect it and look ahead
     let objective = line;
     let kpiLabel = '';
     let target = '';
     let weight = 0;
     let lookaheadConsumed = 0;
 
-    for (let j = i + 1; j < Math.min(i + 12, lines.length); j++) {
+    for (let j = i + 1; j < Math.min(i + 15, lines.length); j++) {
       const next = lines[j].trim();
       if (!next) continue;
 
+      // Stop at next perspective header or Part 2
       if (detectPerspectiveHeader(next)) break;
+      if (/^Part\s+2\b/i.test(next) || /^General Competenc/i.test(next)) break;
 
       // KPI line
       if (/^(KPI|Key Performance Indicator|Indicator|Measure)\s*[:\-]/i.test(next)) {
@@ -376,7 +795,7 @@ export function extractScorecardRows(lines: string[]): PerspectiveRow[] {
         continue;
       }
 
-      // Weight line — explicit "Weight: N" or standalone digit 1-5
+      // Weight line — explicit or standalone digit
       const wMatch = next.match(/^(?:Weight|W)\s*[:\-]?\s*([1-5])\b/i);
       if (wMatch) {
         weight = parseInt(wMatch[1]);
@@ -389,18 +808,22 @@ export function extractScorecardRows(lines: string[]): PerspectiveRow[] {
         break;
       }
 
-      // Inline weight at end of line: "...some text 4" or "...some text (4)"
-      const inlineWeight = next.match(/\b([1-5])\s*(?:\(.*\))?\s*$/);
-      if (inlineWeight && next.split(/\s+/).length <= 3) {
+      // Inline weight at end of short line
+      const inlineWeight = next.match(/\b([1-5])\s*$/);
+      if (inlineWeight && next.split(/\s+/).length <= 4) {
         weight = parseInt(inlineWeight[1]);
         lookaheadConsumed = j - i;
         break;
       }
 
-      if (next.split(/\s+/).length >= 8) break;
+      // If the next line is long, it might be a continuation of the objective
+      if (next.split(/\s+/).length >= 6 && !kpiLabel) {
+        objective += ' ' + next;
+        lookaheadConsumed = j - i;
+      }
     }
 
-    if (wordCount >= 4) {
+    if (wordCount >= 3 && weight > 0) {
       rowIndex++;
       const label = kpiLabel || objective;
       rows.push({
@@ -413,29 +836,31 @@ export function extractScorecardRows(lines: string[]): PerspectiveRow[] {
           label: label.length > 150 ? label.substring(0, 150) + '…' : label,
           target: target || 'As per workplan',
         }],
-        weight: weight || 3,
+        weight,
       });
 
-      i += lookaheadConsumed;
+      i += lookaheadConsumed + 1;
       if (rows.length >= 20) break;
+    } else {
+      i++;
     }
   }
 
   if (rows.length > 0) return rows;
 
-  // ── Pass 2: Fallback — scan for objective-like lines ──────────────────────
+  // ── Pass 2: Fallback — scan for objective-like lines with weights ─────────
   const fallbackPerspective = 'Performance Objectives';
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+  for (let fi = 0; fi < lines.length; fi++) {
+    const line = lines[fi].trim();
     const wordCount = line.split(/\s+/).length;
 
-    if (/^(Part|Section|Total|Weight|Score|Rating|Signature|Date|Name|Job|Supervisor|Directorate|Employee|Staff|Page|Perspective|Key Work|Measure|KPI|Target|Teamwork|Respect|Integrity|Communication|Results|Innovation|Leadership)\b/i.test(line)) continue;
-    if (wordCount < 8 || wordCount > 80) continue;
+    if (/^(Part|Section|Total|Weight|Score|Rating|Signature|Date|Name|Job|Supervisor|Directorate|Employee|Staff|Page|Perspective|Key Work|Measure|KPI|Target|Teamwork|Respect|Integrity|Communication|Results|Innovation|Leadership|Achievement|Multiply)\b/i.test(line)) continue;
+    if (wordCount < 6 || wordCount > 80) continue;
     if (/^\d+(\.\d+)?$/.test(line)) continue;
 
-    let weight = 3;
+    let weight = 0;
     let target = '';
-    for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+    for (let j = fi + 1; j < Math.min(fi + 8, lines.length); j++) {
       const next = lines[j].trim();
       const wMatch = next.match(/^(?:Weight|W)\s*[:\-]?\s*([1-5])\b/i);
       if (wMatch) { weight = parseInt(wMatch[1]); break; }
@@ -444,19 +869,21 @@ export function extractScorecardRows(lines: string[]): PerspectiveRow[] {
       if (tMatch) target = tMatch[1].trim();
     }
 
-    rowIndex++;
-    rows.push({
-      id: `row-pdf-${rowIndex}`,
-      perspective: fallbackPerspective,
-      objective: line.length > 200 ? line.substring(0, 200) + '…' : line,
-      keyActivities: line,
-      kpis: [{
-        id: `kpi-pdf-${rowIndex}`,
-        label: line.length > 150 ? line.substring(0, 150) + '…' : line,
-        target: target || 'As per workplan',
-      }],
-      weight,
-    });
+    if (weight > 0) {
+      rowIndex++;
+      rows.push({
+        id: `row-pdf-${rowIndex}`,
+        perspective: fallbackPerspective,
+        objective: line.length > 200 ? line.substring(0, 200) + '…' : line,
+        keyActivities: line,
+        kpis: [{
+          id: `kpi-pdf-${rowIndex}`,
+          label: line.length > 150 ? line.substring(0, 150) + '…' : line,
+          target: target || 'As per workplan',
+        }],
+        weight,
+      });
+    }
 
     if (rows.length >= 12) break;
   }
@@ -464,75 +891,10 @@ export function extractScorecardRows(lines: string[]): PerspectiveRow[] {
   return rows;
 }
 
-// ─── Competency weight extraction ────────────────────────────────────────────
-
-/**
- * Extracts competency weights from the full text.
- *
- * Strategy:
- *  1. Find the position of the competency name in the text
- *  2. Look for a digit 1-5 within the next 200 characters
- *  3. Also scan the token stream for patterns like "Teamwork 5" or "5 Teamwork"
- */
-function extractCompetencyWeights(fullText: string, tokens: string[]): number[] {
-  const weights: number[] = [];
-
-  for (let ci = 0; ci < STANDARD_COMPETENCIES.length; ci++) {
-    const comp = STANDARD_COMPETENCIES[ci];
-    const escapedName = comp.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-    // Strategy 1: Find name in text, look for digit within next 200 chars
-    const nameIdx = fullText.toLowerCase().indexOf(comp.name.toLowerCase());
-    if (nameIdx >= 0) {
-      const window = fullText.substring(nameIdx, nameIdx + 200);
-      // Look for a standalone digit 1-5 (not part of a larger number)
-      const digitMatch = window.match(/\b([1-5])\b(?!\d)/);
-      if (digitMatch) {
-        weights.push(parseInt(digitMatch[1]));
-        continue;
-      }
-    }
-
-    // Strategy 2: Token stream — find token matching comp name, look at adjacent tokens
-    const compTokenIdx = tokens.findIndex((t) =>
-      t.toLowerCase().includes(comp.name.toLowerCase().split(' ')[0])
-    );
-    if (compTokenIdx >= 0) {
-      // Check next 5 tokens for a digit
-      for (let t = compTokenIdx + 1; t < Math.min(compTokenIdx + 6, tokens.length); t++) {
-        if (/^[1-5]$/.test(tokens[t])) {
-          weights.push(parseInt(tokens[t]));
-          break;
-        }
-      }
-      if (weights.length === ci + 1) continue;
-    }
-
-    // Strategy 3: Regex with wider window
-    const compRegex = new RegExp(escapedName + '[^\\d]{0,80}([1-5])\\b', 'i');
-    const match = fullText.match(compRegex);
-    if (match) {
-      weights.push(parseInt(match[1]));
-    } else {
-      // Default weights: first 5 competencies get 5, Innovation gets 4, Leadership gets 2
-      const defaults = [5, 5, 5, 5, 5, 4, 2];
-      weights.push(defaults[ci] ?? 3);
-    }
-  }
-
-  return weights;
-}
-
 // ─── Shared PDF Workplan Parser ───────────────────────────────────────────────
 
 /**
  * Parses extracted PDF text into a structured workplan data object.
- *
- * Handles:
- *  - Standard "Name: ..." and "Employee: ..." patterns *  - ALL-CAPS name patterns (e.g."AYEBARE TIMOTHY" → "Ayebare Timothy")
- *  - Non-standard perspective headers (HEPRR-MPA, Programme Cluster, etc.)
- *  - Reversed first/last name order in the PDF
- *  - Table-structured PDFs where text is extracted in column order
  */
 export function parseWorkplanFromText(text: string, fileName: string): ParsedWorkplanData {
   const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
@@ -554,7 +916,6 @@ export function parseWorkplanFromText(text: string, fileName: string): ParsedWor
     const m = fullText.match(pat);
     if (m) {
       staffName = m[1].trim();
-      // Convert ALL-CAPS to Title Case
       if (staffName === staffName.toUpperCase()) {
         staffName = staffName.replace(/\b\w+/g, (w) => w.charAt(0) + w.slice(1).toLowerCase());
       }
@@ -562,10 +923,9 @@ export function parseWorkplanFromText(text: string, fileName: string): ParsedWor
     }
   }
 
-  // Strategy 2: Look for name in the first few lines (often appears without a label in ECSA-HC PDFs)
+  // Strategy 2: ALL-CAPS two-word name in first 20 lines
   if (!staffName) {
     for (const line of lines.slice(0, 20)) {
-      // ALL-CAPS two-word name pattern
       const capsMatch = line.match(/^([A-Z]{2,}\s+[A-Z]{2,}(?:\s+[A-Z]{2,})?)$/);
       if (capsMatch && !/(ECSA|INDIVIDUAL|PERFORMANCE|CONTRACT|BIANNUAL|APPRAISAL|REVIEW|PERIOD|JULY|JUNE|PART|SECTION|SCORECARD|COMPETENCIES|FINANCIAL|CUSTOMER|INTERNAL|INNOVATION|HEPRR|COMPONENT|SUBCOMPONENT)/.test(capsMatch[1])) {
         staffName = capsMatch[1].replace(/\b\w+/g, (w) => w.charAt(0) + w.slice(1).toLowerCase());
@@ -580,7 +940,6 @@ export function parseWorkplanFromText(text: string, fileName: string): ParsedWor
     const fnMatch = fnClean.match(/([A-Z][a-z]+\s+[A-Z][a-z]+)/);
     if (fnMatch) staffName = fnMatch[1];
     else {
-      // Try title-casing the filename words
       const words = fnClean.split(/\s+/).filter((w) => w.length > 2 && !/^(ecsa|hc|individual|performance|contract|workplan|appraisal)$/i.test(w));
       if (words.length >= 2) {
         staffName = words.slice(0, 2).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
@@ -634,7 +993,6 @@ export function parseWorkplanFromText(text: string, fileName: string): ParsedWor
       fiscalYear = `FY ${yearRangeMatch[1]}-${yearRangeMatch[2]} (Jul–Jun)`;
       reviewYear = parseInt(yearRangeMatch[1]);
     } else {
-      // Look for any year range like "2026-2027" or "2026/2027"
       const anyYearMatch = fullText.match(/(20\d{2})[–\-\/](20\d{2})/);
       if (anyYearMatch) {
         fiscalYear = `FY ${anyYearMatch[1]}-${anyYearMatch[2]} (Jul–Jun)`;
@@ -643,15 +1001,14 @@ export function parseWorkplanFromText(text: string, fileName: string): ParsedWor
     }
   }
 
-  // ── Scorecard rows extraction ──────────────────────────────────────────────
-  // Line-based extraction (positional extraction is done separately via extractTextItemsFromPDF)
+  // ── Scorecard rows (line-based, used as fallback) ──────────────────────────
   const perspectivesObjectives = extractScorecardRows(lines);
 
-  // ── Competencies extraction ────────────────────────────────────────────────
-  const compWeights = extractCompetencyWeights(fullText, tokens);
+  // ── Competencies (text-based, used as fallback) ────────────────────────────
+  const textWeights = extractCompetencyWeightsFromText(fullText, tokens);
   const generalCompetencies: CompetencyEntry[] = STANDARD_COMPETENCIES.map((c, idx) => ({
     ...c,
-    weight: compWeights[idx] ?? (idx < 5 ? 5 : idx === 5 ? 4 : 2),
+    weight: textWeights[idx] > 0 ? textWeights[idx] : DEFAULT_COMPETENCY_WEIGHTS[idx],
   }));
 
   // ── Support required ───────────────────────────────────────────────────────
@@ -676,31 +1033,48 @@ export function parseWorkplanFromText(text: string, fileName: string): ParsedWor
 
 /**
  * Full parse pipeline:
- *  1. Extract text items with positional data
- *  2. Run table-aware scorecard extraction on positional items
- *  3. If that yields nothing, fall back to line-based extraction
- *  4. Parse staff info from plain text
+ *  1. Extract text items with positional data (x, y, page)
+ *  2. Run template-aware scorecard extraction (column-based)
+ *  3. Run template-aware competency extraction (section-based)
+ *  4. If positional extraction yields nothing, fall back to line-based
+ *  5. Parse staff info from plain text
  */
 export async function parseWorkplanFromPDF(file: File): Promise<ParsedWorkplanData> {
   // Extract plain text for staff info parsing
   const plainText = await extractTextFromPDF(file);
   const baseData = parseWorkplanFromText(plainText, file.name);
 
-  // Extract positional items for table-aware scorecard extraction
+  // Extract positional items for template-aware extraction
   try {
     const items = await extractTextItemsFromPDF(file);
+
+    // Run template-aware scorecard extraction
     const positionalRows = extractScorecardRowsFromItems(items);
 
-    if (positionalRows.length > 0) {
-      // Positional extraction succeeded — use it for scorecard rows
-      // but keep staff info and competencies from text-based parse
+    // Run template-aware competency extraction
+    const positionalWeights = extractCompetencyWeightsFromItems(items);
+    const hasPositionalWeights = positionalWeights.some((w) => w > 0);
+
+    const generalCompetencies: CompetencyEntry[] = STANDARD_COMPETENCIES.map((c, idx) => ({
+      ...c,
+      weight: positionalWeights[idx] > 0
+        ? positionalWeights[idx]
+        : (baseData.generalCompetencies[idx]?.weight > 0
+            ? baseData.generalCompetencies[idx].weight
+            : DEFAULT_COMPETENCY_WEIGHTS[idx]),
+    }));
+
+    if (positionalRows.length > 0 || hasPositionalWeights) {
       return {
         ...baseData,
-        perspectivesObjectives: positionalRows,
+        perspectivesObjectives: positionalRows.length > 0
+          ? positionalRows
+          : baseData.perspectivesObjectives,
+        generalCompetencies,
       };
     }
   } catch (_e) {
-    // Positional extraction failed — fall back to text-based rows
+    // Positional extraction failed — fall back to text-based
   }
 
   return baseData;
