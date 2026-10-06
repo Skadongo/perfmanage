@@ -6,6 +6,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import ProgressBar from '@/components/ui/ProgressBar';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+import { cachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 
 interface AtRiskStaffRecord {
   id: string;
@@ -31,113 +32,120 @@ function getCurrentReviewYear(): number {
   return new Date().getFullYear();
 }
 
-// Fix 6: Standalone fetcher outside component — stable reference for SWR
+// Fix 5: Standalone fetcher outside component — stable reference for SWR
 async function fetchAtRiskStaff(supervisorId: string | null | undefined): Promise<AtRiskStaffRecord[]> {
-  const supabase = createClient();
-  const currentYear = getCurrentReviewYear();
+  const cacheKey = `at-risk-staff:${supervisorId ?? 'org'}`;
+  return cachedFetch(
+    cacheKey,
+    async () => {
+      const supabase = createClient();
+      const currentYear = getCurrentReviewYear();
 
-  // Accuracy gap fix: filter by current review year
-  let reviewsQuery = supabase
-    .from('mid_year_reviews')
-    .select(`
-      id,
-      review_status,
-      self_rating,
-      submitted_at,
-      review_year,
-      staff:staff_id (
-        id,
-        full_name,
-        job_title,
-        supervisor_name,
-        departments:department_id ( name )
-      )
-    `)
-    .in('review_status', ['draft', 'submitted', 'rejected'])
-    .eq('review_year', currentYear)
-    .order('created_at', { ascending: false })
-    .limit(50);
+      // Accuracy gap fix: filter by current review year
+      let reviewsQuery = supabase
+        .from('mid_year_reviews')
+        .select(`
+          id,
+          review_status,
+          self_rating,
+          submitted_at,
+          review_year,
+          staff:staff_id (
+            id,
+            full_name,
+            job_title,
+            supervisor_name,
+            departments:department_id ( name )
+          )
+        `)
+        .in('review_status', ['draft', 'submitted', 'rejected'])
+        .eq('review_year', currentYear)
+        .order('created_at', { ascending: false })
+        .limit(50);
 
-  if (supervisorId) {
-    reviewsQuery = reviewsQuery.eq('supervisor_id', supervisorId);
-  }
+      if (supervisorId) {
+        reviewsQuery = reviewsQuery.eq('supervisor_id', supervisorId);
+      }
 
-  // Accuracy gap fix: staff without reviews in current year
-  let staffQuery = supabase
-    .from('staff')
-    .select('id, full_name, job_title, supervisor_name, departments:department_id ( name )')
-    .eq('employment_status', 'active')
-    .limit(50);
+      // Accuracy gap fix: staff without reviews in current year
+      let staffQuery = supabase
+        .from('staff')
+        .select('id, full_name, job_title, supervisor_name, departments:department_id ( name )')
+        .eq('employment_status', 'active')
+        .limit(50);
 
-  if (supervisorId) {
-    staffQuery = staffQuery.eq('supervisor_id', supervisorId);
-  }
+      if (supervisorId) {
+        staffQuery = staffQuery.eq('supervisor_id', supervisorId);
+      }
 
-  const [reviewsResult, allStaffResult] = await Promise.all([reviewsQuery, staffQuery]);
+      const [reviewsResult, allStaffResult] = await Promise.all([reviewsQuery, staffQuery]);
 
-  if (reviewsResult.error) throw new Error('Failed to load staff data');
-  if (allStaffResult.error) throw new Error('Failed to load staff data');
+      if (reviewsResult.error) throw new Error('Failed to load staff data');
+      if (allStaffResult.error) throw new Error('Failed to load staff data');
 
-  const reviews = reviewsResult.data || [];
-  const allStaff = allStaffResult.data || [];
+      const reviews = reviewsResult.data || [];
+      const allStaff = allStaffResult.data || [];
 
-  const reviewedStaffIds = new Set(
-    reviews.map((r: any) => r.staff?.id).filter(Boolean)
+      const reviewedStaffIds = new Set(
+        reviews.map((r: any) => r.staff?.id).filter(Boolean)
+      );
+
+      const result: AtRiskStaffRecord[] = [];
+
+      for (const review of reviews as any[]) {
+        const staff = review.staff;
+        if (!staff) continue;
+
+        const deptName = staff.departments?.name || 'General';
+        const isOverdue = review.review_status === 'draft' || review.review_status === 'rejected';
+        const selfRating = review.self_rating;
+        const progress = selfRating != null && selfRating > 0
+          ? Math.min(100, Math.round((selfRating / 5) * 100))
+          : 0;
+
+        result.push({
+          id: review.id,
+          name: staff.full_name,
+          role: staff.job_title,
+          perspective: deptName,
+          kpi: isOverdue ? 'Mid-Year Review Submission' : 'Performance Review',
+          current: isOverdue ? 'Not submitted' : selfRating != null ? `Rating: ${selfRating}/5` : 'Pending rating',
+          target: 'Submitted & Approved',
+          progress: isOverdue ? 20 : progress,
+          status: isOverdue ? 'overdue' : 'at-risk',
+          dueDate: `30 Jun ${currentYear}`,
+          supervisor: staff.supervisor_name || 'Not assigned',
+        });
+      }
+
+      for (const staff of allStaff as any[]) {
+        if (reviewedStaffIds.has(staff.id)) continue;
+        const deptName = staff.departments?.name || 'General';
+        result.push({
+          id: `no-review-${staff.id}`,
+          name: staff.full_name,
+          role: staff.job_title,
+          perspective: deptName,
+          kpi: 'Mid-Year Review Submission',
+          current: 'No review started',
+          target: 'Submitted & Approved',
+          progress: 0,
+          status: 'overdue',
+          dueDate: `30 Jun ${currentYear}`,
+          supervisor: staff.supervisor_name || 'Not assigned',
+        });
+      }
+
+      result.sort((a, b) => {
+        if (a.status === 'overdue' && b.status !== 'overdue') return -1;
+        if (a.status !== 'overdue' && b.status === 'overdue') return 1;
+        return a.progress - b.progress;
+      });
+
+      return result.slice(0, 10);
+    },
+    TTL_DASHBOARD_METRICS // 2-minute TTL — avoids re-fetching on every SWR revalidation
   );
-
-  const result: AtRiskStaffRecord[] = [];
-
-  for (const review of reviews as any[]) {
-    const staff = review.staff;
-    if (!staff) continue;
-
-    const deptName = staff.departments?.name || 'General';
-    const isOverdue = review.review_status === 'draft' || review.review_status === 'rejected';
-    const selfRating = review.self_rating;
-    const progress = selfRating != null && selfRating > 0
-      ? Math.min(100, Math.round((selfRating / 5) * 100))
-      : 0;
-
-    result.push({
-      id: review.id,
-      name: staff.full_name,
-      role: staff.job_title,
-      perspective: deptName,
-      kpi: isOverdue ? 'Mid-Year Review Submission' : 'Performance Review',
-      current: isOverdue ? 'Not submitted' : selfRating != null ? `Rating: ${selfRating}/5` : 'Pending rating',
-      target: 'Submitted & Approved',
-      progress: isOverdue ? 20 : progress,
-      status: isOverdue ? 'overdue' : 'at-risk',
-      dueDate: `30 Jun ${currentYear}`,
-      supervisor: staff.supervisor_name || 'Not assigned',
-    });
-  }
-
-  for (const staff of allStaff as any[]) {
-    if (reviewedStaffIds.has(staff.id)) continue;
-    const deptName = staff.departments?.name || 'General';
-    result.push({
-      id: `no-review-${staff.id}`,
-      name: staff.full_name,
-      role: staff.job_title,
-      perspective: deptName,
-      kpi: 'Mid-Year Review Submission',
-      current: 'No review started',
-      target: 'Submitted & Approved',
-      progress: 0,
-      status: 'overdue',
-      dueDate: `30 Jun ${currentYear}`,
-      supervisor: staff.supervisor_name || 'Not assigned',
-    });
-  }
-
-  result.sort((a, b) => {
-    if (a.status === 'overdue' && b.status !== 'overdue') return -1;
-    if (a.status !== 'overdue' && b.status === 'overdue') return 1;
-    return a.progress - b.progress;
-  });
-
-  return result.slice(0, 10);
 }
 
 // Fix 6: Convert AtRiskStaffTable from useEffect+useState to SWR
