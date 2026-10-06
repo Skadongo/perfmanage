@@ -7,6 +7,7 @@ import { CardListSkeleton } from '@/components/ui/SkeletonLoader';
 import { createClient } from '@/lib/supabase/client';
 import { roleCachedFetch, TTL_STAFF_LIST } from '@/lib/cache';
 import BulkWorkplanUploadModal from './components/BulkWorkplanUploadModal';
+import ZipWorkplanUploadModal from './components/ZipWorkplanUploadModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -551,6 +552,7 @@ export default function MidYearReviewsPage() {
   const [newReviewStaffId, setNewReviewStaffId] = useState('');
   const [creatingReview, setCreatingReview] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showZipUploadModal, setShowZipUploadModal] = useState(false);
   // Pagination
   const [page, setPage] = useState(0);
 
@@ -732,6 +734,13 @@ export default function MidYearReviewsPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowZipUploadModal(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 text-white rounded-xl text-sm font-600 hover:bg-violet-700 transition-colors shadow-sm"
+            >
+              <Icon name="ArchiveBoxArrowDownIcon" size={16} />
+              Upload ZIP
+            </button>
+            <button
               onClick={() => setShowUploadModal(true)}
               className="flex items-center gap-2 px-4 py-2.5 bg-white border border-border text-foreground rounded-xl text-sm font-600 hover:bg-muted transition-colors shadow-sm"
             >
@@ -888,6 +897,18 @@ export default function MidYearReviewsPage() {
           onImportComplete={(count) => {
             setShowUploadModal(false);
             showToast(`${count} workplan${count !== 1 ? 's' : ''} imported successfully`, 'success');
+          }}
+        />
+      )}
+
+      {/* ZIP Workplan Upload Modal */}
+      {showZipUploadModal && (
+        <ZipWorkplanUploadModal
+          onClose={() => setShowZipUploadModal(false)}
+          onImportComplete={(count) => {
+            setShowZipUploadModal(false);
+            showToast(`${count} workplan${count !== 1 ? 's' : ''} imported from ZIP successfully`, 'success');
+            fetchData();
           }}
         />
       )}
