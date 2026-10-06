@@ -4,7 +4,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import { extractTextFromPDF } from '@/lib/pdfExtract';
+import { extractTextFromPDF, validateExtractedWorkplan, type ValidationResult } from '@/lib/pdfExtract';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -228,6 +228,7 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
   const [parsedData, setParsedData] = useState<ParsedWorkplanData | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const supabase = createClient();
 
@@ -280,6 +281,23 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
 
       const staffRecord = staffRows?.[0] ?? null;
       const staffId = staffRecord?.id ?? null;
+
+      // ── Schema validation before insert ──────────────────────────────────
+      const vResult = validateExtractedWorkplan(
+        staffId,
+        parsedData.perspectivesObjectives,
+        parsedData.generalCompetencies
+      );
+      setValidationResult(vResult);
+
+      if (!vResult.valid) {
+        const firstError = vResult.errors[0]?.message ?? 'Validation failed. Please review the extracted data.';
+        setImportError(firstError);
+        setStep('preview');
+        toast.error('Validation failed: ' + firstError);
+        return;
+      }
+      // ─────────────────────────────────────────────────────────────────────
 
       // Look up supervisor by name if we have one
       let supervisorId: string | null = null;
@@ -347,6 +365,7 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
     setParsedData(null);
     setImportError(null);
     setParseError(null);
+    setValidationResult(null);
     onClose();
   }
 
@@ -471,6 +490,32 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
                 <span className="text-[10px] font-700 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex-shrink-0">Ready</span>
               </div>
 
+              {/* Validation errors */}
+              {validationResult && validationResult.errors.length > 0 && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 space-y-1.5">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Icon name="ExclamationTriangleIcon" size={16} className="text-red-600 flex-shrink-0" />
+                    <p className="text-xs font-700 text-red-800">Validation Errors — import blocked</p>
+                  </div>
+                  {validationResult.errors.map((e, i) => (
+                    <p key={i} className="text-xs text-red-700 pl-6">• {e.message}</p>
+                  ))}
+                </div>
+              )}
+
+              {/* Validation warnings */}
+              {validationResult && validationResult.warnings.length > 0 && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 space-y-1.5">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Icon name="ExclamationTriangleIcon" size={16} className="text-amber-600 flex-shrink-0" />
+                    <p className="text-xs font-700 text-amber-800">Warnings — review before importing</p>
+                  </div>
+                  {validationResult.warnings.map((w, i) => (
+                    <p key={i} className="text-xs text-amber-700 pl-6">• {w.message}</p>
+                  ))}
+                </div>
+              )}
+
               {/* Error */}
               {importError && (
                 <div className="flex items-start gap-2.5 p-3 rounded-xl bg-red-50 border border-red-200">
@@ -480,7 +525,7 @@ export default function PDFWorkplanUploadModal({ isOpen, onClose, onImported }: 
               )}
 
               {/* Partial parse warning */}
-              {parsedData.perspectivesObjectives.length === 0 && (
+              {parsedData.perspectivesObjectives.length === 0 && !validationResult && (
                 <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200">
                   <Icon name="ExclamationTriangleIcon" size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
                   <p className="text-xs text-amber-800">

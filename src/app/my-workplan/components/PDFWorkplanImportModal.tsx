@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
-import { extractTextFromPDF } from '@/lib/pdfExtract';
+import { extractTextFromPDF, validateExtractedWorkplan, type ValidationResult } from '@/lib/pdfExtract';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -205,6 +205,7 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [parsedData, setParsedData] = useState<ImportedWorkplanData | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = useCallback(async (file: File) => {
@@ -213,11 +214,23 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
     }
     setUploadedFile(file);
     setParseError(null);
+    setValidationResult(null);
     setStep('parsing');
 
     try {
       const text = await extractTextFromPDF(file);
       const data = parseWorkplanFromText(text, file.name);
+
+      // ── Schema validation before showing preview ──────────────────────────
+      // staffId is null here (no DB lookup in this modal — that happens in the parent form)
+      const vResult = validateExtractedWorkplan(
+        null,
+        data.perspectivesObjectives,
+        data.generalCompetencies
+      );
+      setValidationResult(vResult);
+      // ─────────────────────────────────────────────────────────────────────
+
       setParsedData(data);
       setStep('preview');
     } catch (err: unknown) {
@@ -251,6 +264,7 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
     setUploadedFile(null);
     setParsedData(null);
     setParseError(null);
+    setValidationResult(null);
   }
 
   function handleClose() {
@@ -376,7 +390,33 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
                 <span className="text-[10px] font-700 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex-shrink-0">Ready</span>
               </div>
 
-              {parsedData.perspectivesObjectives.length === 0 && (
+              {/* Validation errors */}
+              {validationResult && validationResult.errors.length > 0 && (
+                <div className="p-3 rounded-xl bg-red-50 border border-red-200 space-y-1.5">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Icon name="ExclamationTriangleIcon" size={16} className="text-red-600 flex-shrink-0" />
+                    <p className="text-xs font-700 text-red-800">Validation Issues — review before importing</p>
+                  </div>
+                  {validationResult.errors.map((e, i) => (
+                    <p key={i} className="text-xs text-red-700 pl-6">• {e.message}</p>
+                  ))}
+                </div>
+              )}
+
+              {/* Validation warnings */}
+              {validationResult && validationResult.warnings.length > 0 && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 space-y-1.5">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Icon name="ExclamationTriangleIcon" size={16} className="text-amber-600 flex-shrink-0" />
+                    <p className="text-xs font-700 text-amber-800">Warnings</p>
+                  </div>
+                  {validationResult.warnings.map((w, i) => (
+                    <p key={i} className="text-xs text-amber-700 pl-6">• {w.message}</p>
+                  ))}
+                </div>
+              )}
+
+              {parsedData.perspectivesObjectives.length === 0 && !validationResult?.errors.length && (
                 <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200">
                   <Icon name="ExclamationTriangleIcon" size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
                   <p className="text-xs text-amber-800">
