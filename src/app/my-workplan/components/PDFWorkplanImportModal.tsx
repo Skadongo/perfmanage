@@ -2,10 +2,8 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import Icon from '@/components/ui/AppIcon';
-import { createClient } from '@/lib/supabase/client';
 import {
   parseWorkplanFromPDF,
-  validateExtractedWorkplan,
   type ValidationResult,
   type ParsedWorkplanData,
 } from '@/lib/pdfExtract';
@@ -53,58 +51,6 @@ interface PDFWorkplanImportModalProps {
   onImport: (data: ImportedWorkplanData) => void;
 }
 
-// ─── Staff Name Lookup ────────────────────────────────────────────────────────
-
-/**
- * Looks up a staff record by name, handling reversed first/last name order.
- * Strategy:
- *  1. Direct ilike substring match (fast path)
- *  2. Token-based match — splits name into words and checks all tokens appear
- *     in the DB full_name regardless of order (handles "Ayebare Timothy" → "Timothy Ayebare")
- *  3. Longest-token search — fetches candidates by the longest name token, then
- *     filters to those containing ALL tokens
- */
-async function lookupStaffByName(
-  supabase: ReturnType<typeof createClient>,
-  extractedName: string
-): Promise<{ id: string; full_name: string } | null> {
-  if (!extractedName || extractedName === 'Unknown Staff') return null;
-
-  const normalise = (s: string) => s.toLowerCase().replace(/[^a-z\s]/g, '').trim();
-
-  // ── 1. Direct substring match ──────────────────────────────────────────────
-  const { data: directRows } = await supabase
-    .from('staff')
-    .select('id, full_name')
-    .ilike('full_name', `%${extractedName}%`)
-    .limit(1);
-
-  if (directRows && directRows.length > 0) return directRows[0];
-
-  // ── 2. Token-based match (handles reversed name order) ────────────────────
-  const tokens = extractedName.trim().split(/\s+/).filter((t) => t.length > 1);
-  if (tokens.length < 2) return null;
-
-  // Use the longest token for the initial DB filter to minimise result set
-  const longestToken = tokens.reduce((a, b) => (a.length >= b.length ? a : b));
-
-  const { data: candidates } = await supabase
-    .from('staff')
-    .select('id, full_name')
-    .ilike('full_name', `%${longestToken}%`)
-    .limit(30);
-
-  if (!candidates || candidates.length === 0) return null;
-
-  const normTokens = tokens.map(normalise);
-  const match = candidates.find((row) => {
-    const normFull = normalise(row.full_name);
-    return normTokens.every((tok) => normFull.includes(tok));
-  });
-
-  return match ?? null;
-}
-
 type Step = 'upload' | 'parsing' | 'preview';
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -118,7 +64,6 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [staffMatchInfo, setStaffMatchInfo] = useState<{ found: boolean; name?: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const supabase = createClient();
 
   const handleFileSelect = useCallback(async (file: File) => {
     if (file.type !== 'application/pdf') return;
@@ -147,24 +92,32 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
         resolvedStaffId: undefined,
       };
 
-      // ── Staff DB lookup (token-based, handles reversed names) ─────────────
-      let resolvedStaffId: string | null = null;
-      if (data.staffName && data.staffName !== 'Unknown Staff') {
-        const staffRecord = await lookupStaffByName(supabase, data.staffName);
-        resolvedStaffId = staffRecord?.id ?? null;
-        setStaffMatchInfo(
-          staffRecord
-            ? { found: true, name: staffRecord.full_name }
-            : { found: false }
-        );
-        data.resolvedStaffId = resolvedStaffId;
+      // ── Server-side validation (staff ID, weights, BSC structure) ─────────
+      const response = await fetch('/api/validate-workplan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          staffId: null,
+          staffName: data.staffName,
+          scorecardRows: data.perspectivesObjectives,
+          competencies: data.generalCompetencies,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Validation service error: ${response.status}`);
       }
 
-      // ── Schema validation ──────────────────────────────────────────────────
-      const vResult = validateExtractedWorkplan(
-        resolvedStaffId,
-        data.perspectivesObjectives,
-        data.generalCompetencies
+      const vResult: ValidationResult & { resolvedStaffId?: string | null } = await response.json();
+
+      // Apply the server-resolved staffId back to the data
+      const resolvedStaffId = vResult.resolvedStaffId ?? null;
+      data.resolvedStaffId = resolvedStaffId ?? undefined;
+
+      setStaffMatchInfo(
+        resolvedStaffId
+          ? { found: true, name: data.staffName }
+          : { found: false }
       );
       setValidationResult(vResult);
 
