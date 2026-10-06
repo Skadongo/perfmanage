@@ -30,9 +30,14 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [currentYear, setCurrentYear] = useState<number | null>(null);
+  const [mounted, setMounted] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { getDisplayName, getInitials, profile, signOut } = useAuth();
   const router = useRouter();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -68,13 +73,15 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
 
   return (
     <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
-      {/* Sidebar — handles its own mobile overlay internally */}
-      <Sidebar
-        collapsed={collapsed}
-        onToggle={() => setCollapsed(!collapsed)}
-        mobileOpen={mobileOpen}
-        onMobileClose={() => setMobileOpen(false)}
-      />
+      {/* Sidebar — only rendered client-side to avoid hydration mismatch from component tagger */}
+      {mounted && (
+        <Sidebar
+          collapsed={collapsed}
+          onToggle={() => setCollapsed(!collapsed)}
+          mobileOpen={mobileOpen}
+          onMobileClose={() => setMobileOpen(false)}
+        />
+      )}
 
       {/* Main content — offset by sidebar width on desktop */}
       <div
