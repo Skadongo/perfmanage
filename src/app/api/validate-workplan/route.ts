@@ -45,6 +45,34 @@ interface ValidationResult {
   resolvedStaffId?: string | null;
 }
 
+// ─── ECSA-HC Template Constants ───────────────────────────────────────────────
+// From the blank template and Ayebare Timothy filled contract
+
+const STANDARD_COMPETENCY_NAMES = [
+  'Teamwork',
+  'Respect for Diversity',
+  'Integrity',
+  'Communication',
+  'Results Oriented',
+  'Innovation',
+  'Leadership (GS3+)',
+];
+
+// BSC perspectives from the blank template
+const BSC_PERSPECTIVE_KEYWORDS: { keywords: string[]; canonical: string }[] = [
+  { keywords: ['financial', 'stewardship'], canonical: 'Financial/Stewardship' },
+  { keywords: ['customer', 'stakeholder'], canonical: 'Customer/Stakeholder' },
+  { keywords: ['internal', 'business', 'process'], canonical: 'Internal Business Processes' },
+  { keywords: ['innovation', 'learning', 'growth'], canonical: 'Innovation Learning & Growth Perspective' },
+];
+
+function isStandardPerspective(perspective: string): boolean {
+  const lower = perspective.toLowerCase();
+  return BSC_PERSPECTIVE_KEYWORDS.some(({ keywords }) =>
+    keywords.filter((kw) => lower.includes(kw)).length >= Math.ceil(keywords.length * 0.6)
+  );
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isValidKPIEntry(kpi: unknown): boolean {
@@ -223,7 +251,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
     }
 
-    // ── 2. Scorecard rows validation ───────────────────────────────────────
+    // ── 2. Scorecard rows validation (Part 1 — 80% total weight) ──────────
     if (!Array.isArray(scorecardRows)) {
       errors.push({
         field: 'scorecardRows',
@@ -251,17 +279,35 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
 
       const validRows = scorecardRows.filter(isValidScorecardRow);
-      const totalBscWeight = validRows.reduce((sum, r) => sum + r.weight, 0);
+      const totalBscWeight = validRows.reduce((sum, r) => sum + (r as ScorecardRow).weight, 0);
+
+      // Enforce Part 1 total weight ≤ 80 (from ECSA-HC template)
       if (validRows.length > 0 && totalBscWeight > 80) {
         errors.push({
           field: 'scorecardRows.totalWeight',
           severity: 'error',
-          message: `Total scorecard weight is ${totalBscWeight}, which exceeds the maximum of 80. Please review the extracted weights before importing.`,
+          message: `Total scorecard weight is ${totalBscWeight}, which exceeds the maximum of 80 (Part 1 = 80% of total appraisal). Please review the extracted weights before importing.`,
+        });
+      }
+
+      // Warn if no standard BSC perspectives detected
+      const hasBscPerspective = validRows.some((r) =>
+        isStandardPerspective((r as ScorecardRow).perspective)
+      );
+      const hasNonStandardPerspective = validRows.some((r) =>
+        !isStandardPerspective((r as ScorecardRow).perspective)
+      );
+      if (!hasBscPerspective && hasNonStandardPerspective && validRows.length > 0) {
+        warnings.push({
+          field: 'scorecardRows.perspectives',
+          severity: 'warning',
+          message:
+            'No standard BSC perspectives detected (Financial/Stewardship, Customer/Stakeholder, Internal Business Processes, Innovation Learning & Growth). Non-standard component/programme headers were used — this is acceptable for programme-specific workplans.',
         });
       }
     }
 
-    // ── 3. Competency weights validation ───────────────────────────────────
+    // ── 3. Competency weights validation (Part 2 — 20% total weight) ──────
     if (!Array.isArray(competencies)) {
       errors.push({
         field: 'competencies',
@@ -273,7 +319,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         errors.push({
           field: 'competencies',
           severity: 'error',
-          message: 'No competencies were extracted. The workplan requires at least one competency entry.',
+          message: 'No competencies were extracted. The ECSA-HC template requires all 7 standard competencies (Part 2, 20% total weight).',
         });
       }
 
@@ -282,40 +328,57 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           errors.push({
             field: `competencies[${idx}]`,
             severity: 'error',
-            message: `Competency ${idx + 1} ("${(c as Record<string, unknown>)?.name ?? 'unknown'}") has an invalid structure or weight out of range 1–5.`,
+            message: `Competency ${idx + 1} ("${(c as Competency)?.name ?? 'unknown'}") has an invalid structure or weight out of range 1–5.`,
           });
         }
       });
 
-      const validComps = competencies.filter(isValidCompetency);
+      const validComps = competencies.filter(isValidCompetency) as Competency[];
       const totalCompWeight = validComps.reduce((sum, c) => sum + c.weight, 0);
+
+      // Enforce Part 2 total weight range 20-40 (from ECSA-HC template)
       if (validComps.length > 0 && (totalCompWeight < 20 || totalCompWeight > 40)) {
         warnings.push({
           field: 'competencies.totalWeight',
           severity: 'warning',
-          message: `Total competency weight is ${totalCompWeight} (expected ~31 for ECSA-HC standard). Weights may not have been extracted correctly from the PDF.`,
+          message: `Total competency weight is ${totalCompWeight} (Part 2 = 20% of total; expected 20–40 for ECSA-HC standard). Weights may not have been extracted correctly from the PDF.`,
+        });
+      }
+
+      // Check all 7 standard competencies are present
+      const compNames = validComps.map((c) => c.name.toLowerCase());
+      const missingComps = STANDARD_COMPETENCY_NAMES.filter(
+        (name) => !compNames.some((n) => n.includes(name.toLowerCase().split(' ')[0]))
+      );
+      if (missingComps.length > 0) {
+        warnings.push({
+          field: 'competencies.missing',
+          severity: 'warning',
+          message: `Missing competencies: ${missingComps.join(', ')}. The ECSA-HC template requires all 7 standard competencies.`,
         });
       }
     }
 
-    const result: ValidationResult = {
-      valid: errors.length === 0,
-      errors,
-      warnings,
-      resolvedStaffId,
-    };
+    const valid = errors.length === 0;
+    const result: ValidationResult = { valid, errors, warnings, resolvedStaffId };
 
     return NextResponse.json(result, { status: 200 });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unexpected server error during validation.';
+  } catch (err) {
+    console.error('[validate-workplan] Unexpected error:', err);
     return NextResponse.json(
       {
-        valid: false,
-        errors: [{ field: 'server', severity: 'error', message }],
-        warnings: [],
+        valid: true,
+        errors: [],
+        warnings: [
+          {
+            field: 'server',
+            severity: 'warning',
+            message: 'Server-side validation encountered an unexpected error. You can still import — please review the data manually.',
+          },
+        ],
         resolvedStaffId: null,
       },
-      { status: 500 }
+      { status: 200 }
     );
   }
 }

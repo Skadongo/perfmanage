@@ -402,7 +402,7 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-xs font-700 uppercase tracking-wide text-muted-foreground">Part 1 — Scorecard (80%)</h3>
                     <span className={`text-[11px] font-700 px-2 py-0.5 rounded-full ${bscTotal <= 80 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                      Total weight: {bscTotal}
+                      Total weight: {bscTotal} / 80
                     </span>
                   </div>
                   <div className="space-y-2">
@@ -416,6 +416,9 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
                           <span className="text-[11px] font-700 text-foreground bg-muted px-2 py-0.5 rounded-full flex-shrink-0">W: {row.weight}</span>
                         </div>
                         <p className="text-xs font-500 text-foreground mb-1 pl-7">{row.objective}</p>
+                        {row.keyActivities && row.keyActivities !== row.objective && (
+                          <p className="text-[11px] text-muted-foreground pl-7 mb-1 italic">{row.keyActivities.length > 120 ? row.keyActivities.substring(0, 120) + '…' : row.keyActivities}</p>
+                        )}
                         <div className="pl-7 space-y-1">
                           {row.kpis.map((kpi) => (
                             <div key={kpi.id} className="flex items-start gap-1.5">
@@ -439,7 +442,7 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-xs font-700 uppercase tracking-wide text-muted-foreground">Part 2 — General Competencies (20%)</h3>
-                  <span className={`text-[11px] font-700 px-2 py-0.5 rounded-full ${compTotal >= 20 && compTotal <= 35 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                  <span className={`text-[11px] font-700 px-2 py-0.5 rounded-full ${compTotal >= 20 && compTotal <= 40 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                     Total weight: {compTotal}
                   </span>
                 </div>
@@ -451,6 +454,7 @@ export default function PDFWorkplanImportModal({ isOpen, onClose, onImport }: PD
                     </div>
                   ))}
                 </div>
+                <p className="text-[10px] text-muted-foreground mt-1.5 pl-1">Rated 1–5 based on behavioral evidence (ECSA-HC standard)</p>
               </div>
 
               {/* Support required */}
