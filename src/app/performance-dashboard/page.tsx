@@ -15,11 +15,11 @@ import {
 } from './config/roleDashboardConfig';
 import type { DrillDownFilter } from './types';
 import StrategicPlanSection from './components/StrategicPlanSection';
+import KPITrendChart from './components/KPITrendChart';
 
 // ── Dynamic imports (next/dynamic replaces React.lazy to fix webpack chunk resolution) ──
 const DashboardMetricCards  = dynamic(() => import('./components/DashboardMetricCards'), { ssr: false });
 const BSCPerspectiveChart   = dynamic(() => import('./components/BSCPerspectiveChart'), { ssr: false });
-const KPITrendChart         = dynamic(() => import('./components/KPITrendChart'), { ssr: false });
 const FrameworkIndicators   = dynamic(() => import('./components/FrameworkIndicators'), { ssr: false });
 const AtRiskStaffTable      = dynamic(() => import('./components/AtRiskStaffTable'), { ssr: false });
 const ActivityFeed          = dynamic(() => import('./components/ActivityFeed'), { ssr: false });
