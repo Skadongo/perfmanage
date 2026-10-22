@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
@@ -56,10 +56,18 @@ interface SidebarProps {
 export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const { getDisplayName, getInitials, profile } = useAuth();
+  const [mounted, setMounted] = useState(false);
 
-  const roleLabel = profile?.systemRole
-    ? profile.systemRole.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-    : 'Staff Member';
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const roleLabel =
+    mounted && profile?.systemRole
+      ? profile.systemRole.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+      : 'Staff Member';
+  const displayName = mounted ? getDisplayName() : '';
+  const initials = mounted ? getInitials() : '';
 
   return (
     <>
@@ -183,15 +191,15 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen = false, onMob
         <div className={`border-t border-border p-3 ${collapsed && !mobileOpen ? 'lg:flex lg:justify-center' : ''}`}>
           {collapsed && !mobileOpen ? (
             <div className="hidden lg:flex w-8 h-8 rounded-full bg-primary/10 items-center justify-center">
-              <span className="text-primary text-xs font-700">{getInitials()}</span>
+              <span className="text-primary text-xs font-700">{initials}</span>
             </div>
           ) : null}
           <div className={`flex items-center gap-2 ${collapsed && !mobileOpen ? 'lg:hidden' : ''}`}>
             <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <span className="text-primary text-xs font-700">{getInitials()}</span>
+              <span className="text-primary text-xs font-700">{initials}</span>
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
+              <p className="text-sm font-600 text-foreground truncate">{displayName}</p>
               <p className="text-[11px] text-muted-foreground truncate">{roleLabel}</p>
             </div>
             <button className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground transition-colors">

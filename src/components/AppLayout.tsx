@@ -39,10 +39,6 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
   const router = useRouter();
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setUserMenuOpen(false);
@@ -61,6 +57,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
 
   useEffect(() => {
     setCurrentYear(new Date().getFullYear());
+    setMounted(true);
   }, []);
 
   const handleSignOut = async () => {
@@ -72,19 +69,18 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
     }
   };
 
-  const roleLabel = getRoleLabel(profile?.systemRole);
+  const roleLabel = mounted ? getRoleLabel(profile?.systemRole) : 'Staff';
+  const displayName = mounted ? getDisplayName() : '';
+  const initials = mounted ? getInitials() : '';
 
   return (
     <div suppressHydrationWarning className="min-h-screen bg-background flex overflow-x-hidden">
-      {/* Sidebar — only rendered client-side to avoid hydration mismatch from component tagger */}
-      {mounted && (
-        <Sidebar
-          collapsed={collapsed}
-          onToggle={() => setCollapsed(!collapsed)}
-          mobileOpen={mobileOpen}
-          onMobileClose={() => setMobileOpen(false)}
-        />
-      )}
+      <Sidebar
+        collapsed={collapsed}
+        onToggle={() => setCollapsed(!collapsed)}
+        mobileOpen={mobileOpen}
+        onMobileClose={() => setMobileOpen(false)}
+      />
 
       {/* Main content — offset by sidebar width on desktop */}
       <div
@@ -146,10 +142,10 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                 aria-label="User menu"
               >
                 <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-primary text-xs font-700">{getInitials()}</span>
+                  <span className="text-primary text-xs font-700">{initials}</span>
                 </div>
                 <div className="hidden md:flex flex-col items-start leading-tight">
-                  <span className="text-xs font-600 text-foreground max-w-[120px] truncate">{getDisplayName()}</span>
+                  <span className="text-xs font-600 text-foreground max-w-[120px] truncate">{displayName}</span>
                   <span className="text-[10px] text-muted-foreground max-w-[120px] truncate">{roleLabel}</span>
                 </div>
                 <svg className="w-3.5 h-3.5 text-muted-foreground hidden md:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -161,7 +157,7 @@ export default function AppLayout({ children, pageTitle, pageSubtitle, actions }
                 <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-lg border border-border z-50 overflow-hidden">
                   {/* User info header */}
                   <div className="px-4 py-3 border-b border-border bg-muted/30">
-                    <p className="text-sm font-600 text-foreground truncate">{getDisplayName()}</p>
+                    <p className="text-sm font-600 text-foreground truncate">{displayName}</p>
                     <p className="text-xs text-muted-foreground truncate">{profile?.email || ''}</p>
                     <span className="inline-block mt-1 text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-600">
                       {roleLabel}
