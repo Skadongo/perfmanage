@@ -1438,15 +1438,16 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                   const perspColors = ['bg-emerald-500', 'bg-sky-500', 'bg-violet-500', 'bg-amber-500'];
                   const perspBgColors = ['bg-emerald-100', 'bg-sky-100', 'bg-violet-100', 'bg-amber-100'];
                   const perspTextColors = ['text-emerald-700', 'text-sky-700', 'text-violet-700', 'text-amber-700'];
-                  // Contribution of this perspective to the 100% BSC score
-                  const perspContribution = (bsc.selfRating / 5) * bsc.weight;
+                  // Contribution of this perspective to the normalised 100% BSC score
+                  const perspContribution = bscTotalWeight > 0 ? ((bsc.selfRating / 5) * bsc.weight / bscTotalWeight) * 100 : 0;
+                  const perspMax = bscTotalWeight > 0 ? (bsc.weight / bscTotalWeight) * 100 : 0;
                   const perspPct = (perspContribution / 100) * 100; // already in % of 100
                   return (
                     <div key={bsc.perspective}>
                       <div className="flex items-center justify-between mb-0.5">
                         <span className="text-[10px] font-600 text-foreground truncate max-w-[60%]">{bsc.perspective}</span>
                         <span className={`text-[10px] font-700 ${perspTextColors[idx]}`}>
-                          {perspContribution.toFixed(1)}% <span className="font-400 text-muted-foreground">/ {bsc.weight}%</span>
+                          {perspContribution.toFixed(1)}% <span className="font-400 text-muted-foreground">/ {perspMax.toFixed(1)}%</span>
                         </span>
                       </div>
                       <div className={`h-1.5 rounded-full ${perspBgColors[idx]} overflow-hidden`}>
@@ -1503,7 +1504,7 @@ export default function EvaluationForm({ onClose, onSubmit }: EvaluationFormProp
                       <div className="text-right">
                         <p className="text-[10px] text-muted-foreground">Contribution</p>
                         <p className="text-sm font-800 text-foreground tabular-nums">
-                          {((bsc.selfRating / 5) * bsc.weight).toFixed(1)}%
+                          {(bscTotalWeight > 0 ? ((bsc.selfRating / 5) * bsc.weight / bscTotalWeight) * 100 : 0).toFixed(1)}%
                         </p>
                       </div>
                     </div>
