@@ -40,6 +40,120 @@ interface Competency {
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 type SubmitStatus = 'idle' | 'submitting' | 'submitted';
 
+interface SaveFailureReason {
+  title: string;
+  detail: string;
+  fix: string;
+  section?: 'scorecard' | 'competencies' | 'signoff';
+}
+
+interface SaveFailure {
+  action: 'submit' | 'draft';
+  headline: string;
+  summary: string;
+  reasons: SaveFailureReason[];
+  technical?: string;
+  occurredAt: string;
+}
+
+function describeDatabaseError(err: any, ctx: { staffId: string | null; supervisorId: string | null; fiscalYear: string; workplanId: string | null }): { reasons: SaveFailureReason[]; technical: string } {
+  const code: string = err?.code || '';
+  const message: string = err?.message || '';
+  const lower = message.toLowerCase();
+  const reasons: SaveFailureReason[] = [];
+
+  if (code === '42501' || lower.includes('row-level security') || lower.includes('permission denied')) {
+    reasons.push({
+      title: 'The database refused permission to write this workplan',
+      detail: 'The system only lets you save a workplan that belongs to your own staff record. The database check (row-level security) could not confirm that your login account is linked to the staff record this workplan is being saved for.',
+      fix: 'Sign out and sign in again. If it still fails, ask HR or the system administrator to link your user profile to your staff record (the staff list email must match your login email exactly).',
+    });
+  }
+  if (code === '23503' || lower.includes('foreign key')) {
+    const which = lower.includes('supervisor')
+      ? 'the supervisor assigned to you' : lower.includes('staff_id')
+        ? 'your staff record' :'your staff record or your supervisor';
+    reasons.push({
+      title: 'A linked record could not be found',
+      detail: `The workplan points to ${which}, but that person does not exist in the staff list in the database${ctx.supervisorId ? '' : ' (no supervisor is currently assigned to you)'}.`,
+      fix: 'Ask HR to confirm that your staff entry and your supervisor’s staff entry both exist and that your supervisor is correctly assigned to you.',
+    });
+  }
+  if (code === '23505' || lower.includes('duplicate key') || lower.includes('unique constraint')) {
+    reasons.push({
+      title: `A workplan already exists for ${ctx.fiscalYear}`,
+      detail: 'The database allows only one workplan per staff member for each fiscal year. A workplan for this year was already created (possibly in another tab, on another device, or by your supervisor) and this page did not know about it.',
+      fix: 'Refresh the page so the existing workplan is loaded, then edit and save that one instead of creating a new one.',
+    });
+  }
+  if (code === '23502' || lower.includes('null value') || lower.includes('not-null')) {
+    const col = message.match(/column "([^"]+)"/)?.[1];
+    reasons.push({
+      title: 'A required value is missing',
+      detail: `The database requires a value${col ? ` for “${col}”` : ''} but none was provided.${col === 'supervisor_id' ? ' You do not have a supervisor assigned in the staff list.' : ''}`,
+      fix: 'Complete every required field. If the missing item is your supervisor or job details, ask HR to update your staff record.',
+    });
+  }
+  if (code === '23514' || lower.includes('check constraint') || lower.includes('violates check')) {
+    reasons.push({
+      title: 'A value is not allowed by the database rules',
+      detail: 'One of the values (for example the status, fiscal year or a weight) falls outside what the database accepts.',
+      fix: 'Re-check the fiscal year selected and the weights you entered, then try again.',
+    });
+  }
+  if (code === '22P02' || code === '22007' || code === '22008' || lower.includes('invalid input syntax')) {
+    reasons.push({
+      title: 'A value is in the wrong format',
+      detail: 'A field contains text or a number in a format the database cannot read (for example letters where a number is expected).',
+      fix: 'Check every weight and target field for stray characters, then try again.',
+      section: 'scorecard',
+    });
+  }
+  if (code === 'PGRST116' || lower.includes('not saved') || lower.includes('record not found')) {
+    reasons.push({
+      title: 'Nothing was written to the database',
+      detail: 'The save request ran but no workplan row was changed or returned. This normally means the workplan you are editing is not visible to your account (it belongs to a different staff record) or it was removed.',
+      fix: 'Refresh the page. If the problem continues, contact HR to confirm your account is linked to the correct staff record.',
+    });
+  }
+  if (lower.includes('jwt') || lower.includes('not authenticated') || lower.includes('session') || code === 'PGRST301' || code === '401') {
+    reasons.push({
+      title: 'Your login session has expired',
+      detail: 'Your secure session timed out, so the database no longer recognises who you are and rejects the save.',
+      fix: 'Copy nothing yet — sign in again in a new tab, return here and save again. Your on-screen entries are still in this page.',
+    });
+  }
+  if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('timeout') || lower.includes('timed out') || lower.includes('load failed')) {
+    reasons.push({
+      title: 'The server could not be reached',
+      detail: 'Your device lost its connection to the server (or the connection timed out) before the workplan could be sent.',
+      fix: 'Check your internet connection and try again. Your entries are still in this page, so do not close or refresh it until the save succeeds.',
+    });
+  }
+  if (lower.includes('payload too large') || lower.includes('request entity too large') || code === '413') {
+    reasons.push({
+      title: 'The workplan is too large to save',
+      detail: 'The amount of text in the objectives and KPIs exceeds the size the server accepts in one request.',
+      fix: 'Shorten very long descriptions or split them into fewer, more concise KPIs.',
+      section: 'scorecard',
+    });
+  }
+
+  if (reasons.length === 0) {
+    reasons.push({
+      title: 'The database returned an unexpected error',
+      detail: message || 'No error message was returned by the server.',
+      fix: 'Try again in a moment. If it keeps failing, send the technical details below to the system administrator.',
+    });
+  }
+
+  const technical = [code && `Code: ${code}`, message && `Message: ${message}`, err?.details && `Details: ${err.details}`, err?.hint && `Hint: ${err.hint}`]
+    .filter(Boolean)
+    .join('\n') || 'No technical details were returned.';
+
+  return { reasons, technical };
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const PERSPECTIVES = [
@@ -414,6 +528,7 @@ export default function MyWorkplanPage() {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>('idle');
   const [loadingExisting, setLoadingExisting] = useState(false);
+  const [saveFailure, setSaveFailure] = useState<SaveFailure | null>(null);
 
   // PDF import state
   const [showImportModal, setShowImportModal] = useState(false);
@@ -554,11 +669,14 @@ export default function MyWorkplanPage() {
 
     try {
       if (workplanId) {
-        const { error } = await supabase
+        const { data: updated, error } = await supabase
           .from('workplan_settings')
           .update(payload)
-          .eq('id', workplanId);
+          .eq('id', workplanId)
+          .select('id')
+          .maybeSingle();
         if (error) throw error;
+        if (!updated?.id) throw new Error('Draft not saved: no workplan row was changed (record not found or not visible to your account).');
       } else {
         const { data, error } = await supabase
           .from('workplan_settings')
@@ -570,13 +688,25 @@ export default function MyWorkplanPage() {
       }
       if (isMounted.current) {
         setSaveStatus('saved');
+        setSaveFailure(null);
         if (showToast) toast.success('Draft saved successfully');
         setTimeout(() => { if (isMounted.current) setSaveStatus('idle'); }, 2500);
       }
     } catch (err: any) {
       if (isMounted.current) {
         setSaveStatus('error');
-        toast.error(`Draft not saved: ${err?.message || 'Unknown error'}`, { id: 'workplan-draft-error' });
+        const { reasons, technical } = describeDatabaseError(err, { staffId, supervisorId, fiscalYear, workplanId });
+        const failure: SaveFailure = {
+          action: 'draft',
+          headline: 'Your draft could not be saved',
+          summary: 'The system tried to store your draft in the database but the save was rejected. Nothing you typed has been lost — it is still on this page — but it has NOT been stored yet.',
+          reasons,
+          technical,
+          occurredAt: new Date().toLocaleString('en-GB'),
+        };
+        // Autosave failures stay quiet unless the user pressed Save Draft
+        if (showToast) setSaveFailure(failure);
+        toast.error(`Draft not saved: ${reasons[0].title}`, { id: 'workplan-draft-error', description: reasons[0].fix, duration: 8000 });
       }
     }
   }
@@ -585,34 +715,76 @@ export default function MyWorkplanPage() {
 
   function validate(): boolean {
     const errs: Record<string, string> = {};
+    const reasons: SaveFailureReason[] = [];
 
-    if (!fiscalYear) errs.fiscalYear = 'Select a fiscal year.';
-    if (!staffSignature.trim()) errs.staffSignature = 'Your signature (typed name) is required.';
+    if (!fiscalYear) {
+      errs.fiscalYear = 'Select a fiscal year.';
+      reasons.push({ title: 'No fiscal year is selected', detail: 'A workplan must belong to a fiscal year so it can be matched with your mid-year and final reviews.', fix: 'Select a fiscal year at the top of the Scorecard section.', section: 'scorecard' });
+    }
+    if (!staffSignature.trim()) {
+      errs.staffSignature = 'Your signature (typed name) is required.';
+      reasons.push({ title: 'You have not signed the workplan', detail: 'Submitting is treated as your formal agreement to the performance contract, so your typed-name signature is mandatory.', fix: 'Open the Sign-off section and type your full name in the Staff Signature box.', section: 'signoff' });
+    }
 
     const bscTotal = rows.reduce((s, r) => s + (Number(r.weight) || 0), 0);
-    if (rows.length === 0) errs.rows = 'Add at least one BSC objective.';
-    if (bscTotal === 0) errs.bscTotal = 'Total BSC weight must be greater than 0.';
-    if (bscTotal > 80) errs.bscTotal = `Total BSC weight is ${bscTotal}. Must not exceed 80.`;
+    if (rows.length === 0) {
+      errs.rows = 'Add at least one BSC objective.';
+      reasons.push({ title: 'There are no objectives', detail: 'A workplan with no Balanced Scorecard objectives has nothing to be assessed against.', fix: 'Click “Add Objective” in the Scorecard section and complete at least one objective.', section: 'scorecard' });
+    }
+    if (bscTotal === 0) {
+      errs.bscTotal = 'Total BSC weight must be greater than 0.';
+      if (rows.length > 0) reasons.push({ title: 'Objective weights add up to 0', detail: 'None of your objectives has a weight, so the scorecard cannot contribute to your final score.', fix: 'Give each objective a weight of at least 1. All objective weights together must not exceed 80.', section: 'scorecard' });
+    }
+    if (bscTotal > 80) {
+      errs.bscTotal = `Total BSC weight is ${bscTotal}. Must not exceed 80.`;
+      reasons.push({ title: `Objective weights total ${bscTotal}, which is over the limit of 80`, detail: `Balanced Scorecard objectives carry 80 of the 100 points (the other 20 are for competencies). Your objectives are ${bscTotal - 80} point(s) over.`, fix: `Reduce one or more objective weights by a combined ${bscTotal - 80} point(s).`, section: 'scorecard' });
+    }
 
     rows.forEach((row, i) => {
-      if (!row.perspective) errs[`row_${i}_perspective`] = 'Select a perspective.';
-      if (!row.objective.trim()) errs[`row_${i}_objective`] = 'Objective is required.';
-      if (!row.weight || row.weight < 1) errs[`row_${i}_weight`] = 'Weight must be ≥ 1.';
-      if (row.kpis.length === 0) errs[`row_${i}_kpis`] = 'Add at least one KPI.';
+      const label = row.objective?.trim() ? `Objective ${i + 1} (“${row.objective.trim().slice(0, 40)}${row.objective.trim().length > 40 ? '…' : ''}”)` : `Objective ${i + 1}`;
+      if (!row.perspective) {
+        errs[`row_${i}_perspective`] = 'Select a perspective.';
+        reasons.push({ title: `${label}: no perspective chosen`, detail: 'Every objective must sit under one of the four Balanced Scorecard perspectives.', fix: 'Choose a perspective for this objective.', section: 'scorecard' });
+      }
+      if (!row.objective.trim()) {
+        errs[`row_${i}_objective`] = 'Objective is required.';
+        reasons.push({ title: `${label}: the objective text is empty`, detail: 'An objective needs a written statement so your supervisor knows what you are committing to.', fix: 'Type the objective in the Objective box.', section: 'scorecard' });
+      }
+      if (!row.weight || row.weight < 1) {
+        errs[`row_${i}_weight`] = 'Weight must be ≥ 1.';
+        reasons.push({ title: `${label}: weight is missing or below 1`, detail: 'Each objective must carry a weight of at least 1 point.', fix: 'Enter a weight of 1 or more for this objective.', section: 'scorecard' });
+      }
+      if (row.kpis.length === 0) {
+        errs[`row_${i}_kpis`] = 'Add at least one KPI.';
+        reasons.push({ title: `${label}: no KPIs added`, detail: 'Without a KPI there is nothing measurable to rate this objective against.', fix: 'Add at least one KPI (with a target) under this objective.', section: 'scorecard' });
+      }
     });
 
     const compTotal = competencies.reduce((s, c) => s + (Number(c.weight) || 0), 0);
-    if (Math.abs(compTotal - 20) >= 1) errs.compTotal = `Competency weights total ${compTotal}. Must equal 20.`;
+    if (Math.abs(compTotal - 20) >= 1) {
+      errs.compTotal = `Competency weights total ${compTotal}. Must equal 20.`;
+      reasons.push({ title: `Competency weights total ${compTotal} instead of 20`, detail: `General competencies carry exactly 20 of the 100 points. Your competencies are currently ${compTotal > 20 ? `${compTotal - 20} point(s) over` : `${20 - compTotal} point(s) short`}.`, fix: `Adjust the competency weights in the Competencies section so they add up to exactly 20.`, section: 'competencies' });
+    }
 
     setErrors(errs);
+    if (reasons.length > 0) {
+      setSaveFailure({
+        action: 'submit',
+        headline: 'Your workplan was NOT saved or submitted',
+        summary: `${reasons.length} problem${reasons.length === 1 ? '' : 's'} must be fixed before the system will accept your workplan. Nothing was sent to the database. Your entries are still on this page.`,
+        reasons,
+        occurredAt: new Date().toLocaleString('en-GB'),
+      });
+    }
     return Object.keys(errs).length === 0;
   }
 
   // ─── Submit ───────────────────────────────────────────────────────────────
 
   async function handleSubmit() {
+    setSaveFailure(null);
     if (!validate()) {
-      toast.error('Please fix the errors before submitting.');
+      toast.error('Workplan not saved — see the detailed explanation below.');
       // Navigate to first section with errors
       const hasScorecard = Object.keys(errors).some((k) => k.startsWith('row_') || k === 'bscTotal' || k === 'rows');
       const hasComp = !!errors.compTotal;
@@ -626,6 +798,13 @@ export default function MyWorkplanPage() {
 
     if (!staffId) {
       toast.error('Your staff record could not be found. Please contact HR.');
+      setSaveFailure({
+        action: 'submit',
+        headline: 'Your workplan was NOT saved',
+        summary: 'The system cannot tell which staff member this workplan belongs to.',
+        reasons: [{ title: 'Your login is not linked to a staff record', detail: 'Workplans are stored against a staff record. Your user profile has no staff record attached, so the database would reject the save.', fix: 'Contact HR to confirm your email in the staff list matches your login email, then sign in again.' }],
+        occurredAt: new Date().toLocaleString('en-GB'),
+      });
       return;
     }
 
@@ -780,12 +959,25 @@ export default function MyWorkplanPage() {
     return (
       <AppLayout>
         <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="text-center space-y-4 max-w-sm">
+          <div className="text-center space-y-4 max-w-lg">
             <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mx-auto">
               <Icon name="ExclamationTriangleIcon" size={28} className="text-amber-600" />
             </div>
-            <h2 className="text-lg font-700 text-foreground">Staff Record Not Found</h2>
+            <h2 className="text-lg font-700 text-foreground">You cannot save a workplan yet — Staff Record Not Found</h2>
             <p className="text-sm text-muted-foreground">Your account is not linked to a staff record. Please contact HR or your system administrator.</p>
+            <div className="text-left text-xs bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-2">
+              <p className="font-700 text-amber-900">Why this happens</p>
+              <ul className="list-disc pl-4 space-y-1 text-amber-900/90">
+                <li>Workplans are stored against a staff record, and your login ({profile?.email || 'your email'}) is not attached to one, so the database will reject any save.</li>
+                <li>The email in the official staff list may differ from the email you log in with (different spelling, a typo, or another domain).</li>
+                <li>You may not yet have been added to the staff list, or your entry was removed.</li>
+              </ul>
+              <p className="font-700 text-amber-900 pt-1">How to fix it</p>
+              <ul className="list-disc pl-4 space-y-1 text-amber-900/90">
+                <li>Ask HR to confirm your staff entry exists and uses exactly the email shown above.</li>
+                <li>Once corrected, sign out, sign in again and reopen My Workplan.</li>
+              </ul>
+            </div>
           </div>
         </div>
       </AppLayout>
@@ -796,6 +988,73 @@ export default function MyWorkplanPage() {
     <AppLayout>
       <Toaster position="top-right" richColors />
       <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+
+        {/* ── Why the workplan could not be saved ── */}
+        {saveFailure && (
+          <div role="alert" className="rounded-xl border-2 border-red-300 bg-red-50 p-4 sm:p-5 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <Icon name="ExclamationTriangleIcon" size={20} className="text-red-600" />
+                </div>
+                <div>
+                  <h2 className="text-base font-700 text-red-800">{saveFailure.headline}</h2>
+                  <p className="text-sm text-red-700 mt-0.5">{saveFailure.summary}</p>
+                  <p className="text-[11px] text-red-600/80 mt-1">Attempted {saveFailure.occurredAt}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSaveFailure(null)}
+                className="text-red-500 hover:text-red-700 flex-shrink-0"
+                aria-label="Dismiss explanation"
+              >
+                <Icon name="XMarkIcon" size={18} />
+              </button>
+            </div>
+
+            <div>
+              <p className="text-xs font-700 uppercase tracking-wide text-red-800 mb-2">
+                Reason{saveFailure.reasons.length === 1 ? '' : 's'} it failed ({saveFailure.reasons.length})
+              </p>
+              <ol className="space-y-2.5">
+                {saveFailure.reasons.map((r, i) => (
+                  <li key={i} className="bg-white border border-red-200 rounded-lg p-3">
+                    <div className="flex items-start gap-2.5">
+                      <span className="w-5 h-5 rounded-full bg-red-600 text-white text-[11px] font-700 flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
+                      <div className="space-y-1 min-w-0">
+                        <p className="text-sm font-700 text-foreground">{r.title}</p>
+                        <p className="text-xs text-muted-foreground"><span className="font-600 text-foreground">Why: </span>{r.detail}</p>
+                        <p className="text-xs text-emerald-700"><span className="font-600">How to fix: </span>{r.fix}</p>
+                        {r.section && (
+                          <button
+                            type="button"
+                            onClick={() => setActiveSection(r.section!)}
+                            className="text-[11px] font-600 text-primary hover:underline"
+                          >
+                            Go to the {r.section === 'scorecard' ? 'Scorecard' : r.section === 'competencies' ? 'Competencies' : 'Sign-off'} section →
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            <div className="text-xs text-red-800 bg-red-100/60 rounded-lg px-3 py-2">
+              <p className="font-700 mb-0.5">What happens next</p>
+              <p>Your work is still on this page but is not stored. Do not close or refresh until you have fixed the items above and see a “saved successfully” message. If the problem persists, send the technical details below to the system administrator.</p>
+            </div>
+
+            {saveFailure.technical && (
+              <details className="text-xs">
+                <summary className="cursor-pointer font-600 text-red-800">Technical details (for the administrator)</summary>
+                <pre className="mt-2 whitespace-pre-wrap break-words bg-white border border-red-200 rounded-lg p-3 text-[11px] text-foreground">{saveFailure.technical}</pre>
+              </details>
+            )}
+          </div>
+        )}
 
         {/* ── Header ── */}
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
