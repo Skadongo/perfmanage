@@ -65,16 +65,16 @@ export interface UseWorkplansResult {
   filters: WorkplanFilters;
 }
 
-// Fiscal years available in the system (most recent first)
+// Fiscal years available in the system (most recent first) — July to June
 export const FISCAL_YEARS = [
-  '2025-2026',
-  '2024-2025',
-  '2023-2024',
-  '2022-2023',
+  'FY 2026-2027 (Jul–Jun)',
+  'FY 2025-2026 (Jul–Jun)',
+  'FY 2024-2025 (Jul–Jun)',
+  'FY 2023-2024 (Jul–Jun)',
 ];
 
-export const CURRENT_FISCAL_YEAR = '2025-2026';
-export const PREVIOUS_FISCAL_YEAR = '2024-2025';
+export const CURRENT_FISCAL_YEAR = 'FY 2026-2027 (Jul–Jun)';
+export const PREVIOUS_FISCAL_YEAR = 'FY 2025-2026 (Jul–Jun)';
 
 const PAGE_SIZE_DEFAULT = 20;
 

@@ -106,7 +106,7 @@ function FiscalYearPanel({ fiscalYear, isOpen, onToggle, onOpenWorkplan }: Fisca
           <div className="flex items-center gap-2">
             <Icon name="EcsaDocIcon" size={15} className="text-primary" />
             <span className="text-sm font-700 text-foreground">
-              Fiscal Year {fiscalYear}
+              {fiscalYear}
             </span>
             {fiscalYear === CURRENT_FISCAL_YEAR && (
               <span className="text-[10px] font-600 px-2 py-0.5 rounded-full bg-primary/10 text-primary">
