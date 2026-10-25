@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
+import useSWR from 'swr';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+import { cachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 
 interface ActivityLog {
   id: string;
@@ -15,6 +17,13 @@ interface ActivityLog {
   iconBg: string;
   iconColor: string;
   createdAt: string;
+}
+
+interface Props {
+  /** When set, only shows activity for this staff member (self view) */
+  staffId?: string | null;
+  /** When set, only shows activity for direct reports of this supervisor */
+  supervisorId?: string | null;
 }
 
 function timeAgo(dateStr: string): string {
@@ -31,102 +40,114 @@ function timeAgo(dateStr: string): string {
   return `${diffDays}d ago`;
 }
 
-export default function ActivityFeed() {
-  const [activities, setActivities] = useState<ActivityLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+// Standalone fetcher — stable reference for SWR, uses cachedFetch for in-memory TTL
+async function fetchActivities(staffId: string | null | undefined, supervisorId: string | null | undefined): Promise<ActivityLog[]> {
+  const cacheKey = `activity-feed:${staffId ?? supervisorId ?? 'org'}`;
+  return cachedFetch(
+    cacheKey,
+    async () => {
+      const supabase = createClient();
 
-  useEffect(() => {
-    const fetchActivities = async () => {
-      try {
-        const supabase = createClient();
-        const { data, error: fetchError } = await supabase
-          .from('activity_logs')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(10);
+      // Select only columns rendered in the UI — avoids transferring unused data
+      let query = supabase
+        .from('activity_logs')
+        .select('id, activity_type, actor_name, action_description, subject_name, subject_detail, icon_name, icon_bg, icon_color, created_at, subject_id, supervisor_id')
+        .order('created_at', { ascending: false })
+        .limit(10);
 
-        if (fetchError) {
-          setError('Could not load activity logs.');
-          return;
-        }
-
-        const mapped: ActivityLog[] = (data || []).map((row) => ({
-          id: row.id,
-          activityType: row.activity_type,
-          actorName: row.actor_name,
-          actionDescription: row.action_description,
-          subjectName: row.subject_name,
-          subjectDetail: row.subject_detail,
-          iconName: row.icon_name,
-          iconBg: row.icon_bg,
-          iconColor: row.icon_color,
-          createdAt: row.created_at,
-        }));
-
-        setActivities(mapped);
-      } catch (err: any) {
-        setError('Could not load activity logs.');
-      } finally {
-        setLoading(false);
+      if (staffId) {
+        query = query.eq('subject_id', staffId);
+      } else if (supervisorId) {
+        query = query.eq('supervisor_id', supervisorId);
       }
-    };
 
-    fetchActivities();
-  }, []);
+      const { data, error } = await query;
+      if (error) throw new Error('Could not load activity logs.');
+
+      return (data || []).map((row) => ({
+        id: row.id,
+        activityType: row.activity_type,
+        actorName: row.actor_name,
+        actionDescription: row.action_description,
+        subjectName: row.subject_name,
+        subjectDetail: row.subject_detail,
+        iconName: row.icon_name,
+        iconBg: row.icon_bg,
+        iconColor: row.icon_color,
+        createdAt: row.created_at,
+      }));
+    },
+    TTL_DASHBOARD_METRICS
+  );
+}
+
+export default function ActivityFeed({ staffId, supervisorId }: Props) {
+  const { data: activities, isLoading, error } = useSWR(
+    ['activity-feed', staffId ?? null, supervisorId ?? null],
+    () => fetchActivities(staffId, supervisorId),
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60_000,
+    }
+  );
+
+  const list = activities ?? [];
 
   return (
     <div className="bg-white rounded-xl border border-border shadow-card p-5 h-full">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-700 text-foreground">Recent Activity</h3>
-        <button className="text-[11px] text-primary font-600 hover:underline">View all</button>
+        <div>
+          <h3 className="text-sm font-700 text-foreground">
+            {staffId ? 'My Activity' : supervisorId ? 'Team Activity' : 'Recent Activity'}
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {staffId ? 'Your recent actions' : supervisorId ? 'Your direct reports' : 'Organisation-wide'}
+          </p>
+        </div>
+        <Icon name="BellIcon" size={16} className="text-muted-foreground" />
       </div>
 
-      {loading && (
-        <div className="space-y-3">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="flex items-start gap-3 animate-pulse">
-              <div className="w-7 h-7 rounded-lg bg-muted flex-shrink-0 mt-0.5" />
-              <div className="flex-1 space-y-1.5">
-                <div className="h-3 bg-muted rounded w-4/5" />
-                <div className="h-2 bg-muted rounded w-1/4" />
-              </div>
-            </div>
-          ))}
+      {isLoading && !activities && (
+        <div className="flex items-center justify-center py-8">
+          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
       )}
 
-      {!loading && error && (
-        <p className="text-xs text-red-500">{error}</p>
+      {error && !isLoading && (
+        <div className="flex items-center justify-center py-8 text-red-500 text-sm gap-2">
+          <Icon name="ExclamationTriangleIcon" size={14} className="text-red-500" />
+          Could not load activity logs.
+        </div>
       )}
 
-      {!loading && !error && activities.length === 0 && (
-        <p className="text-xs text-muted-foreground">No recent activity found.</p>
+      {!isLoading && !error && list.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-8 text-muted-foreground text-sm gap-2">
+          <Icon name="ClockIcon" size={20} className="text-muted-foreground/50" />
+          No recent activity
+        </div>
       )}
 
-      {!loading && !error && activities.length > 0 && (
+      {list.length > 0 && (
         <div className="space-y-3">
-          {activities.map((act) => (
-            <div key={act.id} className="flex items-start gap-3">
-              <div className={`w-7 h-7 rounded-lg ${act.iconBg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
-                <Icon name={act.iconName as Parameters<typeof Icon>[0]['name']} size={14} className={act.iconColor} />
+          {list.map((activity) => (
+            <div key={activity.id} className="flex items-start gap-3">
+              <div className={`w-8 h-8 rounded-full ${activity.iconBg || 'bg-muted'} flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                <Icon
+                  name={(activity.iconName as Parameters<typeof Icon>[0]['name']) || 'BellIcon'}
+                  size={14}
+                  className={activity.iconColor || 'text-muted-foreground'}
+                />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-foreground leading-snug">
-                  <span className="font-600">{act.actorName}</span>{' '}
-                  <span className="text-muted-foreground">{act.actionDescription}</span>
-                  {act.subjectName && (
-                    <>
-                      {' '}
-                      <span className="font-500 text-foreground">
-                        {act.subjectName}
-                        {act.subjectDetail ? ` — ${act.subjectDetail}` : ''}
-                      </span>
-                    </>
-                  )}
-                </p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">{timeAgo(act.createdAt)}</p>
+                <p className="text-xs font-600 text-foreground truncate">{activity.actorName}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{activity.actionDescription}</p>
+                {activity.subjectName && (
+                  <p className="text-[10px] text-muted-foreground/70 truncate">{activity.subjectName}</p>
+                )}
               </div>
+              <span className="text-[10px] text-muted-foreground whitespace-nowrap flex-shrink-0">
+                {timeAgo(activity.createdAt)}
+              </span>
             </div>
           ))}
         </div>

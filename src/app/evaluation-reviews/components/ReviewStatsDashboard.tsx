@@ -5,6 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, Legend,
 } from 'recharts';
 import Icon from '@/components/ui/AppIcon';
+import { ROLE_DEPT_MAP, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants';
 
 interface ReviewRecord {
   id: string;
@@ -21,34 +22,6 @@ interface ReviewRecord {
 interface ReviewStatsDashboardProps {
   reviews: ReviewRecord[];
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  approved: '#10b981',
-  submitted: '#3b82f6',
-  'in-progress': '#f59e0b',
-  pending: '#94a3b8',
-  overdue: '#ef4444',
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  approved: 'Approved',
-  submitted: 'Submitted',
-  'in-progress': 'In Progress',
-  pending: 'Pending',
-  overdue: 'Overdue',
-};
-
-const ROLE_DEPT_MAP: Record<string, string> = {
-  'Director General': 'Executive Office',
-  'Director of Finance': 'Finance & Admin',
-  'Finance Officer': 'Finance & Admin',
-  'HR & Admin Officer': 'Finance & Admin',
-  'Receptionist': 'Finance & Admin',
-  'Driver': 'Finance & Admin',
-  'Director of Programs': 'Programmes',
-  'Senior ICT Officer': 'ICT',
-  'DoID': 'Institutional Development',
-};
 
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) => {
   if (active && payload && payload.length) {
@@ -120,20 +93,19 @@ export default function ReviewStatsDashboard({ reviews }: ReviewStatsDashboardPr
 
   // Avg scores by role
   const avgScoreByRole = useMemo(() => {
-    const map: Record<string, { selfTotal: number; supTotal: number; count: number }> = {};
+    const map: Record<string, { selfTotal: number; selfCount: number; supTotal: number; supCount: number }> = {};
     reviews.forEach(r => {
       if (r.selfScore > 0 || r.supervisorScore > 0) {
-        if (!map[r.role]) map[r.role] = { selfTotal: 0, supTotal: 0, count: 0 };
-        if (r.selfScore > 0) map[r.role].selfTotal += r.selfScore;
-        if (r.supervisorScore > 0) map[r.role].supTotal += r.supervisorScore;
-        map[r.role].count++;
+        if (!map[r.role]) map[r.role] = { selfTotal: 0, selfCount: 0, supTotal: 0, supCount: 0 };
+        if (r.selfScore > 0) { map[r.role].selfTotal += r.selfScore; map[r.role].selfCount++; }
+        if (r.supervisorScore > 0) { map[r.role].supTotal += r.supervisorScore; map[r.role].supCount++; }
       }
     });
     return Object.entries(map).map(([role, d]) => ({
       role: role.length > 20 ? role.slice(0, 18) + '…' : role,
       fullRole: role,
-      selfAvg: d.count > 0 ? parseFloat((d.selfTotal / d.count).toFixed(2)) : 0,
-      supAvg: d.count > 0 ? parseFloat((d.supTotal / d.count).toFixed(2)) : 0,
+      selfAvg: d.selfCount > 0 ? parseFloat((d.selfTotal / d.selfCount).toFixed(2)) : 0,
+      supAvg: d.supCount > 0 ? parseFloat((d.supTotal / d.supCount).toFixed(2)) : 0,
     }));
   }, [reviews]);
 

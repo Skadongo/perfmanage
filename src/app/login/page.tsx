@@ -94,8 +94,8 @@ function LoginForm() {
               <Image
                 src="/assets/images/ecsahc_web_logo1-1-1774467575072.png"
                 alt="ECSA-HC Logo"
-                width={72}
-                height={72}
+                width={96}
+                height={96}
                 className="object-contain mb-4"
               />
               <h1 className="text-xl font-700 text-foreground text-center leading-tight">

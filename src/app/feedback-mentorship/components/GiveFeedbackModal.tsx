@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 import Icon from '@/components/ui/AppIcon';
 
+
 interface GiveFeedbackModalProps {
   open: boolean;
   onClose: () => void;
@@ -58,14 +59,35 @@ export default function GiveFeedbackModal({ open, onClose }: GiveFeedbackModalPr
 
   const onSubmit = async (data: FeedbackFormValues) => {
     if (selectedRating === 0) return;
-    setIsSubmitting(true);
-    // Backend integration point: POST /api/feedback
-    await new Promise(r => setTimeout(r, 800));
-    setIsSubmitting(false);
-    toast.success('Feedback submitted successfully', { description: `${data.recipient.split('—')[0].trim()} will be notified.` });
+
+    // Capture values for rollback
+    const capturedData = { ...data };
+    const capturedRating = selectedRating;
+
+    // Optimistically close and reset the form immediately
     reset();
     setSelectedRating(0);
     onClose();
+
+    const toastId = toast.success('Feedback submitted successfully', {
+      description: `${capturedData.recipient.split('—')[0].trim()} will be notified.`,
+      duration: 4000,
+    });
+
+    try {
+      setIsSubmitting(true);
+      // Backend integration point: POST /api/feedback
+      await new Promise(r => setTimeout(r, 800));
+    } catch (err: any) {
+      // Rollback: re-open modal with data (toast error)
+      toast.dismiss(toastId);
+      toast.error('Failed to submit feedback', {
+        description: err?.message ?? 'Please try again.',
+        duration: 6000,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const RATING_LABELS: Record<number, string> = {

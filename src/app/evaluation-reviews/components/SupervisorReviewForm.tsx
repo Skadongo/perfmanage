@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Icon from '@/components/ui/AppIcon';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { createClient } from '@/lib/supabase/client';
@@ -48,6 +48,9 @@ const STATUS_MAP: Record<string, 'pending' | 'in-progress' | 'submitted' | 'appr
 };
 
 export default function SupervisorReviewForm() {
+  // Stable supabase client ref
+  const supabaseRef = useRef(createClient());
+
   const [reviews, setReviews] = useState<SubmittedReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -55,7 +58,7 @@ export default function SupervisorReviewForm() {
   const [saving, setSaving] = useState<string | null>(null);
   const [actionType, setActionType] = useState<Record<string, 'approve' | 'reject' | null>>({});
 
-  const supabase = createClient();
+  const supabase = supabaseRef.current;
 
   const fetchSubmittedReviews = useCallback(async () => {
     setLoading(true);
@@ -147,7 +150,21 @@ export default function SupervisorReviewForm() {
       return;
     }
 
+    // Snapshot for rollback
+    const previousReviews = reviews;
+
+    // Optimistic update — reflect reviewed status immediately
+    setReviews((prev) =>
+      prev.map((r) =>
+        r.id === reviewId
+          ? { ...r, supervisorRating: form.supervisorRating, supervisorComments: form.supervisorComments, reviewStatus: 'reviewed' }
+          : r
+      )
+    );
+
+    const toastId = toast.success('Supervisor feedback saved successfully.', { duration: 4000 });
     setSaving(reviewId);
+
     try {
       const { error } = await supabase
         .from('mid_year_reviews')
@@ -161,17 +178,11 @@ export default function SupervisorReviewForm() {
         .eq('id', reviewId);
 
       if (error) throw error;
-
-      toast.success('Supervisor feedback saved successfully.');
-      setReviews((prev) =>
-        prev.map((r) =>
-          r.id === reviewId
-            ? { ...r, supervisorRating: form.supervisorRating, supervisorComments: form.supervisorComments, reviewStatus: 'reviewed' }
-            : r
-        )
-      );
     } catch (err: any) {
-      toast.error('Failed to save feedback', { description: err?.message });
+      // Rollback
+      setReviews(previousReviews);
+      toast.dismiss(toastId);
+      toast.error('Failed to save feedback — changes reverted', { description: err?.message });
     } finally {
       setSaving(null);
     }
@@ -189,7 +200,29 @@ export default function SupervisorReviewForm() {
       return;
     }
 
+    // Snapshot for rollback
+    const previousReviews = reviews;
+
+    // Optimistic update
+    setReviews((prev) =>
+      prev.map((r) =>
+        r.id === reviewId
+          ? {
+              ...r,
+              supervisorRating: form.supervisorRating,
+              supervisorComments: form.supervisorComments,
+              approvalComments: form.approvalComments,
+              reviewStatus: 'approved',
+            }
+          : r
+      )
+    );
+    setExpandedId(null);
+    setActionType((prev) => ({ ...prev, [reviewId]: null }));
+
+    const toastId = toast.success('Review approved successfully.', { description: 'Staff member will be notified.', duration: 4000 });
     setSaving(reviewId);
+
     try {
       const { error } = await supabase
         .from('mid_year_reviews')
@@ -205,25 +238,12 @@ export default function SupervisorReviewForm() {
         .eq('id', reviewId);
 
       if (error) throw error;
-
-      toast.success('Review approved successfully.', { description: 'Staff member will be notified.' });
-      setReviews((prev) =>
-        prev.map((r) =>
-          r.id === reviewId
-            ? {
-                ...r,
-                supervisorRating: form.supervisorRating,
-                supervisorComments: form.supervisorComments,
-                approvalComments: form.approvalComments,
-                reviewStatus: 'approved',
-              }
-            : r
-        )
-      );
-      setExpandedId(null);
-      setActionType((prev) => ({ ...prev, [reviewId]: null }));
     } catch (err: any) {
-      toast.error('Failed to approve review', { description: err?.message });
+      // Rollback
+      setReviews(previousReviews);
+      setExpandedId(reviewId);
+      toast.dismiss(toastId);
+      toast.error('Failed to approve review — changes reverted', { description: err?.message });
     } finally {
       setSaving(null);
     }
@@ -237,7 +257,23 @@ export default function SupervisorReviewForm() {
       return;
     }
 
+    // Snapshot for rollback
+    const previousReviews = reviews;
+
+    // Optimistic update
+    setReviews((prev) =>
+      prev.map((r) =>
+        r.id === reviewId
+          ? { ...r, rejectedReason: form.rejectedReason, reviewStatus: 'rejected' }
+          : r
+      )
+    );
+    setExpandedId(null);
+    setActionType((prev) => ({ ...prev, [reviewId]: null }));
+
+    const toastId = toast.success('Review rejected.', { description: 'Staff member will be asked to revise and resubmit.', duration: 4000 });
     setSaving(reviewId);
+
     try {
       const { error } = await supabase
         .from('mid_year_reviews')
@@ -250,19 +286,12 @@ export default function SupervisorReviewForm() {
         .eq('id', reviewId);
 
       if (error) throw error;
-
-      toast.success('Review rejected.', { description: 'Staff member will be asked to revise and resubmit.' });
-      setReviews((prev) =>
-        prev.map((r) =>
-          r.id === reviewId
-            ? { ...r, rejectedReason: form.rejectedReason, reviewStatus: 'rejected' }
-            : r
-        )
-      );
-      setExpandedId(null);
-      setActionType((prev) => ({ ...prev, [reviewId]: null }));
     } catch (err: any) {
-      toast.error('Failed to reject review', { description: err?.message });
+      // Rollback
+      setReviews(previousReviews);
+      setExpandedId(reviewId);
+      toast.dismiss(toastId);
+      toast.error('Failed to reject review — changes reverted', { description: err?.message });
     } finally {
       setSaving(null);
     }

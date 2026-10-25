@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
+import { cachedFetch, TTL_STAFF_LIST, cacheDelete } from '@/lib/cache';
+
 import { ROLE_HIERARCHY } from '@/contexts/AuthContext';
 
 interface Department {
@@ -40,6 +42,11 @@ const SYSTEM_ROLES: { value: string; label: string; role: string; level: number 
   { value: 'project_coordinator', label: 'Project Coordinator', role: 'staff', level: 40 },
   { value: 'staff_member', label: 'Staff Member', role: 'staff', level: 30 },
 ];
+
+/** Returns true if this staff record is the protected superuser account */
+function isSuperuser(s: StaffMember): boolean {
+  return s.system_role === 'superuser' || (s.email ?? '').toLowerCase() === 'superadmin@ecsahc.int';
+}
 
 function getRoleLabel(systemRole: string | null | undefined): string {
   if (!systemRole) return 'Staff Member';
@@ -961,6 +968,7 @@ function StaffCard({ staff, onClick, onEdit, onRemoveDept, onManageAccess }: Sta
   const colorClass = DEPT_COLORS[deptName] ?? 'bg-gray-100 text-gray-700 border-gray-200';
   const avatarColor = getAvatarColor(staff.full_name);
   const [menuOpen, setMenuOpen] = useState(false);
+  const isProtected = isSuperuser(staff);
 
   return (
     <div className="relative w-full text-left bg-white border border-border rounded-xl p-4 hover:shadow-md hover:border-primary/30 transition-all duration-150 group">
@@ -1004,41 +1012,45 @@ function StaffCard({ staff, onClick, onEdit, onRemoveDept, onManageAccess }: Sta
 
       {/* Action menu */}
       <div className="absolute top-3 right-3">
-        <button
-          onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-          className="p-1 rounded-md opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground transition-all"
-          title="Actions"
-        >
-          <Icon name="EcsaMoreIcon" size={15} />
-        </button>
-        {menuOpen && (
+        {!isProtected && (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-            <div className="absolute right-0 top-7 z-20 bg-white border border-border rounded-xl shadow-lg py-1 min-w-[170px]">
-              <button
-                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onEdit(staff); }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-600 text-foreground hover:bg-muted transition-colors"
-              >
-                <Icon name="EcsaEditIcon" size={14} className="text-primary" />
-                Edit Details
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onManageAccess(staff); }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-600 text-foreground hover:bg-muted transition-colors"
-              >
-                <Icon name="EcsaPermissionsIcon" size={14} className="text-violet-600" />
-                Manage Access
-              </button>
-              {staff.department_id && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onRemoveDept(staff); }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-600 text-amber-700 hover:bg-amber-50 transition-colors"
-                >
-                  <Icon name="EcsaUserRemoveIcon" size={14} />
-                  Remove from Directorate
-                </button>
-              )}
-            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+              className="p-1 rounded-md opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground transition-all"
+              title="Actions"
+            >
+              <Icon name="EcsaMoreIcon" size={15} />
+            </button>
+            {menuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                <div className="absolute right-0 top-7 z-20 bg-white border border-border rounded-xl shadow-lg py-1 min-w-[170px]">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onEdit(staff); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-600 text-foreground hover:bg-muted transition-colors"
+                  >
+                    <Icon name="EcsaEditIcon" size={14} className="text-primary" />
+                    Edit Details
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onManageAccess(staff); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-600 text-foreground hover:bg-muted transition-colors"
+                  >
+                    <Icon name="EcsaPermissionsIcon" size={14} className="text-violet-600" />
+                    Manage Access
+                  </button>
+                  {staff.department_id && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onRemoveDept(staff); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-600 text-amber-700 hover:bg-amber-50 transition-colors"
+                    >
+                      <Icon name="EcsaUserRemoveIcon" size={14} />
+                      Remove from Directorate
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
@@ -1064,6 +1076,7 @@ function StaffDetailModal({ staff, allStaff, onClose, onEdit, onRemoveDept, onMa
   const colorClass = DEPT_COLORS[deptName] ?? 'bg-gray-100 text-gray-700 border-gray-200';
   const avatarColor = getAvatarColor(staff.full_name);
   const directReports = allStaff.filter((s) => s.supervisor_id === staff.id);
+  const isProtected = isSuperuser(staff);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1091,28 +1104,32 @@ function StaffDetailModal({ staff, allStaff, onClose, onEdit, onRemoveDept, onMa
               </div>
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
-              <button
-                onClick={() => { onClose(); onEdit(staff); }}
-                className="p-1.5 rounded-lg hover:bg-primary/10 text-primary transition-colors"
-                title="Edit staff"
-              >
-                <Icon name="EcsaEditIcon" size={16} />
-              </button>
-              <button
-                onClick={() => { onClose(); onManageAccess(staff); }}
-                className="p-1.5 rounded-lg hover:bg-violet-50 text-violet-600 transition-colors"
-                title="Manage access"
-              >
-                <Icon name="EcsaPermissionsIcon" size={16} />
-              </button>
-              {staff.department_id && (
-                <button
-                  onClick={() => { onClose(); onRemoveDept(staff); }}
-                  className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 transition-colors"
-                  title="Remove from department"
-                >
-                  <Icon name="EcsaUserRemoveIcon" size={16} />
-                </button>
+              {!isProtected && (
+                <>
+                  <button
+                    onClick={() => { onClose(); onEdit(staff); }}
+                    className="p-1.5 rounded-lg hover:bg-primary/10 text-primary transition-colors"
+                    title="Edit staff"
+                  >
+                    <Icon name="EcsaEditIcon" size={16} />
+                  </button>
+                  <button
+                    onClick={() => { onClose(); onManageAccess(staff); }}
+                    className="p-1.5 rounded-lg hover:bg-violet-50 text-violet-600 transition-colors"
+                    title="Manage access"
+                  >
+                    <Icon name="EcsaPermissionsIcon" size={16} />
+                  </button>
+                  {staff.department_id && (
+                    <button
+                      onClick={() => { onClose(); onRemoveDept(staff); }}
+                      className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 transition-colors"
+                      title="Remove from department"
+                    >
+                      <Icon name="EcsaUserRemoveIcon" size={16} />
+                    </button>
+                  )}
+                </>
               )}
               <button
                 onClick={onClose}
@@ -1230,44 +1247,70 @@ export default function StaffManagementPage() {
   const [accessTarget, setAccessTarget] = useState<StaffMember | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
 
+  // Stable supabase client ref — prevents re-creation on every render
+  const supabaseRef = useRef(createClient());
+  const isMounted = useRef(true);
+
   const showToast = useCallback((message: string, type: 'success' | 'error') => {
     setToast({ message, type });
   }, []);
 
   useEffect(() => {
+    isMounted.current = true;
+    const supabase = supabaseRef.current;
+
     async function fetchData() {
       try {
-        const supabase = createClient();
-        const [deptRes, staffRes] = await Promise.all([
-          supabase.from('departments').select('*').order('name'),
-          supabase
-            .from('staff')
-            .select(`*, departments(name), supervisor:supervisor_id(full_name, job_title)`)
-            .order('serial_number', { ascending: true }),
+        const [deptData, staffData] = await Promise.all([
+          cachedFetch(
+            'staff-mgmt:departments',
+            async () => {
+              const { data, error } = await supabase.from('departments').select('*').order('name');
+              if (error) throw error;
+              return data ?? [];
+            },
+            TTL_STAFF_LIST
+          ),
+          cachedFetch(
+            'staff-mgmt:staff-list',
+            async () => {
+              const { data, error } = await supabase
+                .from('staff')
+                .select('id, serial_number, full_name, job_title, department_id, supervisor_name, supervisor_id, employment_status, email, system_role, departments(name), supervisor:supervisor_id(full_name, job_title)')
+                .order('serial_number', { ascending: true });
+              if (error) throw error;
+              return (data as StaffMember[]) ?? [];
+            },
+            TTL_STAFF_LIST
+          ),
         ]);
-        if (deptRes.error) throw deptRes.error;
-        if (staffRes.error) throw staffRes.error;
-        setDepartments(deptRes.data ?? []);
-        setStaff((staffRes.data as StaffMember[]) ?? []);
+        if (isMounted.current) {
+          setDepartments(deptData as Department[]);
+          setStaff(staffData as StaffMember[]);
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to load staff data';
-        setError(msg);
+        if (isMounted.current) setError(msg);
       } finally {
-        setLoading(false);
+        if (isMounted.current) setLoading(false);
       }
     }
     fetchData();
+
+    return () => { isMounted.current = false; };
   }, []);
 
   // ── CRUD handlers ──────────────────────────────────────────────────────────
 
   function handleCreated(newStaff: StaffMember) {
+    cacheDelete('staff-mgmt:staff-list');
     setStaff((prev) => [...prev, newStaff].sort((a, b) => (a.serial_number ?? 999) - (b.serial_number ?? 999)));
     setModalMode(null);
     showToast(`${newStaff.full_name} added successfully.`, 'success');
   }
 
   function handleUpdated(updated: StaffMember) {
+    cacheDelete('staff-mgmt:staff-list');
     setStaff((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
     setModalMode(null);
     setEditTarget(null);
@@ -1275,6 +1318,7 @@ export default function StaffManagementPage() {
   }
 
   function handleRemovedFromDept(updated: StaffMember) {
+    cacheDelete('staff-mgmt:staff-list');
     setStaff((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
     setModalMode(null);
     setRemoveDeptTarget(null);
@@ -1307,6 +1351,8 @@ export default function StaffManagementPage() {
 
   const filteredStaff = useMemo(() => {
     return staff.filter((s) => {
+      // Superuser accounts are never shown in the staff list
+      if (isSuperuser(s)) return false;
       const matchesSearch =
         !search ||
         s.full_name.toLowerCase().includes(search.toLowerCase()) ||
@@ -1330,10 +1376,10 @@ export default function StaffManagementPage() {
   }, [departments, filteredStaff]);
 
   const stats = useMemo(() => ({
-    total: staff.length,
+    total: staff.filter((s) => !isSuperuser(s)).length,
     departments: departments.length,
     filtered: filteredStaff.length,
-    supervisors: staff.filter((s) => staff.some((x) => x.supervisor_id === s.id)).length,
+    supervisors: staff.filter((s) => !isSuperuser(s) && staff.some((x) => x.supervisor_id === s.id)).length,
   }), [staff, departments, filteredStaff]);
 
   return (

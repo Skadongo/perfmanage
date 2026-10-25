@@ -222,8 +222,8 @@ export default function ReviewDetailModal({ review, open, onClose, onApprove }: 
                 onClick={() => { onApprove(review.id); onClose(); }}
                 className="px-4 py-2 text-sm font-600 text-white bg-primary rounded-lg hover:bg-primary/90 transition-all active:scale-95 flex items-center gap-2"
               >
-                <Icon name="CheckIcon" size={15} />
-                Approve Review
+                <Icon name="ClipboardDocumentCheckIcon" size={15} />
+                Review Decision
               </button>
             )}
           </div>

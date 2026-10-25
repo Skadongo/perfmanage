@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import Icon from '@/components/ui/AppIcon';
 import { createClient } from '@/lib/supabase/client';
@@ -97,9 +97,11 @@ export default function AppraisalAuditTrailPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [exporting, setExporting] = useState<'pdf' | 'excel' | null>(null);
 
-  const supabase = createClient();
+  // Stable supabase client ref
+  const supabaseRef = useRef(createClient());
 
   const fetchAuditTrail = useCallback(async () => {
+    const supabase = supabaseRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -115,7 +117,7 @@ export default function AppraisalAuditTrailPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, []);
 
   useEffect(() => {
     fetchAuditTrail();

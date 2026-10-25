@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
 const STRATEGIC_OBJECTIVES = [
   {
@@ -105,7 +105,8 @@ const PILLARS = [
 
 const CORE_VALUES = ['Trust', 'Transparency', 'Equity', 'Respect', 'Diversity'];
 
-export default function StrategicPlanSection() {
+// ── Inner content — only rendered once the section scrolls into view ──────────
+function StrategicPlanContent() {
   const [expandedObj, setExpandedObj] = useState<number | null>(null);
 
   return (
@@ -142,13 +143,13 @@ export default function StrategicPlanSection() {
           <div className="rounded-lg bg-primary/5 border border-primary/15 p-3.5">
             <p className="text-[10px] font-700 uppercase tracking-widest text-primary mb-1.5">Vision</p>
             <p className="text-xs text-foreground leading-relaxed italic">
-              "To be a Leader in Health in the ECSA region, contributing towards the attainment of the highest standard of social well-being, physical and mental health for all people in the region."
+              &ldquo;To be a Leader in Health in the ECSA region, contributing towards the attainment of the highest standard of social well-being, physical and mental health for all people in the region.&rdquo;
             </p>
           </div>
           <div className="rounded-lg bg-accent/8 border border-accent/20 p-3.5">
             <p className="text-[10px] font-700 uppercase tracking-widest text-accent-foreground mb-1.5">Mission</p>
             <p className="text-xs text-foreground leading-relaxed italic">
-              "ECSA-HC promotes the highest standards of health through advocacy, capacity building, brokerage, coordination, inter-sectoral collaboration and harmonization of health policies and programmes."
+              &ldquo;ECSA-HC promotes the highest standards of health through advocacy, capacity building, brokerage, coordination, inter-sectoral collaboration and harmonization of health policies and programmes.&rdquo;
             </p>
           </div>
         </div>
@@ -165,6 +166,7 @@ export default function StrategicPlanSection() {
           </div>
         </div>
       </div>
+
       {/* Five Key Pillars */}
       <div>
         <div className="flex items-center justify-between mb-2.5">
@@ -182,6 +184,7 @@ export default function StrategicPlanSection() {
           ))}
         </div>
       </div>
+
       {/* Nine Strategic Objectives */}
       <div>
         <div className="flex items-center justify-between mb-2.5">
@@ -244,28 +247,81 @@ export default function StrategicPlanSection() {
           })}
         </div>
       </div>
+
       {/* Implementation Framework */}
       <div className="rounded-xl border border-border bg-card p-4">
-        <h3 className="text-xs font-600 uppercase tracking-wider text-muted-foreground mb-3">Implementation & M&E Framework</h3>
+        <h3 className="text-xs font-600 uppercase tracking-wider text-muted-foreground mb-3">Implementation &amp; M&amp;E Framework</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
           {[
-            { level: 'L5', label: '10-Year Strategic Plan', sub: '3-year operational cycles' },
-            { level: 'L4', label: 'Annual Work Plans', sub: 'Reviewed & reset annually' },
-            { level: 'L3', label: 'Semi-Annual Reviews', sub: 'Reported to governance' },
-            { level: 'L2', label: 'Quarterly Reports', sub: 'Secretariat-produced' },
-            { level: 'L1', label: 'Monthly Meetings', sub: 'Management progress review' },
-          ]?.map((item) => (
-            <div key={item?.level} className="rounded-lg bg-secondary/60 border border-border px-3 py-2.5 text-center">
-              <span className="text-[10px] font-700 text-primary font-mono block mb-1">{item?.level}</span>
-              <p className="text-[11px] font-600 text-foreground leading-snug">{item?.label}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">{item?.sub}</p>
+            { label: 'Annual Work Plans', icon: '📋' },
+            { label: 'Quarterly Reviews', icon: '🔄' },
+            { label: 'Mid-Term Evaluation', icon: '📊' },
+            { label: 'End-Term Review', icon: '✅' },
+            { label: 'Stakeholder Reporting', icon: '📣' },
+          ]?.map((item, i) => (
+            <div key={i} className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 flex flex-col items-start gap-1">
+              <span className="text-base leading-none">{item?.icon}</span>
+              <p className="text-[11px] font-500 text-foreground leading-snug">{item?.label}</p>
             </div>
           ))}
         </div>
-        <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
-          A dedicated <span className="font-600 text-foreground">Strategy Monitoring Committee</span> (3 ECSA-HC managers + rotating employee representatives) oversees plan execution and reports to the Board Directorate. A mid-term review is scheduled at the 5-year mark.
-        </p>
       </div>
     </section>
+  );
+}
+
+// ── Outer wrapper with Intersection Observer lazy-load ────────────────────────
+export default function StrategicPlanSection() {
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const el = sentinelRef?.current;
+    if (!el) return;
+
+    // If IntersectionObserver is not available (old browsers), render immediately
+    if (typeof IntersectionObserver === 'undefined') {
+      setIsVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect(); // Only need to trigger once
+        }
+      },
+      {
+        rootMargin: '200px', // Start loading 200px before it enters viewport
+        threshold: 0,
+      }
+    );
+
+    observer?.observe(el);
+    return () => observer?.disconnect();
+  }, []);
+
+  return (
+    <div ref={sentinelRef}>
+      {isVisible ? (
+        <StrategicPlanContent />
+      ) : (
+        // Placeholder skeleton shown until section scrolls near viewport
+        <div className="space-y-3">
+          <div className="animate-pulse bg-muted/40 rounded-xl h-40" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            {Array.from({ length: 5 })?.map((_, i) => (
+              <div key={i} className="animate-pulse bg-muted/30 rounded-lg h-16" />
+            ))}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {Array.from({ length: 9 })?.map((_, i) => (
+              <div key={i} className="animate-pulse bg-muted/30 rounded-lg h-24" />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

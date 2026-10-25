@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   AreaChart,
   Area,
@@ -10,9 +10,10 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import type { DrillDownFilter } from './StaffDrillDownModal';
+import type { DrillDownFilter } from '../types';
 import { createClient } from '@/lib/supabase/client';
 import Icon from '@/components/ui/AppIcon';
+import { cachedFetch, TTL_DASHBOARD_METRICS } from '@/lib/cache';
 
 interface TrendPoint {
   month: string;
@@ -29,7 +30,7 @@ const SERIES = [
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const CustomTooltip = ({
+const CustomTooltip = React.memo(({
   active,
   payload,
   label,
@@ -64,87 +65,104 @@ const CustomTooltip = ({
     );
   }
   return null;
-};
+});
+CustomTooltip.displayName = 'CustomTooltip';
 
 interface Props {
   onPointClick: (filter: DrillDownFilter) => void;
 }
 
-export default function KPITrendChart({ onPointClick }: Props) {
+export default React.memo(function KPITrendChart({ onPointClick }: Props) {
   const [data, setData] = useState<TrendPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState('');
+  // Stable client ref — never recreated across renders
+  const supabaseRef = useRef(createClient());
+  const isMounted = useRef(true);
 
   useEffect(() => {
+    isMounted.current = true;
+
     async function fetchTrendData() {
-      const supabase = createClient();
       try {
-        const { data: reviews } = await supabase
-          .from('mid_year_reviews')
-          .select('review_status, supervisor_rating, created_at, review_year')
-          .order('created_at', { ascending: true });
+        const points = await cachedFetch<TrendPoint[]>(
+          'kpi-trend-data',
+          async () => {
+            // Scope to current fiscal year to avoid fetching all historical rows
+            const now = new Date();
+            const fyStartYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+            const fyStartDate = `${fyStartYear}-07-01`;
 
-        const reviewList = reviews || [];
+            const { data: reviews } = await supabaseRef.current
+              .from('mid_year_reviews')
+              .select('review_status, supervisor_rating, created_at')
+              .gte('created_at', fyStartDate)
+              .order('created_at', { ascending: true })
+              .limit(500);
 
-        if (reviewList.length === 0) {
-          setData([]);
-          setLoading(false);
-          return;
-        }
+            const reviewList = reviews || [];
 
-        // Group by month (YYYY-MM)
-        const monthMap: Record<string, { onTrack: number; atRisk: number; overdue: number; total: number }> = {};
+            if (reviewList.length === 0) return [];
 
-        reviewList.forEach((r) => {
-          const date = new Date(r.created_at);
-          const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-          if (!monthMap[key]) {
-            monthMap[key] = { onTrack: 0, atRisk: 0, overdue: 0, total: 0 };
-          }
-          monthMap[key].total += 1;
+            // Group by month (YYYY-MM)
+            const monthMap: Record<string, { onTrack: number; atRisk: number; overdue: number; total: number }> = {};
 
-          const status = r.review_status;
-          const rating = r.supervisor_rating as number | null;
+            for (const r of reviewList) {
+              const date = new Date(r.created_at);
+              const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+              if (!monthMap[key]) {
+                monthMap[key] = { onTrack: 0, atRisk: 0, overdue: 0, total: 0 };
+              }
+              monthMap[key].total += 1;
 
-          if (status === 'approved' || (rating != null && rating >= 4)) {
-            monthMap[key].onTrack += 1;
-          } else if (status === 'submitted' || status === 'reviewed' || (rating != null && rating >= 3)) {
-            monthMap[key].atRisk += 1;
-          } else {
-            monthMap[key].overdue += 1;
-          }
-        });
+              const status = r.review_status;
+              const rating = r.supervisor_rating as number | null;
 
-        const sortedKeys = Object.keys(monthMap).sort();
-        const points: TrendPoint[] = sortedKeys.map((key) => {
-          const [year, monthNum] = key.split('-');
-          const label = `${MONTH_LABELS[parseInt(monthNum) - 1]} ${year}`;
-          const entry = monthMap[key];
-          const total = entry.total || 1;
-          return {
-            month: label,
-            onTrack: Math.round((entry.onTrack / total) * 100),
-            atRisk: Math.round((entry.atRisk / total) * 100),
-            overdue: Math.round((entry.overdue / total) * 100),
-          };
-        });
+              if (status === 'approved' || (rating != null && rating >= 4)) {
+                monthMap[key].onTrack += 1;
+              } else if (status === 'submitted' || status === 'reviewed' || (rating != null && rating >= 3)) {
+                monthMap[key].atRisk += 1;
+              } else {
+                monthMap[key].overdue += 1;
+              }
+            }
+
+            const sortedKeys = Object.keys(monthMap).sort();
+            return sortedKeys.map((key) => {
+              const [year, monthNum] = key.split('-');
+              const label = `${MONTH_LABELS[parseInt(monthNum) - 1]} ${year}`;
+              const entry = monthMap[key];
+              const total = entry.total || 1;
+              return {
+                month: label,
+                onTrack: Math.round((entry.onTrack / total) * 100),
+                atRisk: Math.round((entry.atRisk / total) * 100),
+                overdue: Math.round((entry.overdue / total) * 100),
+              };
+            });
+          },
+          TTL_DASHBOARD_METRICS
+        );
+
+        if (!isMounted.current) return;
 
         if (points.length > 0) {
           setDateRange(`${points[0].month} – ${points[points.length - 1].month}`);
         }
-
         setData(points);
       } catch {
-        setData([]);
+        if (isMounted.current) setData([]);
       } finally {
-        setLoading(false);
+        if (isMounted.current) setLoading(false);
       }
     }
 
     fetchTrendData();
+
+    return () => { isMounted.current = false; };
   }, []);
 
-  const handleSeriesClick = (series: typeof SERIES[0], month: string) => {
+  const handleSeriesClick = React.useCallback((series: typeof SERIES[0], month: string) => {
     onPointClick({
       type: 'kpi-trend',
       label: `KPI Trend: ${series.label}`,
@@ -152,7 +170,7 @@ export default function KPITrendChart({ onPointClick }: Props) {
       status: series.status,
       color: series.color,
     });
-  };
+  }, [onPointClick]);
 
   return (
     <div className="bg-white rounded-xl border border-border shadow-card p-5 h-full">
@@ -222,4 +240,4 @@ export default function KPITrendChart({ onPointClick }: Props) {
       )}
     </div>
   );
-}
+});
