@@ -540,6 +540,8 @@ export default function MyWorkplanPage() {
 
   // Autosave timer
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftInFlight = useRef<Promise<unknown> | null>(null);
+  const workplanIdRef = useRef<string | null>(null);
   const isMounted = useRef(true);
 
   useEffect(() => {
@@ -610,6 +612,7 @@ export default function MyWorkplanPage() {
       .then(({ data }) => {
         if (!isMounted.current) return;
         if (data) {
+          workplanIdRef.current = data.id;
           setWorkplanId(data.id);
           setWorkplanStatus(data.status || 'draft');
           setWorkplanStage(data.workflow_stage || 'workplan_pending');
@@ -619,6 +622,7 @@ export default function MyWorkplanPage() {
           if (data.supervisor_id) setSupervisorId(data.supervisor_id);
           if (data.supervisor_name) setSupervisorName(data.supervisor_name);
         } else {
+          workplanIdRef.current = null;
           setWorkplanId(null);
           setWorkplanStatus('draft');
           setWorkplanStage('workplan_pending');
@@ -646,7 +650,15 @@ export default function MyWorkplanPage() {
 
   // ─── Save Draft ────────────────────────────────────────────────────────────
 
-  async function handleSaveDraft(showToast = true) {
+  function handleSaveDraft(showToast = true): Promise<unknown> {
+    const run = runSaveDraft(showToast).finally(() => {
+      if (draftInFlight.current === run) draftInFlight.current = null;
+    });
+    draftInFlight.current = run;
+    return run;
+  }
+
+  async function runSaveDraft(showToast = true) {
     if (!staffId) return;
     // Never overwrite a submitted/signed/approved workplan with draft status
     if (workplanStatus === 'submitted' || workplanStatus === 'signed' || workplanStatus === 'approved') return;
@@ -668,11 +680,12 @@ export default function MyWorkplanPage() {
     };
 
     try {
-      if (workplanId) {
+      const currentId = workplanIdRef.current ?? workplanId;
+      if (currentId) {
         const { data: updated, error } = await supabase
           .from('workplan_settings')
           .update(payload)
-          .eq('id', workplanId)
+          .eq('id', currentId)
           .select('id')
           .maybeSingle();
         if (error) throw error;
@@ -684,7 +697,10 @@ export default function MyWorkplanPage() {
           .select('id')
           .single();
         if (error) throw error;
-        if (data?.id && isMounted.current) setWorkplanId(data.id);
+        if (data?.id) {
+          workplanIdRef.current = data.id;
+          if (isMounted.current) setWorkplanId(data.id);
+        }
       }
       if (isMounted.current) {
         setSaveStatus('saved');
@@ -831,31 +847,60 @@ export default function MyWorkplanPage() {
     setSubmitStatus('submitting');
     const toastId = toast.loading('Saving workplan…');
 
-    try {
-      let savedId: string | null = workplanId;
+    // Hard time limit so the screen can never hang on "Saving workplan…"
+    const SAVE_TIMEOUT_MS = 30000;
+    const withTimeout = <T,>(p: PromiseLike<T>, label: string): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error(`timed out: ${label} took longer than ${SAVE_TIMEOUT_MS / 1000} seconds. Check your connection and try again.`)), SAVE_TIMEOUT_MS);
+        Promise.resolve(p).then(
+          (v) => { clearTimeout(t); resolve(v); },
+          (e) => { clearTimeout(t); reject(e); }
+        );
+      });
 
-      if (workplanId) {
-        const { data, error } = await supabase
-          .from('workplan_settings')
-          .update(payload)
-          .eq('id', workplanId)
-          .select('id')
-          .maybeSingle();
+    try {
+      // 1. Wait for any autosave already running, so we never insert a duplicate row
+      if (draftInFlight.current) {
+        try { await withTimeout(draftInFlight.current, 'finishing the background draft save'); } catch { /* ignore, continue */ }
+      }
+
+      // 2. Make sure the login session is still valid before writing
+      const { data: sessionData } = await withTimeout(supabase.auth.getSession(), 'checking your login session');
+      if (!sessionData?.session) {
+        throw new Error('Your login session has expired. Please sign in again (in a new tab), then return here and save.');
+      }
+
+      let savedId: string | null = workplanIdRef.current ?? workplanId;
+
+      if (savedId) {
+        const { data, error } = await withTimeout(
+          supabase
+            .from('workplan_settings')
+            .update(payload)
+            .eq('id', savedId)
+            .select('id')
+            .maybeSingle(),
+          'saving the workplan'
+        );
         if (error) throw error;
         if (!data?.id) {
           throw new Error('The workplan was not saved (permission denied or record not found). Please refresh and try again.');
         }
         savedId = data.id;
       } else {
-        const { data, error } = await supabase
-          .from('workplan_settings')
-          .insert({ ...payload, created_at: nowIso })
-          .select('id')
-          .single();
+        const { data, error } = await withTimeout(
+          supabase
+            .from('workplan_settings')
+            .insert({ ...payload, created_at: nowIso })
+            .select('id')
+            .single(),
+          'saving the workplan'
+        );
         if (error) throw error;
         if (!data?.id) throw new Error('The workplan was not saved. Please try again.');
         savedId = data.id;
       }
+      workplanIdRef.current = savedId;
 
       if (isMounted.current) {
         setWorkplanId(savedId);
@@ -878,6 +923,17 @@ export default function MyWorkplanPage() {
           ? 'You do not have permission to save this workplan. Your account may not be linked to a staff record — contact HR.'
           : code === '23503' ?'Your staff or supervisor record could not be found in the staff list. Contact HR.' : err?.message ||'Failed to save workplan.';
       toast.error('Workplan was NOT saved', { id: toastId, description: message, duration: 8000 });
+      if (isMounted.current) {
+        const { reasons, technical } = describeDatabaseError(err, { staffId, supervisorId, fiscalYear, workplanId });
+        setSaveFailure({
+          action: 'submit',
+          headline: 'Your workplan was NOT saved',
+          summary: 'The save did not complete. Nothing you typed has been lost — it is still on this page — but it has NOT been stored yet.',
+          reasons,
+          technical,
+          occurredAt: new Date().toLocaleString('en-GB'),
+        });
+      }
     }
   }
 
@@ -1163,7 +1219,7 @@ export default function MyWorkplanPage() {
                 value={fiscalYear}
                 options={FISCAL_YEARS}
                 placeholder="Select fiscal year"
-                onChange={(v) => { setFiscalYear(v); setWorkplanId(null); }}
+                onChange={(v) => { setFiscalYear(v); workplanIdRef.current = null; setWorkplanId(null); }}
                 error={errors.fiscalYear}
               />
             </div>
