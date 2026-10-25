@@ -1292,7 +1292,22 @@ export default function WorkplanSettingForm({ onClose, onSubmit }: WorkplanSetti
           review_type: 'annual',
         };
 
-        const { data, error } = await supabaseRef.current.from('workplan_settings').insert(payload).select('id').single();
+        const writeQuery = existingWorkplanId
+          ? supabaseRef.current
+              .from('workplan_settings')
+              .update({ ...payload, updated_at: new Date().toISOString() })
+              .eq('id', existingWorkplanId)
+          : supabaseRef.current.from('workplan_settings').insert(payload);
+        const { data, error } = await writeQuery.select('id').maybeSingle();
+
+        if (!error && !data?.id) {
+          toast.dismiss('workplan-retry');
+          const msg = 'The workplan was not saved (permission denied or record not found). Please refresh and try again.';
+          setSaveError(msg);
+          toast.error(msg);
+          setSaving(false);
+          return;
+        }
 
         if (error) {
           const isNetworkError =

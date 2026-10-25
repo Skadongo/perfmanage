@@ -523,6 +523,9 @@ export default function MyWorkplanPage() {
 
   async function handleSaveDraft(showToast = true) {
     if (!staffId) return;
+    // Never overwrite a submitted/signed/approved workplan with draft status
+    if (workplanStatus === 'submitted' || workplanStatus === 'signed' || workplanStatus === 'approved') return;
+    if (submitStatus === 'submitting' || submitStatus === 'submitted') return;
     setSaveStatus('saving');
     const supabase = supabaseRef.current;
 
@@ -563,7 +566,7 @@ export default function MyWorkplanPage() {
     } catch (err: any) {
       if (isMounted.current) {
         setSaveStatus('error');
-        if (showToast) toast.error(`Save failed: ${err.message}`);
+        toast.error(`Draft not saved: ${err?.message || 'Unknown error'}`, { id: 'workplan-draft-error' });
       }
     }
   }
@@ -611,6 +614,12 @@ export default function MyWorkplanPage() {
 
     const supabase = supabaseRef.current;
 
+    if (!staffId) {
+      toast.error('Your staff record could not be found. Please contact HR.');
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
     const payload = {
       staff_id: staffId,
       supervisor_id: supervisorId,
@@ -619,45 +628,67 @@ export default function MyWorkplanPage() {
       perspectives_objectives: rows,
       general_competencies: competencies,
       staff_signature: staffSignature,
-      status: 'submitted',
+      staff_signed_at: nowIso,
+      status: 'signed',
       workflow_stage: 'workplan_pending',
-      submitted_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      review_type: 'annual',
+      submitted_at: nowIso,
+      updated_at: nowIso,
     };
 
-    // ── Optimistic: update UI immediately ────────────────────────────────
-    const previousStatus = workplanStatus;
-    const previousSubmitStatus = submitStatus;
-    setWorkplanStatus('submitted');
-    setSubmitStatus('submitted');
+    // Cancel any pending autosave so it cannot overwrite the submitted status
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
 
-    const toastId = toast.success('Workplan submitted successfully!', {
-      description: 'Your supervisor will review it.',
-      duration: 4000,
-    });
+    setSubmitStatus('submitting');
+    const toastId = toast.loading('Saving workplan…');
 
-    // ── Fire server request in background ────────────────────────────────
     try {
+      let savedId: string | null = workplanId;
+
       if (workplanId) {
-        const { error } = await supabase.from('workplan_settings').update(payload).eq('id', workplanId);
+        const { data, error } = await supabase
+          .from('workplan_settings')
+          .update(payload)
+          .eq('id', workplanId)
+          .select('id')
+          .maybeSingle();
         if (error) throw error;
+        if (!data?.id) {
+          throw new Error('The workplan was not saved (permission denied or record not found). Please refresh and try again.');
+        }
+        savedId = data.id;
       } else {
         const { data, error } = await supabase
           .from('workplan_settings')
-          .insert({ ...payload, created_at: new Date().toISOString() })
+          .insert({ ...payload, created_at: nowIso })
           .select('id')
           .single();
         if (error) throw error;
-        if (data?.id && isMounted.current) setWorkplanId(data.id);
+        if (!data?.id) throw new Error('The workplan was not saved. Please try again.');
+        savedId = data.id;
       }
-    } catch (err: any) {
-      // ── Rollback on failure ───────────────────────────────────────────
+
       if (isMounted.current) {
-        setWorkplanStatus(previousStatus);
-        setSubmitStatus(previousSubmitStatus);
-        toast.dismiss(toastId);
-        toast.error(`Submission failed — changes reverted`, { description: err.message, duration: 6000 });
+        setWorkplanId(savedId);
+        setWorkplanStatus('signed');
+        setWorkplanStage('workplan_pending');
+        setSubmitStatus('submitted');
       }
+      toast.success('Workplan saved successfully!', {
+        id: toastId,
+        description: 'Your supervisor will review it.',
+        duration: 4000,
+      });
+    } catch (err: any) {
+      if (isMounted.current) {
+        setSubmitStatus('idle');
+      }
+      const code = err?.code;
+      const message =
+        code === '42501' || err?.message?.includes('row-level security')
+          ? 'You do not have permission to save this workplan. Your account may not be linked to a staff record — contact HR.'
+          : code === '23503' ?'Your staff or supervisor record could not be found in the staff list. Contact HR.' : err?.message ||'Failed to save workplan.';
+      toast.error('Workplan was NOT saved', { id: toastId, description: message, duration: 8000 });
     }
   }
 
