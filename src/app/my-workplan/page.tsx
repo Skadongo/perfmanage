@@ -453,9 +453,19 @@ export default function MyWorkplanPage() {
         const { data } = await supabase
           .from('staff')
           .select('id, full_name, job_title, supervisor_id, supervisor_name')
-          .eq('email', profile!.email)
+          .ilike('email', profile!.email.trim())
+          .limit(1)
           .maybeSingle();
         record = data;
+
+        // Self-heal: persist the link so RLS (auth_user_staff_id) allows saving the workplan
+        if (record?.id) {
+          await supabase
+            .from('user_profiles')
+            .update({ staff_id: record.id })
+            .eq('id', profile!.id)
+            .is('staff_id', null);
+        }
       }
 
       if (record) {
