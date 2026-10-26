@@ -97,16 +97,41 @@ if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
 // Singleton instance so only one client manages the auth token
 let browserClientInstance: ReturnType<typeof createBrowserClient> | null = null;
 
+// In-process lock: serialises auth operations inside this tab without using
+// navigator.locks, which can be "stolen" by another request and throw
+// "AbortError: Lock broken by another request with the 'steal' option".
+const lockQueues: Record<string, Promise<unknown>> = {};
+async function inProcessLock<R>(
+  name: string,
+  _acquireTimeout: number,
+  fn: () => Promise<R>
+): Promise<R> {
+  const previous = lockQueues[name] ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  const tail = previous.then(() => current);
+  lockQueues[name] = tail;
+  try {
+    await previous.catch(() => undefined);
+    return await fn();
+  } finally {
+    release();
+    if (lockQueues[name] === tail) delete lockQueues[name];
+  }
+}
+
 export function createClient() {
   if (typeof window !== 'undefined' && browserClientInstance) {
     return browserClientInstance;
   }
 
-  // Default GoTrue locking is used (no custom lock, no navigator.locks override)
   const client = createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      auth: {
+        lock: inProcessLock,
+      },
       cookies: {
         getAll: () => canUseCookies() ? fromCookies() : fromStorage(),
         setAll(cookiesToSet) {
