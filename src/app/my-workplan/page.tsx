@@ -69,6 +69,13 @@ function describeDatabaseError(err: any, ctx: { staffId: string | null; supervis
       fix: 'Sign out and sign in again. If it still fails, ask HR or the system administrator to link your user profile to your staff record (the staff list email must match your login email exactly).',
     });
   }
+  if (code === 'P0002' || lower.includes('not linked to a staff record')) {
+    reasons.push({
+      title: 'Your login is not linked to a staff record',
+      detail: message || 'The system could not find a staff record with the same email as your login.',
+      fix: 'Ask HR to add or correct your email in the staff list so it matches your login email exactly, then sign in again.',
+    });
+  }
   if (code === '23503' || lower.includes('foreign key')) {
     const which = lower.includes('supervisor')
       ? 'the supervisor assigned to you' : lower.includes('staff_id')
@@ -676,41 +683,24 @@ export default function MyWorkplanPage() {
     setSaveStatus('saving');
     const supabase = supabaseRef.current;
 
-    const payload = {
-      staff_id: staffId,
-      supervisor_id: supervisorId,
-      fiscal_year: fiscalYear,
-      review_year: parseInt(fiscalYear.match(/\d{4}/)?.[0] || '2026'),
-      perspectives_objectives: rows,
-      general_competencies: competencies,
-      staff_signature: staffSignature,
-      status: 'draft',
-      workflow_stage: 'workplan_pending',
-      updated_at: new Date().toISOString(),
-    };
-
     try {
-      const currentId = workplanIdRef.current ?? workplanId;
-      if (currentId) {
-        const { data: updated, error } = await supabase
-          .from('workplan_settings')
-          .update(payload)
-          .eq('id', currentId)
-          .select('id')
-          .maybeSingle();
-        if (error) throw error;
-        if (!updated?.id) throw new Error('Draft not saved: no workplan row was changed (record not found or not visible to your account).');
-      } else {
-        const { data, error } = await supabase
-          .from('workplan_settings')
-          .insert({ ...payload, created_at: new Date().toISOString() })
-          .select('id')
-          .single();
-        if (error) throw error;
-        if (data?.id) {
-          workplanIdRef.current = data.id;
-          if (isMounted.current) setWorkplanId(data.id);
-        }
+      // One atomic server-side call: resolves the staff link, upserts by (staff, fiscal year)
+      const { data, error } = await supabase.rpc('save_my_workplan', {
+        p_fiscal_year: fiscalYear,
+        p_review_year: parseInt(fiscalYear.match(/\d{4}/)?.[0] || '2026'),
+        p_perspectives_objectives: rows,
+        p_general_competencies: competencies,
+        p_staff_signature: staffSignature,
+        p_supervisor_id: supervisorId,
+        p_submit: false,
+      });
+      if (error) throw error;
+      const saved = Array.isArray(data) ? data[0] : data;
+      if (!saved?.workplan_id) throw new Error('Draft not saved: the server did not return a workplan id.');
+      workplanIdRef.current = saved.workplan_id;
+      if (isMounted.current) {
+        setWorkplanId(saved.workplan_id);
+        if (saved.resolved_staff_id && saved.resolved_staff_id !== staffId) setStaffId(saved.resolved_staff_id);
       }
       if (isMounted.current) {
         setSaveStatus('saved');
@@ -835,21 +825,6 @@ export default function MyWorkplanPage() {
     }
 
     const nowIso = new Date().toISOString();
-    const payload = {
-      staff_id: staffId,
-      supervisor_id: supervisorId,
-      fiscal_year: fiscalYear,
-      review_year: parseInt(fiscalYear.match(/\d{4}/)?.[0] || '2026'),
-      perspectives_objectives: rows,
-      general_competencies: competencies,
-      staff_signature: staffSignature,
-      staff_signed_at: nowIso,
-      status: 'signed',
-      workflow_stage: 'workplan_pending',
-      review_type: 'annual',
-      submitted_at: nowIso,
-      updated_at: nowIso,
-    };
 
     // Cancel any pending autosave so it cannot overwrite the submitted status
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
@@ -870,70 +845,52 @@ export default function MyWorkplanPage() {
       });
 
     try {
-      // 1. Wait for any autosave already running, so we never insert a duplicate row
+      // 1. Wait for any autosave already running, so the two writes never overlap
       if (draftInFlight.current) {
         try { await withTimeout(draftInFlight.current, 'finishing the background draft save'); } catch { /* ignore, continue */ }
       }
 
-      // 2. Refresh the login session before writing (forgiving: a brief empty read is not fatal)
+      // 2. Cheap LOCAL session check (no forced network refresh). The server function
+      //    re-verifies the caller from the JWT, so a transient empty read must not abort the save.
       try {
-        const { data: refreshed, error: refreshError } = await withTimeout(supabase.auth.refreshSession(), 'refreshing your login session');
-        if (!refreshed?.session) {
-          const { data: sessionData } = await withTimeout(supabase.auth.getSession(), 'checking your login session');
-          if (!sessionData?.session) {
-            const e: any = new Error(`Your login session has expired. Please sign in again (in a new tab), then return here and save.${refreshError?.message ? ` (${refreshError.message})` : ''}`);
-            e.code = 'SESSION_EXPIRED';
-            throw e;
-          }
+        const { data: sessionData } = await withTimeout(supabase.auth.getSession(), 'checking your login session');
+        if (!sessionData?.session) {
+          // One gentle recovery attempt, then let the server decide
+          await withTimeout(supabase.auth.refreshSession(), 'refreshing your login session').catch(() => null);
         }
-      } catch (refreshErr: any) {
-        // A timeout while refreshing is not proof of an expired login — continue and let the write decide
-        if (refreshErr?.code === 'SESSION_EXPIRED' || !String(refreshErr?.message || '').toLowerCase().includes('timed out')) throw refreshErr;
+      } catch { /* never block the save on a session pre-check */ }
+
+      // 3. ONE atomic server call (self-heals the staff link, upserts by staff + fiscal year)
+      const callSave = () =>
+        supabase.rpc('save_my_workplan', {
+          p_fiscal_year: fiscalYear,
+          p_review_year: parseInt(fiscalYear.match(/\d{4}/)?.[0] || '2026'),
+          p_perspectives_objectives: rows,
+          p_general_competencies: competencies,
+          p_staff_signature: staffSignature,
+          p_supervisor_id: supervisorId,
+          p_submit: true,
+        });
+
+      let result: Awaited<ReturnType<typeof callSave>>;
+      try {
+        result = await withTimeout(callSave(), 'saving the workplan');
+      } catch (firstErr: any) {
+        if (!String(firstErr?.message || '').toLowerCase().includes('timed out')) throw firstErr;
+        toast.loading('Slow connection — retrying once…', { id: toastId });
+        result = await withTimeout(callSave(), 'saving the workplan (retry)');
       }
 
-      // Run a write; if it times out, retry once before reporting failure
-      const writeWithRetry = async <T,>(makeRequest: () => PromiseLike<T>): Promise<T> => {
-        try {
-          return await withTimeout(makeRequest(), 'saving the workplan');
-        } catch (firstErr: any) {
-          if (!String(firstErr?.message || '').toLowerCase().includes('timed out')) throw firstErr;
-          toast.loading('Slow connection — retrying once…', { id: toastId });
-          return await withTimeout(makeRequest(), 'saving the workplan (retry)');
-        }
-      };
+      if (result.error) throw result.error;
+      const saved: any = Array.isArray(result.data) ? result.data[0] : result.data;
+      if (!saved?.workplan_id) throw new Error('The workplan was not saved: the server did not confirm the save. Please try again.');
 
-      let savedId: string | null = workplanIdRef.current ?? workplanId;
-
-      if (savedId) {
-        const { data, error } = await writeWithRetry(() =>
-          supabase
-            .from('workplan_settings')
-            .update(payload)
-            .eq('id', savedId as string)
-            .select('id')
-            .maybeSingle()
-        );
-        if (error) throw error;
-        if (!data?.id) {
-          throw new Error('The workplan was not saved (permission denied or record not found). Please refresh and try again.');
-        }
-        savedId = data.id;
-      } else {
-        const { data, error } = await writeWithRetry(() =>
-          supabase
-            .from('workplan_settings')
-            .insert({ ...payload, created_at: nowIso })
-            .select('id')
-            .single()
-        );
-        if (error) throw error;
-        if (!data?.id) throw new Error('The workplan was not saved. Please try again.');
-        savedId = data.id;
-      }
+      const savedId: string = saved.workplan_id;
       workplanIdRef.current = savedId;
 
       if (isMounted.current) {
         setWorkplanId(savedId);
+        if (saved.resolved_staff_id && saved.resolved_staff_id !== staffId) setStaffId(saved.resolved_staff_id);
         setWorkplanStatus('signed');
         setWorkplanStage('workplan_pending');
         setSubmitStatus('submitted');

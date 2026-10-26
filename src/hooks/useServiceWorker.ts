@@ -8,9 +8,9 @@ export interface ServiceWorkerState {
 }
 
 /**
- * Simplified service worker hook — online/offline detection only.
- * The unused offline approval queue (pendingApprovals, triggerSync, swReady)
- * has been removed since offlineApprovals.ts is no longer in use.
+ * Online/offline detection, plus one-time cleanup of any legacy service worker
+ * and its caches. An old service worker cached Supabase REST reads and caused
+ * stale data / failed workplan saves, so we actively remove it here.
  */
 export function useServiceWorker(): ServiceWorkerState {
   const [isOnline, setIsOnline] = useState(true);
@@ -21,6 +21,21 @@ export function useServiceWorker(): ServiceWorkerState {
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+
+    // Retire legacy service workers + caches (safe to run on every load)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .getRegistrations()
+        .then((regs) => regs.forEach((r) => r.unregister()))
+        .catch(() => {});
+    }
+    if (typeof caches !== 'undefined') {
+      caches
+        .keys()
+        .then((keys) => keys.filter((k) => k.startsWith('pms-')).forEach((k) => caches.delete(k)))
+        .catch(() => {});
+    }
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
