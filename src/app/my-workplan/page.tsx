@@ -648,20 +648,20 @@ export default function MyWorkplanPage() {
       .finally(() => { if (isMounted.current) setLoadingExisting(false); });
   }, [staffId, fiscalYear]);
 
-  // Autosave on form changes
+  // Autosave on form changes — DISABLED: background draft writes were racing the final
+  // save and could prevent the finalized workplan from being stored. Only the manual
+  // "Save Draft" and "Submit" buttons write to the database now.
   const triggerAutosave = useCallback(() => {
-    if (!staffId) return;
-    if (manualSaveActive.current) return;
-    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
-    autosaveTimer.current = setTimeout(() => {
-      handleSaveDraft(false);
-    }, 3000);
-  }, [staffId, rows, competencies, staffSignature, supportRequired, fiscalYear]);
+    if (autosaveTimer.current) {
+      clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     triggerAutosave();
     return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current); };
-  }, [rows, competencies, staffSignature, supportRequired]);
+  }, [rows, competencies, staffSignature, supportRequired, triggerAutosave]);
 
   // ─── Save Draft ────────────────────────────────────────────────────────────
 
