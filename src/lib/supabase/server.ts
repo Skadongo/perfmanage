@@ -17,8 +17,8 @@ export async function createClient() {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, {
                 ...options,
-                sameSite: 'none',
-                secure: true,
+                sameSite: 'lax',
+                secure: process.env.NODE_ENV === 'production',
               })
             );
           } catch {

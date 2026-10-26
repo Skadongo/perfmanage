@@ -116,17 +116,23 @@ function describeDatabaseError(err: any, ctx: { staffId: string | null; supervis
       fix: 'Refresh the page. If the problem continues, contact HR to confirm your account is linked to the correct staff record.',
     });
   }
-  if (lower.includes('jwt') || lower.includes('not authenticated') || lower.includes('session') || code === 'PGRST301' || code === '401') {
+  if (lower.includes('jwt') || lower.includes('not authenticated') || lower.includes('login session') || lower.includes('auth session missing') || code === 'PGRST301' || code === '401') {
     reasons.push({
       title: 'Your login session has expired',
-      detail: 'Your secure session timed out, so the database no longer recognises who you are and rejects the save.',
-      fix: 'Copy nothing yet — sign in again in a new tab, return here and save again. Your on-screen entries are still in this page.',
+      detail: 'The server did not accept your sign-in token, so it could not confirm who you are and rejected the save.',
+      fix: 'Sign in again in a new tab, return here and save again. Your on-screen entries are still in this page.',
     });
   }
-  if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('timeout') || lower.includes('timed out') || lower.includes('load failed')) {
+  if (lower.includes('timed out') || lower.includes('timeout')) {
+    reasons.push({
+      title: 'The connection is slow — the save timed out',
+      detail: 'The server did not answer in time. This is usually a slow or unstable internet connection, not a problem with your login or your entries. The system already retried once automatically.',
+      fix: 'Wait a few seconds and press Save again. Your entries are still in this page, so do not close or refresh it until the save succeeds.',
+    });
+  } else if (lower.includes('failed to fetch') || lower.includes('network') || lower.includes('load failed')) {
     reasons.push({
       title: 'The server could not be reached',
-      detail: 'Your device lost its connection to the server (or the connection timed out) before the workplan could be sent.',
+      detail: 'Your device lost its connection to the server before the workplan could be sent.',
       fix: 'Check your internet connection and try again. Your entries are still in this page, so do not close or refresh it until the save succeeds.',
     });
   }
@@ -541,6 +547,7 @@ export default function MyWorkplanPage() {
   // Autosave timer
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftInFlight = useRef<Promise<unknown> | null>(null);
+  const manualSaveActive = useRef(false);
   const workplanIdRef = useRef<string | null>(null);
   const isMounted = useRef(true);
 
@@ -637,6 +644,7 @@ export default function MyWorkplanPage() {
   // Autosave on form changes
   const triggerAutosave = useCallback(() => {
     if (!staffId) return;
+    if (manualSaveActive.current) return;
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     autosaveTimer.current = setTimeout(() => {
       handleSaveDraft(false);
@@ -660,6 +668,8 @@ export default function MyWorkplanPage() {
 
   async function runSaveDraft(showToast = true) {
     if (!staffId) return;
+    // Pause background autosave while a manual submit is running
+    if (!showToast && manualSaveActive.current) return;
     // Never overwrite a submitted/signed/approved workplan with draft status
     if (workplanStatus === 'submitted' || workplanStatus === 'signed' || workplanStatus === 'approved') return;
     if (submitStatus === 'submitting' || submitStatus === 'submitted') return;
@@ -843,6 +853,7 @@ export default function MyWorkplanPage() {
 
     // Cancel any pending autosave so it cannot overwrite the submitted status
     if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    manualSaveActive.current = true;
 
     setSubmitStatus('submitting');
     const toastId = toast.loading('Saving workplan…');
@@ -864,23 +875,43 @@ export default function MyWorkplanPage() {
         try { await withTimeout(draftInFlight.current, 'finishing the background draft save'); } catch { /* ignore, continue */ }
       }
 
-      // 2. Make sure the login session is still valid before writing
-      const { data: sessionData } = await withTimeout(supabase.auth.getSession(), 'checking your login session');
-      if (!sessionData?.session) {
-        throw new Error('Your login session has expired. Please sign in again (in a new tab), then return here and save.');
+      // 2. Refresh the login session before writing (forgiving: a brief empty read is not fatal)
+      try {
+        const { data: refreshed, error: refreshError } = await withTimeout(supabase.auth.refreshSession(), 'refreshing your login session');
+        if (!refreshed?.session) {
+          const { data: sessionData } = await withTimeout(supabase.auth.getSession(), 'checking your login session');
+          if (!sessionData?.session) {
+            const e: any = new Error(`Your login session has expired. Please sign in again (in a new tab), then return here and save.${refreshError?.message ? ` (${refreshError.message})` : ''}`);
+            e.code = 'SESSION_EXPIRED';
+            throw e;
+          }
+        }
+      } catch (refreshErr: any) {
+        // A timeout while refreshing is not proof of an expired login — continue and let the write decide
+        if (refreshErr?.code === 'SESSION_EXPIRED' || !String(refreshErr?.message || '').toLowerCase().includes('timed out')) throw refreshErr;
       }
+
+      // Run a write; if it times out, retry once before reporting failure
+      const writeWithRetry = async <T,>(makeRequest: () => PromiseLike<T>): Promise<T> => {
+        try {
+          return await withTimeout(makeRequest(), 'saving the workplan');
+        } catch (firstErr: any) {
+          if (!String(firstErr?.message || '').toLowerCase().includes('timed out')) throw firstErr;
+          toast.loading('Slow connection — retrying once…', { id: toastId });
+          return await withTimeout(makeRequest(), 'saving the workplan (retry)');
+        }
+      };
 
       let savedId: string | null = workplanIdRef.current ?? workplanId;
 
       if (savedId) {
-        const { data, error } = await withTimeout(
+        const { data, error } = await writeWithRetry(() =>
           supabase
             .from('workplan_settings')
             .update(payload)
-            .eq('id', savedId)
+            .eq('id', savedId as string)
             .select('id')
-            .maybeSingle(),
-          'saving the workplan'
+            .maybeSingle()
         );
         if (error) throw error;
         if (!data?.id) {
@@ -888,13 +919,12 @@ export default function MyWorkplanPage() {
         }
         savedId = data.id;
       } else {
-        const { data, error } = await withTimeout(
+        const { data, error } = await writeWithRetry(() =>
           supabase
             .from('workplan_settings')
             .insert({ ...payload, created_at: nowIso })
             .select('id')
-            .single(),
-          'saving the workplan'
+            .single()
         );
         if (error) throw error;
         if (!data?.id) throw new Error('The workplan was not saved. Please try again.');
@@ -921,7 +951,8 @@ export default function MyWorkplanPage() {
       const message =
         code === '42501' || err?.message?.includes('row-level security')
           ? 'You do not have permission to save this workplan. Your account may not be linked to a staff record — contact HR.'
-          : code === '23503' ?'Your staff or supervisor record could not be found in the staff list. Contact HR.' : err?.message ||'Failed to save workplan.';
+          : code === '23503'?'Your staff or supervisor record could not be found in the staff list. Contact HR.' : String(err?.message ||'').toLowerCase().includes('timed out') ? 'The connection is slow and the save timed out (retried once). Wait a moment and press Save again.'
+          : `${err?.message || 'Failed to save workplan.'}${code ? ` [${code}]` : ''}`;
       toast.error('Workplan was NOT saved', { id: toastId, description: message, duration: 8000 });
       if (isMounted.current) {
         const { reasons, technical } = describeDatabaseError(err, { staffId, supervisorId, fiscalYear, workplanId });
@@ -934,6 +965,8 @@ export default function MyWorkplanPage() {
           occurredAt: new Date().toLocaleString('en-GB'),
         });
       }
+    } finally {
+      manualSaveActive.current = false;
     }
   }
 
