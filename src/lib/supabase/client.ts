@@ -2,16 +2,22 @@ import { createBrowserClient } from '@supabase/ssr';
 
 const PFX = 'sb_';
 
+// On https (including when embedded in the platform iframe) use cross-site-capable cookies.
+// On plain http (local dev) fall back to Lax.
+const cookieAttrs = () => {
+  const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+  return isHttps ? 'SameSite=None; Secure; Partitioned' : 'SameSite=Lax';
+};
+
 const canUseCookies = (() => {
   let cache: boolean | null = null;
   return () => {
     if (typeof document === 'undefined') return false;
     if (cache !== null) return cache;
     const k = '__sb_test__';
-    const secure = window.location.protocol === 'https:' ? '; Secure' : '';
-    document.cookie = `${k}=1; Path=/; SameSite=Lax${secure}`;
+    document.cookie = `${k}=1; Path=/; ${cookieAttrs()}`;
     cache = document.cookie.includes(k);
-    document.cookie = `${k}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+    document.cookie = `${k}=; Path=/; Max-Age=0; ${cookieAttrs()}`;
     return cache;
   };
 })();
@@ -38,9 +44,9 @@ const fromStorage = () => {
 };
 
 // Standard first-party cookie: SameSite=Lax (+ Secure on https). No Partitioned attribute.
+// Cookie attributes adapt to the protocol so login works both in the preview iframe and on the published site.
 const setCookie = (name: string, value: string, options?: any) => {
-  const secure = typeof window !== 'undefined' && window.location.protocol === 'https:' ? '; Secure' : '';
-  let s = `${name}=${encodeURIComponent(value)}; Path=${options?.path || '/'}; SameSite=Lax${secure}`;
+  let s = `${name}=${encodeURIComponent(value)}; Path=${options?.path || '/'}; ${cookieAttrs()}`;
   if (options?.maxAge) s += `; Max-Age=${options.maxAge}`;
   if (options?.domain) s += `; Domain=${options.domain}`;
   if (options?.expires) s += `; Expires=${new Date(options.expires).toUTCString()}`;
