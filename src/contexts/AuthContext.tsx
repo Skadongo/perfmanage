@@ -162,7 +162,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // IMPORTANT: this callback runs INSIDE supabase-js's exclusive auth lock.
+      // It must be synchronous and must never await another Supabase call, otherwise
+      // the next request anywhere (e.g. saving a workplan) hangs forever.
+
       // Skip the first SIGNED_IN event that fires right after getSession
       // to avoid a redundant double-fetch on page load
       if (event === 'SIGNED_IN' && !initialLoadDone.current) {
@@ -174,9 +178,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (session?.user) {
         // Only re-fetch profile on meaningful auth events
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-          const p = await fetchProfile(session.user.id, session.user);
-          setProfile(p);
+        if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+          const authUser = session.user;
+          // Deferred so it runs AFTER the auth lock is released
+          setTimeout(() => {
+            fetchProfile(authUser.id, authUser).then((p) => {
+              if (p) setProfile(p);
+            });
+          }, 0);
         }
       } else {
         setProfile(null);

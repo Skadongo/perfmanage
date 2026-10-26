@@ -103,7 +103,7 @@ let browserClientInstance: ReturnType<typeof createBrowserClient> | null = null;
 const lockQueues: Record<string, Promise<unknown>> = {};
 async function inProcessLock<R>(
   name: string,
-  _acquireTimeout: number,
+  acquireTimeout: number,
   fn: () => Promise<R>
 ): Promise<R> {
   const previous = lockQueues[name] ?? Promise.resolve();
@@ -112,7 +112,13 @@ async function inProcessLock<R>(
   const tail = previous.then(() => current);
   lockQueues[name] = tail;
   try {
-    await previous.catch(() => undefined);
+    // Never wait forever for the previous holder: if it is stuck (e.g. a callback that
+    // awaited another auth-dependent call), give up after a bounded time and proceed.
+    const maxWait = acquireTimeout > 0 ? Math.min(acquireTimeout, 5000) : 5000;
+    await Promise.race([
+      previous.catch(() => undefined),
+      new Promise<void>((resolve) => setTimeout(resolve, maxWait)),
+    ]);
     return await fn();
   } finally {
     release();
