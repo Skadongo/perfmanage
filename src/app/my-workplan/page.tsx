@@ -564,27 +564,38 @@ export default function MyWorkplanPage() {
   }, []);
 
   // Load staff record
+  // Depend on stable primitives (not the `profile` object): AuthContext creates a new profile
+  // object on every SIGNED_IN / token-refresh event, which previously re-triggered this effect
+  // and flashed "Loading your profile…" over the form periodically.
+  const profileId = profile?.id;
+  const profileStaffId = profile?.staffId;
+  const profileEmail = profile?.email;
+  const staffLoadedFor = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!profile) return;
+    if (!profileId) return;
+    const loadKey = `${profileId}|${profileStaffId || ''}|${profileEmail || ''}`;
+    if (staffLoadedFor.current === loadKey) return;
     async function loadStaff() {
-      setStaffLoading(true);
+      // Only show the full-page spinner for the very first load
+      if (staffLoadedFor.current === null) setStaffLoading(true);
       const supabase = supabaseRef.current;
       let record: any = null;
 
-      if (profile!.staffId) {
+      if (profileStaffId) {
         const { data } = await supabase
           .from('staff')
           .select('id, full_name, job_title, supervisor_id, supervisor_name')
-          .eq('id', profile!.staffId)
+          .eq('id', profileStaffId)
           .maybeSingle();
         record = data;
       }
 
-      if (!record && profile!.email) {
+      if (!record && profileEmail) {
         const { data } = await supabase
           .from('staff')
           .select('id, full_name, job_title, supervisor_id, supervisor_name')
-          .ilike('email', profile!.email.trim())
+          .ilike('email', profileEmail.trim())
           .limit(1)
           .maybeSingle();
         record = data;
@@ -594,11 +605,12 @@ export default function MyWorkplanPage() {
           await supabase
             .from('user_profiles')
             .update({ staff_id: record.id })
-            .eq('id', profile!.id)
+            .eq('id', profileId)
             .is('staff_id', null);
         }
       }
 
+      if (!isMounted.current) return;
       if (record) {
         setStaffId(record.id);
         setStaffName(record.full_name);
@@ -606,10 +618,11 @@ export default function MyWorkplanPage() {
         setSupervisorName(record.supervisor_name || '');
         setSupervisorId(record.supervisor_id || null);
       }
+      staffLoadedFor.current = loadKey;
       setStaffLoading(false);
     }
     loadStaff();
-  }, [profile]);
+  }, [profileId, profileStaffId, profileEmail]);
 
   // Load existing workplan when staffId + fiscalYear are known
   useEffect(() => {

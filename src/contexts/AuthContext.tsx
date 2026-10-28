@@ -183,7 +183,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           // Deferred so it runs AFTER the auth lock is released
           setTimeout(() => {
             fetchProfile(authUser.id, authUser).then((p) => {
-              if (p) setProfile(p);
+              if (!p) return;
+              // Keep the same object reference when nothing changed, so consumers
+              // depending on `profile` do not re-run effects on every token refresh.
+              setProfile((prev) =>
+                prev && JSON.stringify(prev) === JSON.stringify(p) ? prev : p
+              );
             });
           }, 0);
         }
